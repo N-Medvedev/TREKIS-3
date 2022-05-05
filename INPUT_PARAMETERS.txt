@@ -1,0 +1,21 @@
+Al2O3	! material name
+6		! SHI atomic number
+100.0		! [MeV] total SHI energy
+-1		! [proton mass] if mass of the SHI is NONSTANDARD isotop; if standard, put any NEGATIVE number
+10.0		! [fs] total time analyzed
+0.1d0	1	! [fs] timestep, how often the data are saved; kind of time-grid: 0=linear, 1=logarithmic
+0.0d0		! [eV] Cut-off energy (electrons with lower energies are excluded from calculation)
+10.0		! [A] thickness of the layer analyzed
+0.0		! [K] temperature of the target
+0	1.0	! 0=Barkas; 1=Bohr; 2=Nikolaev-Dmitriev; 3=Schiwietz-Grande, 4=fixed Zeff; Fixed value (only for case=4)
+0		! 0=point-like charge; 1=Brandt-Kitagawa ion
+-1		! kind of elastic cross sections:-1=disable elastic; 0=Mott, 1=optical phonons CDF
+1	-1	! kind of target dispersion relation (1=free electron, 2=plasmon-pole, 3=Ritchie, 4=Delta-CDF); effective mass [in electron mass] (0= from DOS of VB; -1=free-electron)
+0		! Include plasmon integration limit (0=no, 1=yes)
+1.0e30	! [me] effective valence hole mass in units of electron mass
+0		! include radiative decay of deep holes? (0=no, 1=yes)
+0	0.1	! include Fields? (0=no, 1=yes); time-step for field calculation [fs]
+4.76	10.0d0	6.18d0  ! [eV] Work function (<=0 - no emission); [A] surface barrier length; [eV] barrier height for electron emission
+1		! number of MC iterations to be performed
+4		! number of threads for parallel calculations with OpenMP (1 if nonparrelelized)
+0
