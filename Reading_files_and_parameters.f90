@@ -186,12 +186,15 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       NumPar%include_photons = .true.  ! include radiative decays of holes and all that follows
    endif
    
-   READ(FN,*,IOSTAT=Reason) NumPar%field_include, NumPar%field_dt
-   if (NumPar%field_include .NE. 1.0d0) NumPar%field_include = 0.0d0 ! fields included only when = 1
-   if (NumPar%field_dt .LT. 0.0d0) NumPar%field_dt = 0.01
-   call read_file(Reason, i, read_well) ! reports if everything read well
-   if (.not. read_well) goto 2013
+
+   ! This option is not ready, so it is excluded from release:
+!    READ(FN,*,IOSTAT=Reason) NumPar%field_include, NumPar%field_dt
+!    if (NumPar%field_include .NE. 1.0d0) NumPar%field_include = 0.0d0 ! fields included only when = 1
+!    if (NumPar%field_dt .LT. 0.0d0) NumPar%field_dt = 0.01
+!    call read_file(Reason, i, read_well) ! reports if everything read well
+!    if (.not. read_well) goto 2013
    
+
    READ(FN,*,IOSTAT=Reason) Matter%work_function, Matter%bar_length, Matter%bar_height       ! Work function to specify surface barrier form
    if (Matter%work_function .LE. 0.0d0) Matter%work_function = 0.0d0 ! Emission included when > 0
    if (Matter%bar_length .LE. 0.0d0) Matter%work_function = 0.0d0
@@ -207,9 +210,11 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2013
    
-   READ(FN,'(a)',IOSTAT=Reason) Temp_char  ! path to Gnuplot installed
-   call read_file(Reason, i, read_well) ! reports if everything read well
-   if (.not. read_well) goto 2013
+   ! This option is not ready, so it is excluded from release:
+!    READ(FN,'(a)',IOSTAT=Reason) Temp_char  ! path to Gnuplot installed
+!    call read_file(Reason, i, read_well) ! reports if everything read well
+!    if (.not. read_well) goto 2013
+   Temp_char = '0'
    if (trim(adjustl(Temp_char)) .EQ. '0') then ! no gmuplot installed, no need to create scripts
       print*, 'No Gnuplot script will be created'
    else 
@@ -219,6 +224,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       print*, trim(adjustl(File_names%F(1)))
    endif
    
+   !------------------------------------------------------
    ! Create an output folder:
    Output_path = 'OUTPUT_'//trim(adjustl(Material_name)) ! that should be a folder with output
    if (SHI%Zat .GT. 0) Output_path_SHI = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'OUTPUT_'//trim(adjustl(SHI%Name))//'_in_'//trim(adjustl(Material_name)) ! that should be a folder with output

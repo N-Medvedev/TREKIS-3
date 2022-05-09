@@ -49,9 +49,9 @@ include 'Universal_Constants.f90'   	! include universal constants
 include 'Objects.f90'                   ! include objects definitions
 include 'Variables.f90'                 ! include global variables used in the program
 include 'Dealing_with_EADL.f90'         ! include EADL and EPDL97 database subs
-include 'Sorting_output_data.f90'       ! include Sorting output subroutines
 include 'Gnuplotting_subs.f90'          ! subroutines to create gnuplot scripts
 include 'Reading_files_and_parameters.f90'  ! include module for reading and managing input files
+include 'Sorting_output_data.f90'       ! include Sorting output subroutines
 include 'Cross_sections.f90'            ! include Cross sections subroutines
 include 'Analytical_IMFPs.f90'          ! include analytical calculations of IMFPs and dEdx
 include 'Monte_Carlo.f90'               ! include Monte-Carlo subroutines
@@ -67,9 +67,9 @@ use Universal_Constants     ! Universal_Constants.f90
 use Objects                 ! Objects.f90
 use Variables               ! Variables.f90
 use Dealing_with_EADL       ! Dealing_with_EADL.f90
-use Sorting_output_data     ! Sorting_output_data.f90
 use Gnuplotting_subs        ! Gnuplotting_subs.f90
 use Reading_files_and_parameters    ! Reading_files_and_parameters.f90
+use Sorting_output_data     ! Sorting_output_data.f90
 use Cross_sections          ! Cross_sections.f90
 use Analytical_IMFPs        ! Analytical_IMFPs.f90
 use Monte_Carlo             ! Monte_Carlo.f90

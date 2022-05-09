@@ -647,7 +647,7 @@ function get_inelastic_energy_transfer(Ee, Matter, Target_atoms, numpar, j, k, I
    ! Set the model parameters:
    Zeff = 1.0d0	! electron charge
    max_E0 = maxval(Target_atoms(j)%Ritchi(k)%E0(:))
-   call find_Wmax_equal_Wmin(0.0, 0.0, .true., Ee, Ip, max_E0, Eeq)   ! module "CS_integration_limits"
+   call find_Wmax_equal_Wmin(0.0d0, 0.0d0, .true., Ee, Ip, max_E0, Eeq)   ! module "CS_integration_limits"
    
    E_left = Ip ! [eV] minimal transferred energy
    E_right = (Ip + Ee)*0.5d0    ! [eV] maximal transferred energy

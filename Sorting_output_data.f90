@@ -6,6 +6,7 @@
 MODULE Sorting_output_data
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
+  use Reading_files_and_parameters
 implicit none
 
 contains
@@ -50,7 +51,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     type(Flag), intent(in) :: NumPar
         
     real(8) t, as1, tim_glob
-    integer c1(8), i, j,k,l,N, Nat, N_R, FN, FN1, FN2, FN3, FN31, FN4 !, NOTP
+    integer c1(8), i, j,k,l,N, Nat, N_R, FN, FN1, FN2, FN3, FN31, FN4, Lowest_Ip_At, Lowest_Ip_Shl !, NOTP
     character(200) command, charge_name, charge_kind, File_name, File_name1, File_name2, File_name3, File_name4, C_time
     character(30) ch1, ch2, ch3
     character(LEN=25) FMT
@@ -520,6 +521,31 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
         do k = 1, N ! time-steps
             t = time_grid(k)
             write(FN3, '(e)', advance='no') SUM(Out_Elat(1:k,i))
+        enddo
+        write(FN3, '(a)') ' '
+    enddo
+    inquire(unit=FN3,opened=file_opened)    ! check if this file is opened
+    if (file_opened) close(FN3)             ! and if it is, close it
+    
+    
+    !Lattice energy density vs R vs time:
+    call Find_VB_numbers(Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl)
+    FN3 = 304
+    File_name = trim(adjustl(File_name2))//'/Radial_Track_energy[eV_A^-3].txt'
+    open(unit = FN3, FILE = trim(adjustl(File_name)))
+    write(FN3, '(a)', advance='no') 'Radius[A] '
+    t = 0.0d0
+    do i = 1, N     ! timesteps
+        t = time_grid(i)
+        write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+    enddo
+    write(FN3, '(a)') ' '
+    do i = 1, N_R   ! radii
+        write(FN3, '(f9.1)', advance='no') Out_R(i)
+        t = 0.0d0
+        do k = 1, N ! time-steps
+            t = time_grid(k)
+            write(FN3, '(e)', advance='no') SUM(Out_Elat(1:k,i)) + Out_Distr%Atom(Lowest_Ip_At)%Shl(Lowest_Ip_Shl)%Eh(k,i) + Out_Distr%Atom(Lowest_Ip_At)%Shl(Lowest_Ip_Shl)%Ehkin(k,i)
         enddo
         write(FN3, '(a)') ' '
     enddo

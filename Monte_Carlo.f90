@@ -806,7 +806,7 @@ subroutine Auger_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_
      dE_cur = 0.0d0
      if (allocated(Mat_DOS%E)) then    ! it is VB instead of just a shell
         if ((KOA2 .EQ. Lowest_Ip_At) .AND. (Sh2 .EQ. Lowest_Ip_Shl)) then ! it is VB
-           call From_where_in_VB(Mat_DOS, dE_cur, Energy_diff)
+           call From_where_in_VB(Mat_DOS, dE_cur, Energy_diff-Target_atoms(KOA2)%Ip(Sh2))
         endif   ! it is deep shell
      endif
      E_new2 = dE_cur + Target_atoms(KOA2)%Ip(Sh2)  ! energy of the new hole [eV]
