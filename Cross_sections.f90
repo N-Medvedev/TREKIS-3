@@ -90,7 +90,7 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
         else                    ! Define mass from DOS
             call find_in_array_monoton(Mat_DOS%E, Ele, Mnum)
             Mass = Mat_DOS%Eff_m(Mnum)
-            print*, 'Mass h', Ele, Mat_DOS%DOS(Mnum), Mass
+            !print*, 'Mass h', Ele, Mat_DOS%DOS(Mnum), Mass ! Testing of effective mass
         endif
         Emax = 4.0d0*Ele*Mass/((Mass+1.0d0)*(Mass+1.0d0))
     else
