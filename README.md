@@ -26,20 +26,29 @@ In a publication, we recommend that at least the following parameters should be 
  *Relevant references*
  
 *1)* Early and preliminary works, prior to TREKIS:
+
 a) Monte Carlo simulations of selected cases, demonstrating importance of nonequilibrium electron kinetics in SHI tracks [1,2]
+
 b) Methodology of CDF cross sections
 
 *2)* Presentation of TREKIS-3:
+
 a) Detailed description of the code [3,4]
+
 b) Analysis of model parameters (and first added photon transport) [5]
 
 *3)* Combination of TREKIS with MD simulations (LAMMPS):
+
 a) First implementation and validation of the methodology [6,7]
+
 b) Description of the damage along entire SHI track, no fitting parameters [8]
+
 c) A brief review of the TREKIS+MD results [9]
 
 *4)* Current state of the project, TREKIS-4:
+
 a) Demonstration of the importance of the nonthermal effects in SHI tracks [10]
+
 b) Detailed description of the combination of MC-MD, proposed simple model for description of nonthermal effects [11]
 
  *Bibliography*
