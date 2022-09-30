@@ -1,17 +1,17 @@
 # TREKIS-3
- TREKIS-3: Time-Resolved Electron Kinetics in SHI-Irradiated Solids -- a Monte Carlo simulation of the effects of SHI impact on matter
+ ## TREKIS-3: Time-Resolved Electron Kinetics in SHI-Irradiated Solids -- a Monte Carlo simulation of the effects of SHI impact on matter
  
  For all details and instruction, address the files
  !READ_ME_TREKIS_3.doc  or  !READ_ME_TREKIS_3.pdf
  
- *Disclaimer*
+ ## Disclaimer
 
 Although we endeavour to ensure that the code TREKIS-3 and results delivered are correct, no warranty is given as to its accuracy. We assume no responsibility for possible errors or omissions. We shall not be liable for any damage arising from the use of this code or its parts or any results produced with it, or from any action or decision taken as a result of using this code or any related material.
 
 This code is distributed as is for non-commercial peaceful purposes only, such as research and education. It is explicitly prohibited to use the code, its parts, its results or any related material for military-related and other than peaceful purposes.
 By using this code or its materials, you agree with these terms and conditions.
 
- *How to cite*
+ ## How to cite
 
 The use of the code is at your own risk. Should you choose to use it, appropriate citations are mandatory:
 1)	N. A. Medvedev, R. A. Rymzhanov, A. E. Volkov, J. Phys. D. Appl. Phys. 48 (2015) 355303
@@ -23,23 +23,23 @@ Should you use this code to create initial conditions for further molecular dyna
 
 In a publication, we recommend that at least the following parameters should be mentioned for reproducibility of the results: material, its structure, density, speed of sound, the used CDF coefficients, which processes were included (active) in the simulation, ion type, its energy, the model for SHI charge, number of MC iterations.
 
-*Relevant references*
+## Relevant references
  
-*1)* Early and preliminary works, prior to TREKIS:
+### 1) Early and preliminary works, prior to TREKIS:
 
 a) Monte Carlo simulations of selected cases, demonstrating importance of nonequilibrium electron kinetics in SHI tracks [1,2]
 
 b) Methodology of CDF cross sections [3]
 
 
-*2)* Presentation of TREKIS-3:
+### 2) Presentation of TREKIS-3:
 
 a) Detailed description of the code [4,5]
 
 b) Analysis of model parameters (and first added photon transport) [6]
 
 
-*3)* Combination of TREKIS with MD simulations (LAMMPS):
+### 3) Combination of TREKIS with MD simulations (LAMMPS):
 
 a)	First implementation and validation of the methodology [7,8]
 
@@ -48,13 +48,14 @@ b)	Description of the damage along entire SHI track, no fitting parameters [9]
 c)	A brief review of the TREKIS+MD results [10]
 
 
-*4)* Current state of the project, TREKIS-4:
+### 4) Current state of the project, TREKIS-4:
 
 a)	Demonstration of the importance of the nonthermal effects in SHI tracks [11]
 
 b)	Detailed description of the combination of MC-MD, proposed simple model for description of nonthermal effects [12]
 
 
+## References 
 
 [1]	N.A. Medvedev, A.E. Volkov, N.S. Shcheblanov, B. Rethfeld, Early stage of the electron kinetics in swift heavy ion tracks in dielectrics, Phys. Rev. B. 82 (2010) 125425. https://doi.org/10.1103/PhysRevB.82.125425
 
