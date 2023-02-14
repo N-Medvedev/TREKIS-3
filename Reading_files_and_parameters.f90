@@ -696,15 +696,16 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_m
     Sum_DOS = 0.0d0  ! start to sum up:
     do i = 1, M  ! fill all points in the array:
         Sum_DOS = Sum_DOS + Mat_DOS%DOS(i)  ! for integrated DOS
-        if (Mat_DOS%DOS(i) .LT. 1.0d-6) then
-            Sum_DOS = 0
-        endif
+!         if (Mat_DOS%DOS(i) .LT. 1.0d-6) then  ! NOT READY, gives error for multiple sub-bands DOS
+!             Sum_DOS = 0
+!         endif
 !         Mat_DOS%k(i) = (3.0d0*2.0d0*g_Pi*g_Pi/2.0d0*Sum_DOS*Matter%At_Dens/size(Target_atoms)*1d6)**(1.0d0/3.0d0)  ! [1/m]
         Mat_DOS%k(i) = (3.0d0*2.0d0*g_Pi*g_Pi/2.0d0*Sum_DOS*Matter%At_Dens/sum(Target_atoms(:)%Pers)*1d6)**(1.0d0/3.0d0)  ! [1/m]
         
-        if (Mat_DOS%E(i) < 1.0d-10) then  ! immobile electron/hole
-           Mat_DOS%Eff_m(i) = 1.0d20
-        else
+        if (Mat_DOS%E(i) < 1.0d-10) then  ! too slow electron/hole
+           !Mat_DOS%Eff_m(i) = 1.0d20
+           Mat_DOS%Eff_m(i) = 1.0d0 ! too slow to get rom DOS, assume free particle mass
+        else    ! regular energy particle
            Mat_DOS%Eff_m(i) = g_h*g_h*Mat_DOS%k(i)*Mat_DOS%k(i)/(2.0*Mat_DOS%E(i)*g_e)/g_me
         endif
     enddo
@@ -713,9 +714,10 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_m
     Mat_DOS%DOS_inv = Mat_DOS%DOS_inv/SUM_DOS*Matter%N_VB_el    ! normalize it to the number of VB electron per molecule
     Mat_DOS%int_DOS_inv = Mat_DOS%int_DOS_inv/SUM_DOS*Matter%N_VB_el    ! normalize it to the number of VB electron per molecule
     Mat_DOS%k_inv = (3.0d0*2.0d0*g_Pi*g_Pi/2.0d0*Mat_DOS%Int_DOS_inv*Matter%At_Dens/sum(Target_atoms(:)%Pers)*1d6)**(1.0d0/3.0d0)  ! [1/m]
-    where(Mat_DOS%E(:) < 1.0d-10) ! immobile electron/hole
-       Mat_DOS%Eff_m_inv(:) = 1.0d20
-    elsewhere
+    where(Mat_DOS%E(:) < 1.0d-10) ! too slow electron/hole
+       !Mat_DOS%Eff_m_inv(:) = 1.0d20
+       Mat_DOS%Eff_m_inv(:) = 1.0d0 ! too slow to get rom DOS, assume free particle mass
+    elsewhere   ! regular energy particle
        Mat_DOS%Eff_m_inv(:) = g_h*g_h*Mat_DOS%k_inv(:)*Mat_DOS%k_inv(:)/(2*Mat_DOS%E(:)*g_e)/g_me
     endwhere
     
