@@ -101,6 +101,7 @@ type :: Flag
     integer :: dt_flag       ! kind of time-grid (0=linear;1=log)
     logical :: include_photons  ! to include or not radiative decays of holes and further photons propagation
     logical :: plasmon_Emax     ! to use maximal plasmon energy as upper integration limit in cross-sections calculations
+    integer :: CDF_elast_Zeff ! kind of effective charge of target atoms (1=1, 0=Barkas-like Zeff)
 end type Flag
 !==============================================
 

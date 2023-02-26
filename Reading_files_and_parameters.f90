@@ -147,12 +147,13 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    if ((SHI%fixed_Zeff .LE. 0.0) .OR. (SHI%fixed_Zeff .GT. SHI%Zat)) SHI%fixed_Zeff = SHI%Zat
    if (.not. read_well) goto 2013
    
-   
    READ(FN,*,IOSTAT=Reason) SHI%Kind_ion   ! 0=point-like charge; 1=Brandt-Kitagawa ion
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2013
    
-   READ(FN,*,IOSTAT=Reason) NumPar%kind_of_EMFP     ! kind of elastic cross-section: -1=no elastic, 0=Mott; 1=CDF phonons; 2=DSF
+   ! kind of elastic cross-section: -1=no elastic, 0=Mott; 1=CDF phonons; 2=DSF
+   ! and kind of effective target charge (used in CDF): 0 = effective Barkas-like; 1=fixed value=1
+   READ(FN,*,IOSTAT=Reason) NumPar%kind_of_EMFP, NumPar%CDF_elast_Zeff
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2013
    

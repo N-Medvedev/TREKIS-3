@@ -90,7 +90,7 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
         else                    ! Define mass from DOS
             call find_in_array_monoton(Mat_DOS%E, Ele, Mnum)
             Mass = Mat_DOS%Eff_m(Mnum)
-            !print*, 'Mass h', Ele, Mat_DOS%DOS(Mnum), Mass ! Testing of effective mass
+            !print*, 'Mass h', Ele, Mat_DOS%DOS(Mnum), Mass
         endif
         Emax = 4.0d0*Ele*Mass/((Mass+1.0d0)*(Mass+1.0d0))
     else
@@ -132,12 +132,18 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
           b = E + dE
           call Diff_cross_section(Ele, b, Target_atoms, Nat, Nshl, dL, Mass, Matter, Mat_DOS, NumPar)
           
+!           if (Ele == 1.0d4) PRINT*, Ele, E, dL
+          
           temp2 = dE/6.0d0*(Ltot0 + 4.0d0*temp1 + dL)
           Ltot1 = Ltot1 + temp2
           ddEdx = ddEdx + E*temp2
           Ltot0 = dL
           E = E + dE  ! [eV]
        enddo
+!        if (Ele == 1.0d4) then
+!           print*, 'Ele', Ele
+!           pause 
+!        endif
        
        if (Ltot1 < 1.0d-10) then
            Sigma = 1.0d20
@@ -318,6 +324,9 @@ pure function W_max(Mc2, mtc2, identical, E, Ip, hw_phonon) result(Wmax)
       if (present(hw_phonon)) then  ! it's scattering on atoms/phonons, so may be it's a phonon:
          if (Wmax < hw_phonon) Wmax = hw_phonon
       endif
+      ! Classical limit:
+!       Wmax1 = 4.0d0*Mc2*mtc2/(Mm*Mm)*E
+!       write(*,'(a,e,e,e,e,e)') 'Wmax', E, Wmax1, Wmax, Mc2, mtc2
    endif
 end function W_max
 
@@ -345,6 +354,9 @@ end function W_max
          
          !Eeq = adj_coef*E0*(Mc2/mtc2)*(Mm4/abs(4.0d0*Mc2*Mc2*Mc2*Mc2 - Mm4))
          Eeq = E0*(Mc2/mtc2)*(Mm4/abs(4.0d0*Mc2*Mc2 - Mm4))
+         
+!            Eeq1 = 0.125d0*E0*Mm*Mm/(Mc2*mtc2)   ! just for comparison
+!            write(*,'(a,e,e,e,f)') 'Eeq', E, Eeq, Eeq1, E0
       endif
    else ! scattering between identical particles (electron-electron etc.)
       Eeq = 5.0d0/4.0d0*E0 - Ip/2.0d0 + 0.25d0*sqrt(17.0d0*E0*E0 - 12.0d0*Ip*E0 + 4.0d0*Ip*Ip)
@@ -545,6 +557,16 @@ subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_to
         Mass = 1.0d0
     endif
     
+!   if (trim(adjustl(NumPar%kind_of_particle)) .EQ. 'Electron') then 
+!        if (Mass .GT. 1.0d0) then
+!            print*, "ooooooooooooooooooooooooooooooooooooooo"
+!            print*, Mass, NumPar%kind_of_particle
+!            print*, "ooooooooooooooooooooooooooooooooooooooo"
+!            pause
+!        endif
+!   endif
+    
+    
     ! Use maximal plasmon energy as upper limit of integration
     if (Numpar%plasmon_Emax) then       ! If included
         if (Emin .EQ. Egap) then        ! For VB only
@@ -646,8 +668,25 @@ function get_inelastic_energy_transfer(Ee, Matter, Target_atoms, numpar, j, k, I
    
    ! Set the model parameters:
    Zeff = 1.0d0	! electron charge
+!    El_inelast = numpar%El_inelast   ! to chose the model of CS calculations below
+!    if (present(CDF_dispers)) then	! user provided alternative (e.g. for all but VB)
+!       dispers = CDF_dispers
+!    else	! for the VB
+!       dispers = numpar%CDF_dispers
+!    endif
+!    if (present(CDF_m_eff)) then	! user provided alternative (e.g. for all but VB)
+!       m_eff = CDF_m_eff
+!    else
+!       m_eff = numpar%hole_mass
+!    endif
+
+!    VAL0:if ( (Material%Elements(j)%valent(k)) .and. (allocated(Material%CDF_valence%A)) ) then    ! Valence band
+!       max_E0 = maxval(Material%CDF_valence%E0(:))
+!    else VAL0
+!       max_E0 = maxval(Material%Elements(j)%CDF(k)%E0(:))
+!    endif VAL0
    max_E0 = maxval(Target_atoms(j)%Ritchi(k)%E0(:))
-   call find_Wmax_equal_Wmin(0.0d0, 0.0d0, .true., Ee, Ip, max_E0, Eeq)   ! module "CS_integration_limits"
+   call find_Wmax_equal_Wmin(0.0, 0.0, .true., Ee, Ip, max_E0, Eeq)   ! module "CS_integration_limits"
    
    E_left = Ip ! [eV] minimal transferred energy
    E_right = (Ip + Ee)*0.5d0    ! [eV] maximal transferred energy
@@ -655,11 +694,15 @@ function get_inelastic_energy_transfer(Ee, Matter, Target_atoms, numpar, j, k, I
    
    ! Sample the cross section:
    call random_number(RN)
+!    CS_tot = get_integral_inelastic_CS(Ee, Material, DOS, numpar, j, k, Ip, El_inelast, Zeff, dispers, m_eff, E_right)   ! below
+!    CS_tot = CDF_total_CS_delta(Ee, g_me, Zeff, Ip, Material%At_Dens, Material%CDF_valence, g_me, .true., Emax_in = E_right)    ! module "CDF_delta"
    CS_tot = Integral_CDF_delta_CS(g_me, g_me, Ee, Target_atoms(j)%Ritchi(k), Ip, Matter%At_Dens, .true., Emax_in = E_right) ! [A^2] Below
    CS_sampled = RN*CS_tot
    
    ! Start finding CS:
    E_cur = (E_left + E_right)*0.5d0
+!    CS_cur = get_integral_inelastic_CS(Ee, Material, DOS, numpar, j, k, Ip, El_inelast, Zeff, dispers, m_eff, E_cur)   ! below
+!    CS_cur = CDF_total_CS_delta(Ee, g_me, Zeff, Ip, Material%At_Dens, Material%CDF_valence, g_me, .true., Emax_in = E_cur)    ! module "CDF_delta"
    CS_cur = Integral_CDF_delta_CS(g_me, g_me, Ee, Target_atoms(j)%Ritchi(k), Ip, Matter%At_Dens, .true., Emax_in = E_cur) ! [A^2] Below
    
    ! Search by bisection method:
@@ -671,6 +714,8 @@ function get_inelastic_energy_transfer(Ee, Matter, Target_atoms, numpar, j, k, I
       endif
       E_cur = (E_left + E_right)/2.0d0
       if (abs(E_left - E_right) < eps) exit  ! precise enough
+!       CS_cur = get_integral_inelastic_CS(Ee, Material, DOS, numpar, j, k, Ip, El_inelast, Zeff, dispers, m_eff, E_cur)   ! below
+!       CS_cur = CDF_total_CS_delta(Ee, g_me, Zeff, Ip, Material%At_Dens, Material%CDF_valence, g_me, .true., Emax_in = E_cur)    ! module "CDF_delta"
       CS_cur = Integral_CDF_delta_CS(g_me, g_me, Ee, Target_atoms(j)%Ritchi(k), Ip, Matter%At_Dens, .true., Emax_in = E_cur) ! [A^2] Below
    enddo
    
@@ -795,6 +840,9 @@ subroutine Diff_cross_section(Ele, hw, Target_atoms, Nat, Nshl, Diff_IMFP, Mass,
        qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) - sqrt((Ee - dE))) ! min transferred momentum [sqrt(eV/J) /m] (not [kg*m/s])
        qmax = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) + sqrt((Ee - dE))) ! max transferred momentum [sqrt(eV/J) /m] (not [kg*m/s])
     endif
+!     print*, 'Mass', Mass, Ee, dE
+!     print*, g_h*g_h*qmin*qmin/(2.0d0*Mass*g_me),  g_h*g_h*qmax*qmax/(2.0d0*Mass*g_me)          
+!     pause 
     
     dLs = 0.0d0 ! starting integration, mean free path per energy [A/eV]^(-1)
     hq = qmin    ! transient transferred momentum for integration [kg*m/s]
@@ -813,8 +861,14 @@ subroutine Diff_cross_section(Ele, hw, Target_atoms, Nat, Nshl, Diff_IMFP, Mass,
         dL = ImE
         dLs = dLs + dq/6.0d0*(dLs0 + 4.0d0*temp1 + dL)/hq
         dLs0 = dL
+!         if ((abs(Ee - 10.0) < 1.0d-2) .and. (abs(dE - 4.0d0) < 1.0d-2)) then
+!            write(*,'(f,f,f,f,f)') g_h*g_h*hq*hq/(2.0d0*Mass*g_me), dL/( g_h*g_h*hq*hq/(2.0d0*Mass*g_me)), dLs
+!         endif
         hq = hq + dq
     enddo
+!     if (abs(Ee - 10.0) < 1.0d-2) then
+!        write(*,'(f,f,f,f,f)') Ee, dE , dLs
+!     endif
    
     if (Matter%temp > 0.0d0) then   ! non-zero temperature
        T_fact = 1.0d0/(1.0d0-exp(-hw/Matter%temp*g_kb))
@@ -840,6 +894,7 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     
     integer i, j, n, Mnum
     real(8) Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, RN, temp1, temp2, qdebay, Edebay, Mtarget, L_cur, L_need, Mass
+    real(8) :: Zt, Zeff
     real(8), pointer :: Ee
     
     call random_number(RN)
@@ -850,7 +905,7 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     Ee => Ele   ! just to use this name later
     Emin = 0.1d-8    !Target_atoms(Nat)%Ip(Nshl)   ! [eV] ionization potential of the shell is minimum possible transferred energy
 
-    Mtarget = g_Mp*SUM(target_atoms(:)%Mass*real(target_atoms(:)%Pers))/real(SUM(target_atoms(:)%Pers)) ! average mass of a target atom [kg]
+    Mtarget = g_Mp*SUM(target_atoms(:)%Mass*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! average mass of target atom [kg]
     
     if (trim(adjustl(kind_of_particle)) .EQ. 'Electron') then
         Mass = 1.0d0 
@@ -863,6 +918,14 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
         endif
     else    ! default value just in case
         Mass = 1.0d0 
+    endif
+
+    ! Target mean atomic charge:
+    if (NumPar%CDF_elast_Zeff /= 1) then   ! Barkas-like charge
+        Zt = SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
+        Zeff = 1.0d0 + Equilibrium_charge_Target(Ee, g_me, Zt, (Zt-1.0e0), 0, 1.0e0) ! Equilibrium charge, see below
+    else  ! one, as used in old CDF expression
+        Zeff = 1.0d0    ! electron charge
     endif
         
     Emax =  4.0e0*Ee*Mass*g_me*Mtarget/((Mtarget+Mass*g_me)*(Mtarget+Mass*g_me))    ! [eV] maximum energy transfer
@@ -891,7 +954,8 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
         Ltot1 = Ltot1 + temp2
         ddEdx = ddEdx + E*temp2
         Ltot0 = dL
-        L_cur = 1.0d0/Mass/Ltot1
+        !L_cur = 1.0d0/Mass/Ltot1
+        L_cur = 1.0d0/(Zeff*Zeff*Mass*Ltot1) ! include effective charge of target atoms
         E = E + dE  ! [eV]
         if (E .GE. Emax) exit
     enddo
@@ -1009,6 +1073,7 @@ subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DO
           Ltot0 = dL
           if (present(dSedE)) then
             dSedE(Nat)%ELMFP(Nshl)%E(i) = E         ! [eV]
+!             print*, 'dE=', E, Emin, Emax
             dSedE(Nat)%ELMFP(Nshl)%L(i) = (g_Pi*g_a0*Ele*g_me)/(MSHI*Zeff*Zeff*Ltot1)     ! [A]
             dSedE(Nat)%ELMFP(Nshl)%dEdx(i) = (g_Pi*g_a0*Ele*g_me)/(MSHI*Zeff*Zeff*ddEdx)  ! [eV/A]
           endif
@@ -1028,14 +1093,56 @@ subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DO
 end subroutine SHI_TotIMFP
 
 
+
+pure function Equilibrium_charge_Target(Ekin, Mass, ZSHI, Zmean, Kind_Zeff, fixed_Zeff) result (Zeff)  ! Equilibrium charge
+   real(8) Zeff	! effective SHI state
+   real(8), intent(in) :: Ekin	! [eV] kinetic energy of SHI
+   real(8), intent(in) :: Mass  ! [kg] SHI mass
+   real(8), intent(in) :: ZSHI	! SHI atomic number
+   real(8), intent(in) :: Zmean	! mean atomic number of elements in the target
+   integer, intent(in) :: Kind_Zeff	! model for effective charge
+   real(8), intent(in) :: fixed_Zeff	! for the case of user-provided fixed charge of SHI
+   !--------------------------
+   real(8) x, x2, x4, Zt, Zp, vp, vpvo, c1, c2
+   vp = sqrt(2.0d0*Ekin*g_e/Mass)  ! incident particle velocity
+   !vp = velosity_from_kinetic_energy(Ekin, Mass, afs=.false.)     ! module "Relativity"
+
+
+   !Zp = dble(ZSHI) ! SHI atomic number
+   Zp = (ZSHI) ! SHI atomic number
+   select case (Kind_Zeff)   ! 0=Barkas; 1=Bohr; 2=Nikolaev-Dmitriev; 3=Schiwietz-Grande;
+      case (1)   ! Original Bohr:
+         Zeff = Zp*(1.0d0-exp(-(vp/g_v0/(Zp**(0.66666666d0)))))
+      case (2)   ! Nikolaev, Dmitriev, Phys. Lett. 28A, 277 (1968):
+         c1 = 0.6d0      ! k
+         c2 = 0.45d0     ! alpha
+         Zeff = Zp*(1.0d0 + (vp/(Zp**c2*g_v0*4.0d0/3.0d0))**(-1.0d0/c1))**(-c1)
+      case (3) ! Schiwietz et al, NIMB 225, 4 (2004):
+         Zt = Zmean	! mean atomic number of target atoms
+         c1 = 1.0d0 - 0.26d0*exp(-Zt/11.0d0 - (Zt-Zp)*(Zt-Zp)/9.0d0)
+         vpvo = Zp**(-0.543d0)*vp/g_v0
+         c2 = 1.0d0 + 0.03d0*vpvo*dlog(Zt)
+         x = c1*(vpvo/c2/1.54d0)**(1.0d0 + 1.83d0/Zp)
+         x2 = x*x
+         x4 = x2*x2
+         Zeff = Zp*(8.29d0*x + x4)/(0.06d0/x + 4.0d0 + 7.4d0*x + x4)
+      case (4)
+         Zeff = fixed_Zeff
+      case default ! Barkas:
+         Zeff = Zp*(1.0d0-exp(-(vp*125.0d0/g_cvel/(Zp**(0.66666666d0)))))
+   endselect
+end function Equilibrium_charge_Target
+
+
 subroutine Equilibrium_charge_SHI(SHI, Target_atoms)  ! Equilibrium charge
    class(Ion), intent (inout) :: SHI  ! all the data for the SHI
    type(Atom), dimension(:), intent(in), optional :: Target_atoms  ! all data for target atoms
    real(8) x, x2, x4, Zt, Zp, vp, y, Zp052, vpvo, c1, c2
    vp = dsqrt(2.0d0*SHI%E*g_e/(SHI%Mass*g_Mp))  ! SHI velocity
    if (present(Target_atoms)) then
-      Zt = SUM(Target_atoms(:)%Zat)/size(Target_atoms)  ! mean atomic number of target atoms
-      Zp = real(SHI%Zat) ! SHI atomic number
+      !Zt = SUM(Target_atoms(:)%Zat)/size(Target_atoms)  ! mean atomic number of target atoms
+      Zt = SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
+      Zp = dble(SHI%Zat) ! SHI atomic number
       select case (SHI%Kind_Zeff)   ! 0=Barkas; 1=Bohr; 2=Nikolaev-Dmitriev; 3=Schiwietz-Grande;
          case (1)   ! Original Bohr:
             SHI%Zeff = Zp*(1.0d0-dexp(-(vp/g_v0/(Zp**(0.66666666d0)))))
@@ -1215,7 +1322,9 @@ function Diel_func(A,E,Gamma,dE,dq, NumPar, Matter, Mtarget, photon, k, Eff_m)  
         endif mtar
         dE2 = dE*dE
         E02 = E0*E0
+!         print*, 'E0', dE, sqq, E0
         Diel_func = A*Gamma1*dE/((dE2 - E02)*(dE2 - E02) + Gamma1*Gamma1*dE2)
+!         write(*,'(a,f,f,f,f,f)') 'E0', dE, sqq, Diel_func
     endif phot
 end function Diel_func
 
@@ -1304,6 +1413,8 @@ subroutine SHI_Diff_cross_section_BK(SHI, Emax, hw, Target_atoms, Nat, Nshl, Dif
     Z_SHI = SHI%Zat ! atomic number of SHI
     dE = hw         ! transferred energy [eV]
     
+    !qmin = sqrt(2.0e0*g_me)/g_h*(sqrt(Ee) - sqrt((Ee - dE))) ! min transferred momentum [kg*m/s] electron
+    !qmax = sqrt(2.0e0*g_me)/g_h*(sqrt(Ee) + sqrt((Ee - dE))) ! max transferred momentum [kg*m/s]
     qmin = hw/g_h/sqrt(2.0d0*Ee/MSHI)       ! min transferred momentum [kg*m/s] SHI
     qmax = sqrt(2.0e0*g_me)/g_h*sqrt(Emax)  ! min transferred momentum [kg*m/s] SHI
 
@@ -1357,12 +1468,21 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
    character(8), intent(in) :: kind_of_particle
          
    real(8) Sigma_Tot    ! [cm^2] total elastic cross-section
-   real(8) Sigma_el
+   real(8) Sigma_el, Zeff, Zt
    integer i
    dEdx = 0.0d0
    ! Get the total cross-section:
    if (NumPar%kind_of_EMFP .EQ. 1) then
-      call Tot_EMFP(Ee, Target_atoms, CDF_Phonon, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle)
+
+      ! Target mean atomic charge:
+      if (numpar%CDF_elast_Zeff /= 1) then   ! Barkas-like charge
+         Zt = SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
+         Zeff = 1.0d0 + Equilibrium_charge_Target(Ee, g_me, Zt, (Zt-1.0e0), 0, 1.0d0) ! Equilibrium charge, see below
+      else  ! one, as used in old CDF expression
+         Zeff = 1.0d0    ! electron charge
+      endif
+
+      call Tot_EMFP(Ee, Target_atoms, CDF_Phonon, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff) ! below
    else
       Sigma_Tot = 0.0d0 ! [cm^2] cross-section
       do i = 1, size(Target_atoms)  ! for all atomic spicies:
@@ -1375,7 +1495,7 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
 end subroutine Elastic_cross_section
 
 
-subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, Mat_DOS, kind_of_particle)
+subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff)
     real(8), intent(in), target :: Ele  ! electron energy [eV]
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
     type(CDF), intent(in) :: CDF_Phonon ! phonon CDF parameters
@@ -1384,7 +1504,8 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
     type(Flag), intent(in) :: NumPar
     type(Density_of_states), intent(in) :: Mat_DOS     
     character(8), intent(in) :: kind_of_particle
-    
+    real(8), intent(in) :: Zeff  ! effective charge of target atoms [electron charge]
+    !--------------------
     integer i, j, n, Mnum
     real(8) Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, temp1, temp2, qdebay, Edebay, Mtarget, Mass
     real(8), pointer :: Ee
@@ -1433,10 +1554,19 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
         ddEdx = ddEdx + E*temp2
         Ltot0 = dL
         E = E + dE  ! [eV]
+        
+        ! test:
+        if ((Ele-1.0d0) < 1.0d-2) then
+!             print*, 'Tot_EMFP', Ele, E, 1.0d0/Mass/Ltot1
+        endif
     enddo
-    Sigma = 1.0d0/Mass/Ltot1 !*dE ! [A]
+    !Sigma = 1.0d0/Mass/Ltot1 !*dE ! [A]
+    Sigma = 1.0d0/(Zeff*Zeff*Mass*Ltot1) !*dE ! [A]
     if (Sigma > 1d30) Sigma = 1d30 ! get rid of infinities
-    dEdx = Mass*ddEdx !*dE ! energy losses [eV/A]
+
+    !dEdx = Mass*ddEdx !*dE ! energy losses [eV/A]
+    dEdx = (Zeff*Zeff) * Mass*ddEdx !*dE ! energy losses [eV/A]
+
     nullify(Ee)
 end subroutine Tot_EMFP
 
@@ -1476,7 +1606,10 @@ subroutine Diff_cross_section_phonon(Ele, hw, CDF_Phonon, Diff_IMFP, Mtarget, Ma
         dLs = dLs + dq/6.0d0*(dLs0 + 4.0d0*temp1 + dL)/hq
         dLs0 = dL
         hq = hq + dq
-    enddo
+        
+!         if ( (abs(Ele-1.0d0) < 1.0d-2) .and. ( abs(hw - 0.1d0) < 0.01d0) ) &
+!            print*, 'Diff_cross_section_phonon', Ele, hw, g_h*g_h*hq*hq/(2.0d0*Mtarget), dL
+    enddo    
     Diff_IMFP = 1.0d0/(g_Pi*g_a0*Ele)*dLs/(1-exp(-hw/Ttarget*g_kb))
     nullify(Ee)
     nullify(dE)
@@ -1526,6 +1659,7 @@ subroutine Atomic_elastic_sigma(Target_atoms, KOA, Ee, sigma_el) ! total cross-s
    pc = 1.7d-5*(Zat**(2.0d0/3.0d0))*(1.0d0-beta2)/(beta2)
    nc = pc*(1.13d0 + 3.76d0*(Zat137*Zat137)/(beta2)*sqrt(Ee/(Ee+mec2e)))
    sigma_el = g_Pi*g_a0*g_a0*Zat*(Zat+1.0d0)/(nc*(nc+1.0d0))*RyEe*RyEe*1d-16  ! Mott cross-section [cm^2]
+
 end subroutine Atomic_elastic_sigma
 
 
@@ -1576,6 +1710,7 @@ subroutine NRG_transfer_elastic_DSF(DSF_DEMFP, Eel, EMFP, dE)
    NumL = i
    
    dE = DSF_DEMFP(NumE)%dE(NumL)
+
 endsubroutine NRG_transfer_elastic_DSF
 
 
@@ -1634,14 +1769,19 @@ function dSigma_int_BEB_SHI(T, w, B, U, N, MSHI, ZSHI)
 
    real(8) t0, u0, w0, S, dSigma, dSigma0, Emax
 
-   S = 4.0e0*g_Pi*g_a0*g_a0*N*(g_Ry/B)*(g_Ry/B) ! Eq.(4)
-   t0 = T/B*g_Mp/MSHI	! energy normalized to fit the data
-   u0 = U/B  	! kinetic energy normalized
-   w0 = w/B	! transferred energy normalized
+   !Emax = 4.0d0*T*g_me*MSHI/((MSHI+g_me)*(MSHI+g_me)) ! [eV] maximum energy transfer of SHI
+!   if (w .LE. B) then ! for the case if incident electron kinetic energy is lower than the Ip
+!      dSigma_int_BEB_SHI = 0.0d0
+!   else
+      S = 4.0e0*g_Pi*g_a0*g_a0*N*(g_Ry/B)*(g_Ry/B) ! Eq.(4)
+      t0 = T/B*g_Mp/MSHI	! energy normalized to fit the data
+      u0 = U/B  	! kinetic energy normalized
+      w0 = w/B	! transferred energy normalized
 
-   dSigma0 = dSigma_dw_int(S, t0, u0, 0.0d0) ! function see below
-   dSigma = dSigma_dw_int(S, t0, u0, w0) - dSigma0
-   dSigma_int_BEB_SHI = ZSHI*ZSHI*dSigma
+      dSigma0 = dSigma_dw_int(S, t0, u0, 0.0d0) ! function see below
+      dSigma = dSigma_dw_int(S, t0, u0, w0) - dSigma0
+      dSigma_int_BEB_SHI = ZSHI*ZSHI*dSigma
+!   endif
 end function dSigma_int_BEB_SHI
 
 
@@ -1655,13 +1795,17 @@ function dSigma_int_BEB(T, w, B, U, N)
 
    real(8) t0, u0, w0, S, Sigma, dSigma0
 
-   S = 4.0e0*g_Pi*g_a0*g_a0*N*(g_Ry/B)*(g_Ry/B) ! Eq.(4)
-   t0 = T/B	! energy normalized to the Rydberg constant ! Eq.(4)
-   u0 = U/B  	! kinetic energy normalized
-   w0 = w/B	! transferred energy normalized
+!   if (w .LE. B) then ! for the case if transferred energy is lower than the Ip
+!      dSigma_int_BEB = 0.0d0
+!   else
+      S = 4.0e0*g_Pi*g_a0*g_a0*N*(g_Ry/B)*(g_Ry/B) ! Eq.(4)
+      t0 = T/B	! energy normalized to the Rydberg constant ! Eq.(4)
+      u0 = U/B  	! kinetic energy normalized
+      w0 = w/B	! transferred energy normalized
 
-   dSigma0 = dSigma_dw_int(S, t0, u0, 0.0d0) ! function see below
-   dSigma_int_BEB = dSigma_dw_int(S, t0, u0, w0) - dSigma0
+      dSigma0 = dSigma_dw_int(S, t0, u0, 0.0d0) ! function see below
+      dSigma_int_BEB = dSigma_dw_int(S, t0, u0, w0) - dSigma0
+!   endif
 end function dSigma_int_BEB
 
 function dSigma_dw_int(S, t0, u0, w0)
@@ -1679,13 +1823,17 @@ function dSigma_w_int_BEB_SHI(T, w, B, U, N, MSHI, ZSHI)
    real(8) :: dSigma_w_int_BEB_SHI ! differential cross-section
    real(8) t0, u0, w0, S, Sigma, dSigma0
 
-   S = 4.0e0*g_Pi*g_a0*g_a0*N*(g_Ry/B)*(g_Ry/B) ! Eq.(4)
-   t0 = T/B*g_me/MSHI	! energy normalized to the Rydberg constant ! Eq.(4)
-   u0 = U/B  	! kinetic energy normalized
-   w0 = w/B	    ! transferred energy normalized
+!   if (w .LE. B) then ! for the case if incident electron kinetic energy is lower than the Ip
+!      dSigma_w_int_BEB_SHI = 0.0d0
+!   else
+      S = 4.0e0*g_Pi*g_a0*g_a0*N*(g_Ry/B)*(g_Ry/B) ! Eq.(4)
+      t0 = T/B*g_me/MSHI	! energy normalized to the Rydberg constant ! Eq.(4)
+      u0 = U/B  	! kinetic energy normalized
+      w0 = w/B	    ! transferred energy normalized
 
-   dSigma0 = dSigma_dw_w_int(S, t0, u0, 0.0d0) ! function see below
-   dSigma_w_int_BEB_SHI = ZSHI*ZSHI*B*(dSigma_dw_w_int(S, t0, u0, w0) - dSigma0)
+      dSigma0 = dSigma_dw_w_int(S, t0, u0, 0.0d0) ! function see below
+      dSigma_w_int_BEB_SHI = ZSHI*ZSHI*B*(dSigma_dw_w_int(S, t0, u0, w0) - dSigma0)
+!   endif
 end function dSigma_w_int_BEB_SHI
 
 
@@ -1698,13 +1846,17 @@ function dSigma_w_int_BEB(T, w, B, U, N)
    real(8) :: dSigma_w_int_BEB ! differential cross-section
    real(8) t0, u0, w0, S, Sigma, dSigma0
 
-   S = 4.0e0*g_Pi*g_a0*g_a0*N*(g_Ry/B)*(g_Ry/B) ! Eq.(4)
-   t0 = T/B	! energy normalized to the Rydberg constant ! Eq.(4)
-   u0 = U/B  ! kinetic energy normalized
-   w0 = w/B	! transferred energy normalized
+!   if (w .LE. B) then ! for the case if incident electron kinetic energy is lower than the Ip
+!      dSigma_w_int_BEB = 0.0d0
+!   else
+      S = 4.0e0*g_Pi*g_a0*g_a0*N*(g_Ry/B)*(g_Ry/B) ! Eq.(4)
+      t0 = T/B	! energy normalized to the Rydberg constant ! Eq.(4)
+      u0 = U/B  ! kinetic energy normalized
+      w0 = w/B	! transferred energy normalized
 
-   dSigma0 = dSigma_dw_w_int(S, t0, u0, 0.0d0) ! function see below
-   dSigma_w_int_BEB = B*(dSigma_dw_w_int(S, t0, u0, w0) - dSigma0)
+      dSigma0 = dSigma_dw_w_int(S, t0, u0, 0.0d0) ! function see below
+      dSigma_w_int_BEB = B*(dSigma_dw_w_int(S, t0, u0, w0) - dSigma0)
+!   endif
 end function dSigma_w_int_BEB
 
 function dSigma_dw_w_int(S, t0, u0, w0)
@@ -1720,7 +1872,6 @@ function dSigma_dw_w_int(S, t0, u0, w0)
    C = tw*log(t0)*(0.5d0*(overw1*overw1 + t0*overwt*overwt) + overwt - overw1)
    dSigma_dw_w_int = S*(A+B+C)
 end function dSigma_dw_w_int
-
 !BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB
 
  
