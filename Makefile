@@ -6,7 +6,7 @@
 default:
 	@echo "Compiling TREKIS-3 code"
 	
-	ifort -qopenmp -O5 -fpp -ipo -real-size 64 -standard-semantics Universal_MC_for_SHI_MAIN.f90 -o TREKIS.x
+	ifort -qopenmp -O5 -fpp -ipo -real-size 64 -standard-semantics Universal_MC_for_SHI_MAIN.F90 -o TREKIS.x
 	
 	@echo "Executable: TREKIS.x"
 
