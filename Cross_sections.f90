@@ -940,16 +940,16 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     Ltot1 = 0.0d0
     Ltot0 = 0.0d0
     L_cur = 1.0d10
-    call Diff_cross_section_phonon(Ele, E, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp)
+    call Diff_cross_section_phonon(Ele, E, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0)
     ddEdx = 0.0e0
     do while (L_cur .GT. L_need)
         dE = (1.0d0/(E+1.0d0) + E)/real(n)
         ! If it's Simpson integration:
         a =  E + dE/2.0d0
-        call Diff_cross_section_phonon(Ele, a, CDF_Phonon, dL, Mtarget, Mass, Matter%temp)
+        call Diff_cross_section_phonon(Ele, a, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0)
         temp1 = dL
         b = E + dE
-        call Diff_cross_section_phonon(Ele, b, CDF_Phonon, dL, Mtarget, Mass, Matter%temp)
+        call Diff_cross_section_phonon(Ele, b, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0)
         temp2 = dE/6.0d0*(Ltot0 + 4.0d0*temp1 + dL)
         Ltot1 = Ltot1 + temp2
         ddEdx = ddEdx + E*temp2
@@ -1283,22 +1283,22 @@ function Diel_func(A,E,Gamma,dE,dq, NumPar, Matter, Mtarget, photon, k, Eff_m)  
         Diel_func = A*Gamma*dE/((dE2 - E02)*(dE2 - E02) + Gamma*Gamma*dE2)
     else phot ! an electron or a hole:
         hq2 = g_h*g_h*dq*dq
-            
-        mtar:if (present(Mtarget)) then
+
+        mtar:if (present(Mtarget)) then   ! if scattering center is atom
             E0 = E + hq2/(2.0d0*Mtarget)  ! for phonons
             Gamma1 = Gamma
-        else mtar
-            if (present(k) .AND. present(Eff_m)) then
-                qlim = dq*sqrt(g_e)
+        else mtar ! scattering center is electron
+            if (present(k) .AND. present(Eff_m)) then ! effective mass from VB or CB
+                qlim = abs(dq)*sqrt(g_e)
                 if (qlim .LE. k(size(k))) then
                     call find_in_array_monoton(k, qlim, j)
                     Mass = Eff_m(j)
                 else
                     Mass = 1.0d0
                 endif
-            else if (Matter%El_eff_Mass .GT. 0) then
+            else if (Matter%El_eff_Mass .GT. 0) then  ! effective mass as a constant
                 Mass = Matter%El_eff_Mass
-            else
+            else  ! free-electron mass
                 Mass = 1.0d0
             endif
             
@@ -1456,7 +1456,7 @@ subroutine Brand_Kitagawa(hq, Z_SHI, Zeff, rho)
 end subroutine Brand_Kitagawa
 
 
-subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle)
+subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle, prefact)
    real(8), intent(in) :: Ee    ! [eV] electron energy
    type(CDF), intent(in) :: CDF_Phonon
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
@@ -1466,13 +1466,16 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
    type(Flag), intent(in) :: NumPar
    type(Density_of_states) :: Mat_DOS
    character(8), intent(in) :: kind_of_particle
+   real(8), intent(in), optional :: prefact  ! prefactor if required (e.g. for negative frequencies)
+   !--------------------------
          
    real(8) Sigma_Tot    ! [cm^2] total elastic cross-section
-   real(8) Sigma_el, Zeff, Zt
-   integer i
+   real(8) Sigma_el, Zeff, Zt, Mass
+   integer i, Mnum
+
    dEdx = 0.0d0
    ! Get the total cross-section:
-   if (NumPar%kind_of_EMFP .EQ. 1) then
+   if (NumPar%kind_of_EMFP .EQ. 1) then   ! CDF cross section
 
       ! Target mean atomic charge:
       if (numpar%CDF_elast_Zeff /= 1) then   ! Barkas-like charge
@@ -1482,20 +1485,38 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
          Zeff = 1.0d0    ! electron charge
       endif
 
-      call Tot_EMFP(Ee, Target_atoms, CDF_Phonon, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff) ! below
-   else
+      if (present(prefact)) then
+         call Tot_EMFP(Ee, Target_atoms, CDF_Phonon, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff, prefact) ! below
+      else  ! no prefactor needed, default option
+         call Tot_EMFP(Ee, Target_atoms, CDF_Phonon, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff) ! below
+      endif
+   else  ! Mott cross section
+      if (kind_of_particle .EQ. 'Electron') then
+         Mass = 1.0d0
+      else if (kind_of_particle .EQ. 'Hole') then
+         if(Matter%hole_mass .GE. 0) then
+               Mass = Matter%hole_mass
+         else  ! Define mass from DOS
+               call find_in_array_monoton(Mat_DOS%E, Ee, Mnum)
+               Mass = Mat_DOS%Eff_m(Mnum)
+         endif
+      endif
       Sigma_Tot = 0.0d0 ! [cm^2] cross-section
       do i = 1, size(Target_atoms)  ! for all atomic spicies:
-         call Atomic_elastic_sigma(Target_atoms, i, Ee, sigma_el) ! total cross-section of elastic scattering on an atom:
-         Sigma_Tot = Sigma_Tot + Sigma_el   ! [cm^2] total cross-section as sum of atomic for all spicies
+         call Atomic_elastic_sigma(Target_atoms, i, Ee, Sigma_el) ! total cross-section of elastic scattering on an atom:
+         ! [cm^2] total cross-section as sum of atomic for all spicies:
+         !Sigma_Tot = Sigma_Tot + Sigma_el
+         Sigma_Tot = Sigma_Tot + Sigma_el*dble(target_atoms(i)%Pers) ! account for stoichiometry
       enddo
-      Sigma_Tot = Sigma_Tot/size(Target_atoms)
+      !Sigma_Tot = Sigma_Tot/size(Target_atoms)
+      Sigma_Tot = Sigma_Tot/dble(SUM(target_atoms(:)%Pers))*Mass ! account for stoichiometry
+
       EMFP = 1.0d8/(Sigma_Tot*Matter%At_Dens) ! [A] elastic mean free path
    endif
 end subroutine Elastic_cross_section
 
 
-subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff)
+subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff, prefact)
     real(8), intent(in), target :: Ele  ! electron energy [eV]
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
     type(CDF), intent(in) :: CDF_Phonon ! phonon CDF parameters
@@ -1505,15 +1526,23 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
     type(Density_of_states), intent(in) :: Mat_DOS     
     character(8), intent(in) :: kind_of_particle
     real(8), intent(in) :: Zeff  ! effective charge of target atoms [electron charge]
+    real(8), intent(in), optional :: prefact ! prefactor for Emax, if required (e.g., use for negative frequencies)
     !--------------------
-    integer i, j, n, Mnum
-    real(8) Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, temp1, temp2, qdebay, Edebay, Mtarget, Mass
+    integer :: i, j, n, Mnum
+    real(8) :: Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx
+    real(8) :: a, b, temp1, temp2, qdebay, Edebay, Mtarget, Mass, pref
     real(8), pointer :: Ee
+
+    if (present(prefact)) then
+      pref = prefact ! defined by the user
+    else
+      pref = 1.0d0   ! no prefactor required
+    endif
     qdebay = (6.0d0*g_Pi*g_Pi*(Matter%At_Dens*1e6))**(0.33333333d0)   ! maximum energy of phonons analyzed [1/m], debay energy
     Edebay = 2.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy // 2 is artificial...
     Ee => Ele   ! just to use this name later
-    Emin = 0.1d-8    !Target_atoms(Nat)%Ip(Nshl)   ! [eV] ionization potential of the shell is minimum possible transferred energy
-    Mtarget = g_Mp*SUM(target_atoms(:)%Mass*real(target_atoms(:)%Pers))/real(SUM(target_atoms(:)%Pers)) ! average mass of a target atom [kg]
+    Emin = pref * 0.1d-8    !Target_atoms(Nat)%Ip(Nshl)   ! [eV] ionization potential of the shell is minimum possible transferred energy
+    Mtarget = g_Mp*SUM(target_atoms(:)%Mass*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! average mass of a target atom [kg]
     
     if (trim(adjustl(kind_of_particle)) .EQ. 'Electron') then
         Mass = 1.0d0
@@ -1528,37 +1557,39 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
         Mass = 1.0d0
     endif    
         
-    Emax =  4.0e0*Ee*Mass*g_me*Mtarget/((Mtarget+Mass*g_me)*(Mtarget+Mass*g_me))    ! [eV] maximum energy transfer
+    Emax = 4.0e0*Ee*Mass*g_me*Mtarget/((Mtarget+Mass*g_me)*(Mtarget+Mass*g_me))    ! [eV] maximum energy transfer
       
     if (Edebay .GE. Emax) Emax = Edebay ! single atom vs phonon
     if (Ee .LT. Emax) Emax = Ee ! no more than the total electron energy
+    Emax = pref * Emax  ! if user defined some prefactor (e.g. negatve for phonon absorption)
 
     n = 20*(MAX(INT(Emin),10))    ! number of integration steps
-    dE = (Emax - Emin)/(real(n)) ! differential of transferred energy
+    dE = (Emax - Emin)/(dble(n)) ! differential of transferred energy
     i = 1       ! to start integration
     E = Emin    ! to start integration
     Ltot1 = 0.0d0
     Ltot0 = 0.0d0
-    call Diff_cross_section_phonon(Ele, E, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp)
+    call Diff_cross_section_phonon(Ele, E, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0)
     ddEdx = 0.0e0
-    do while (E .LE. Emax) ! integration
-        dE = (1.0d0/(E+1.0d0) + E)/real(n)
+    do while (abs(E) .LE. abs(Emax)) ! integration
+        dE = (1.0d0/(E+1.0d0) + E)/dble(n)
+        dE = pref * dE  ! if user requested a prefactor
         ! If it's Simpson integration:
         a =  E + dE/2.0d0
-        call Diff_cross_section_phonon(Ele, a, CDF_Phonon, dL, Mtarget, Mass, Matter%temp)
+        call Diff_cross_section_phonon(Ele, a, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0)
         temp1 = dL
         b = E + dE
-        call Diff_cross_section_phonon(Ele, b, CDF_Phonon, dL, Mtarget, Mass, Matter%temp)
-        temp2 = dE/6.0d0*(Ltot0 + 4.0d0*temp1 + dL)
+        call Diff_cross_section_phonon(Ele, b, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0)
+        temp2 = abs(dE)/6.0d0*(Ltot0 + 4.0d0*temp1 + dL)
         Ltot1 = Ltot1 + temp2
         ddEdx = ddEdx + E*temp2
         Ltot0 = dL
         E = E + dE  ! [eV]
         
         ! test:
-        if ((Ele-1.0d0) < 1.0d-2) then
-!             print*, 'Tot_EMFP', Ele, E, 1.0d0/Mass/Ltot1
-        endif
+        !if ((Ele-1.0d0) < 1.0d-2) then
+        !   print*, 'Tot_EMFP', Ele, E, 1.0d0/Mass/Ltot1
+        !endif
     enddo
     !Sigma = 1.0d0/Mass/Ltot1 !*dE ! [A]
     Sigma = 1.0d0/(Zeff*Zeff*Mass*Ltot1) !*dE ! [A]
@@ -1571,14 +1602,15 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
 end subroutine Tot_EMFP
 
 
-subroutine Diff_cross_section_phonon(Ele, hw, CDF_Phonon, Diff_IMFP, Mtarget, Mass, Ttarget)
+subroutine Diff_cross_section_phonon(Ele, hw, CDF_Phonon, Diff_IMFP, Mtarget, Mass, Ttarget, pref)
     real(8), intent(in), target :: Ele  ! SHI energy [eV]
     REAL(8), INTENT(in), target :: hw   ! transferred energy [eV]
     type(CDF), intent(in) :: CDF_Phonon ! phonon CDF parameters
     real(8), intent(out) :: Diff_IMFP   ! differential inverse mean free path 1/lambda(Ele,dE)
     real(8), intent(in) :: Mtarget, Mass  ! average mass of atoms of the target [kg]
     real(8), intent(in) :: Ttarget      ! temperature of the sample [K]
-    
+    real(8), intent(in) :: pref  ! prefactor defined by the user (e.g., for negative energies)
+    !---------------------------
     integer i, n
     real(8), pointer :: Ee, dE
     real(8) dLs, qmin, qmax, hq, ddq, dq, Ime, dLs0, dL, hq0, dq_save
@@ -1586,16 +1618,16 @@ subroutine Diff_cross_section_phonon(Ele, hw, CDF_Phonon, Diff_IMFP, Mtarget, Ma
     Ee => Ele        ! energy [eV]
     dE => hw         ! transferred energy [eV]
     
-    qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) - sqrt((Ee - dE))) ! min transferred momentum [kg*m/s]
-    qmax = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) + sqrt((Ee - dE))) ! max transferred momentum [kg*m/s]
+    qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) - sqrt((Ee - dE)))        ! min transferred momentum [kg*m/s]
+    qmax = pref * sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) + sqrt((Ee - dE))) ! max transferred momentum [kg*m/s]
     
-    dLs = 0.0d0 ! starting integration, mean free path per energy [A/eV]^(-1)
+    dLs = 0.0d0  ! starting integration, mean free path per energy [A/eV]^(-1)
     hq = qmin    ! transient transferred momentum for integration [kg*m/s]
     n = 100
-    dq = (qmax - qmin)/real(n) ! differential of transferred momentum [kg*m/s]
+    dq = (qmax - qmin)/dble(n) ! differential of transferred momentum [kg*m/s]
     dLs0 = 0.0d0
-    do while (hq .LT. qmax) ! no matter how many points, go till the end
-        dq = hq/real(n)
+    do while (abs(hq) .LT. abs(qmax)) ! no matter how many points, go till the end
+        dq = hq/dble(n)
         ! If it's Simpson integration:
         a = hq + dq/2.0d0
         call Imewq_phonon(hw, a, CDF_Phonon, ImE, Mtarget)
@@ -1663,28 +1695,37 @@ subroutine Atomic_elastic_sigma(Target_atoms, KOA, Ee, sigma_el) ! total cross-s
 end subroutine Atomic_elastic_sigma
 
 
-subroutine NRG_transfer_elastic_atomic(Target_atoms, KOA, Ee, dE) ! total cross-section of elastic scattering on an atom:
+subroutine NRG_transfer_elastic_atomic(Target_atoms, KOA, Ee, dE, M_eff) ! total cross-section of elastic scattering on an atom:
    type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all the target atoms parameters
    integer, intent(in) :: KOA   ! kind of atom
    real(8), intent(in) :: Ee    ! [eV] incident electron energy
    REAL(8), INTENT(out) :: dE   ! [eV] transferred energy
+   real(8), intent(in), optional :: M_eff ! factor to rescale incident article mass (use for holes scattering)s
  
    REAL(8) :: Mat   ! mass of an atom of the media [kg]
+   real(8) :: M_effective
    real(8) :: Zat   ! atomic number of an atom of the media
    real(8) nc, pc, mec2e, Zat137, RyEe, Masses, x
    
    call random_number(x)
+
+   if (present(M_eff)) then
+      M_effective = M_eff
+   else
+      M_effective = 1.0d0
+   endif
    
    Mat = Target_atoms(KOA)%Mass*g_Mp  ! [kg] atom mass
-   Zat = real(Target_atoms(KOA)%Zat)   ! atom atomic number
+   Zat = dble(Target_atoms(KOA)%Zat)   ! atom atomic number
    mec2e = g_me*g_cvel*g_cvel/g_e   ! a parameter enterring eq. below:
    Zat137 = Zat/137.0d0   ! a parameter enterring eq. below:
    RyEe = g_Ry/Ee   ! a parameter enterring eq. below:
-   Masses = Mat + g_me    ! a parameter enterring eq. below:
+   Masses = Mat + g_me*M_effective    ! a parameter enterring eq. below:
    pc = 1.7d-5*(Zat**(2.0d0/3.0d0))*(1.0d0-2.0d0*Ee/(mec2e))/(2.0d0*Ee/(mec2e))
    nc = pc*(1.13d0 + 3.76d0*(Zat137*Zat137)/(2.0d0*Ee/mec2e)*sqrt(Ee/(Ee+mec2e)))
-   dE = 4.0d0*Ee*g_me*Mat/(Masses*Masses)*(nc*(1.0d0-x)/(nc+x))
+   dE = 4.0d0*Ee*M_effective*g_me*Mat/(Masses*Masses)*(nc*(1.0d0-x)/(nc+x))
 end subroutine NRG_transfer_elastic_atomic 
+
 
 
 subroutine NRG_transfer_elastic_DSF(DSF_DEMFP, Eel, EMFP, dE)
@@ -1692,27 +1733,57 @@ subroutine NRG_transfer_elastic_DSF(DSF_DEMFP, Eel, EMFP, dE)
    real(8), intent(in) :: Eel               ! Incident electron energy [eV]
    real(8), intent(in) :: EMFP              ! Total EMFP of electron with energy Eel [A]
    real(8), intent(out) :: dE               ! Transferred energy in this collision
-   integer NumE, NumL, i, kk
-   real(8) L_need, RN
-   
-   call Find_in_array_monoton(DSF_DEMFP%E, Eel, NumE)
-   
+   integer NumE, NumL, i, kk, j
+   real(8) L_need, RN, Value1
+
+!    i=1
+!    do while (DSF_DEMFP(i)%E .LT. Eel)
+!       i = i + 1
+!    enddo
+!    NumE = i-1
+   call Find_in_array_monoton(DSF_DEMFP%E, Eel, NumE) ! module "Reading_files_and_parameters"
+   NumE = NumE-1
+
+   if ((Eel < DSF_DEMFP(NumE)%E) .or. (Eel > DSF_DEMFP(NumE+1)%E)) then
+      print*, 'Problem in NRG_transfer_elastic_DSF', Eel, DSF_DEMFP(NumE)%E, DSF_DEMFP(NumE+1)%E
+   endif
+
    call random_number(RN)
+
+!  do j = 1, 100   ! Testing
+!      RN = dble(j)/100.0d0    ! Testing
    L_need = EMFP/RN   ! [A] we need to reach
-   
-   kk = size(DSF_DEMFP(NumE)%dL)
-    
-   i = 1
-   do while (DSF_DEMFP(NumE)%dL(i) .GT. L_need)
-        if (i .EQ. kk) exit
-        i = i+1
-   enddo     
-   NumL = i
-   
-   dE = DSF_DEMFP(NumE)%dE(NumL)
 
+   call Linear_approx_2x1d_DSF(DSF_DEMFP(NumE)%dL, DSF_DEMFP(NumE)%dE, L_need, dE) ! module "Reading_files_and_parameters"
+
+   if (dE .GT. 1.0) then
+        print*, dE, Eel, EMFP, L_need
+        pause
+   endif
+
+!     kk = size(DSF_DEMFP(NumE)%dL)
+!     i = 1
+!     do while (DSF_DEMFP(NumE)%dL(i) >= L_need)
+!  !         print*, 'dL', i,  DSF_DEMFP(NumE)%dE(i), DSF_DEMFP(NumE)%dL(i), L_need
+!         if (i .EQ. kk) exit
+!         i = i+1
+!     enddo
+!     NumL = i
+!     if (NumL > 1) then
+!         Value1 = DSF_DEMFP(NumE)%dE(NumL-1)+(DSF_DEMFP(NumE)%dE(NumL)-DSF_DEMFP(NumE)%dE(NumL-1))/(DSF_DEMFP(NumE)%dL(NumL)-DSF_DEMFP(NumE)%dL(NumL-1))*(L_need - DSF_DEMFP(NumE)%dL(NumL-1))
+!     else
+!         Value1 = DSF_DEMFP(NumE)%dE(NumL)
+!     endif
+
+!    write(*,'(a,f,i,f)') ' 1 :', Eel, NumE, DSF_DEMFP(NumE)%E
+!    write(*,'(a,f,f)') ' 2 :', EMFP, RN
+!    write(*,'(a,f,f)') ' 3 :', L_need, dE
+!    write(*,'(a,f,f)') ' 4 :', DSF_DEMFP(NumE)%dL(NumL), DSF_DEMFP(NumE)%dE(NumL)
+!     write(*,'(a,f,f,f,f,f,f,f,f)') 'dE', DSF_DEMFP(NumE)%E, Eel, RN, L_need, EMFP, DSF_DEMFP(NumE)%dL(NumL), Value1, DSF_DEMFP(NumE)%dE(NumL)
+!  enddo  !testing
+!   dE = DSF_DEMFP(NumE)%dE(NumL)
+!      pause 'NRG_transfer_elastic_DSF'
 endsubroutine NRG_transfer_elastic_DSF
-
 
 
 !BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB

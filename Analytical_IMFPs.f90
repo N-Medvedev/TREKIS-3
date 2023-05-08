@@ -22,7 +22,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     type(CDF), intent(in), target, optional :: CDF_Phonon ! CDF parameters of a phonon peak if excist
     type(Solid), intent(inout) :: Matter ! all material parameters
     type(All_MFP), dimension(:), allocatable, intent(inout) :: Total_el_MFPs   ! electron mean free paths for all shells
-    type(MFP), intent(inout) :: Elastic_MFP ! elastic mean free path
+    type(MFP_elastic), intent(inout) :: Elastic_MFP ! elastic mean free path
     type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
     logical, intent(out) :: read_well    ! did we read the file without an error?
     type(Density_of_states), intent(in) :: Mat_DOS
@@ -96,17 +96,17 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             Va = Va + 1
         enddo   ! while (dE .LT. Emax)
         Nelast = Nelast + 1 
-        if (.not. allocated(Elastic_MFP%E)) then 
-            allocate(Elastic_MFP%E(Nelast))  ! [eV] energies for MFP
-            Elastic_MFP%E = 0.0d0   ! just to start
+        if (.not. allocated(Elastic_MFP%Total%E)) then
+            allocate(Elastic_MFP%Total%E(Nelast))  ! [eV] energies for MFP
+            Elastic_MFP%Total%E = 0.0d0   ! just to start
         endif
-        if (.not. allocated(Elastic_MFP%L)) then
-            allocate(Elastic_MFP%L(Nelast))  ! [A] MFP itself
-            Elastic_MFP%L = 1.0d24
+        if (.not. allocated(Elastic_MFP%Total%L)) then
+            allocate(Elastic_MFP%Total%L(Nelast))  ! [A] MFP itself
+            Elastic_MFP%Total%L = 1.0d24
         endif
-        if (.not. allocated(Elastic_MFP%dEdx)) then
-            allocate(Elastic_MFP%dEdx(Nelast))  ! [eV/A] mean energy loss
-            Elastic_MFP%dEdx = 0.0d0
+        if (.not. allocated(Elastic_MFP%Total%dEdx)) then
+            allocate(Elastic_MFP%Total%dEdx(Nelast))  ! [eV/A] mean energy loss
+            Elastic_MFP%Total%dEdx = 0.0d0
         endif
     endif elast
         
@@ -279,10 +279,11 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
    !######################### Now do the same for elastic mean free path of an electron and hole:
    kind_of_part2:if (kind_of_particle .EQ. 'Electron') then
          0001 continue
-         el_elastic_CS:if (NumPar%kind_of_EMFP .EQ. 2) then     ! Read DSF elastic MFP 
+         select case (NumPar%kind_of_EMFP) ! el_elastic_CS
+         case (2) ! Read DSF elastic MFP
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
             Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Electron_DSF_EMFPs_'//trim(adjustl(temp_char1))//'.dat'
-            if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Electron_DSF_EMFPs.dat'//trim(adjustl(temp_char1))//'.dat' ! save for later use
+            if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Electron_DSF_EMFP_'//trim(adjustl(temp_char1))//'.dat' ! save for later use
             FN2 = 2032
             inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
             
@@ -292,30 +293,30 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 write(*, '(a)') ' '
                 open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
                 call count_lines_in_file(FN2, Nelast)
-                deallocate(Elastic_MFP%E)
-                deallocate(Elastic_MFP%L)
-                deallocate(Elastic_MFP%dEdx)
-                allocate(Elastic_MFP%E(Nelast))
-                allocate(Elastic_MFP%L(Nelast))
-                allocate(Elastic_MFP%dEdx(Nelast))
+                deallocate(Elastic_MFP%Total%E)
+                deallocate(Elastic_MFP%Total%L)
+                deallocate(Elastic_MFP%Total%dEdx)
+                allocate(Elastic_MFP%Total%E(Nelast))
+                allocate(Elastic_MFP%Total%L(Nelast))
+                allocate(Elastic_MFP%Total%dEdx(Nelast))
             else    ! create and write to the file:
                 write(*,'(a,a,a)') 'Calculated elastic mean free paths of an electron in ', trim(adjustl(Material_name)), ' are storred in the file:'
                 write(*, '(a)') trim(adjustl(Input_elastic_file))
                 write(*, '(a)') ' '
                 open(FN2, file=trim(adjustl(Input_elastic_file)))
-                deallocate(Elastic_MFP%E)
-                deallocate(Elastic_MFP%L)
-                deallocate(Elastic_MFP%dEdx)
+                deallocate(Elastic_MFP%Total%E)
+                deallocate(Elastic_MFP%Total%L)
+                deallocate(Elastic_MFP%Total%dEdx)
                 Nelast = size(DSF_DEMFP%E)
-                allocate(Elastic_MFP%E(Nelast))
-                allocate(Elastic_MFP%L(Nelast))
-                allocate(Elastic_MFP%dEdx(Nelast))
+                allocate(Elastic_MFP%Total%E(Nelast))
+                allocate(Elastic_MFP%Total%L(Nelast))
+                allocate(Elastic_MFP%Total%dEdx(Nelast))
                 do i = 1, Nelast
-                    Elastic_MFP%E(i) = DSF_DEMFP(i)%E
-                    Elastic_MFP%L(i) = DSF_DEMFP(i)%dL(size(DSF_DEMFP(1)%dL))
+                    Elastic_MFP%Total%E(i) = DSF_DEMFP(i)%E
+                    Elastic_MFP%Total%L(i) = DSF_DEMFP(i)%dL(size(DSF_DEMFP(1)%dL))
                 enddo
            endif
-         else if (NumPar%kind_of_EMFP .EQ. 1) then     !Calculate or read CDF elastic mean free path
+         case (1) ! Calculate or read CDF elastic mean free path
             if (allocated(CDF_Phonon%A)) then
                 write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
                 Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Electron_CDF_EMFPs_'//trim(adjustl(temp_char1))//'.dat'
@@ -328,7 +329,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                     write(*, '(a)') ' '
                     open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
                 else    ! create and write to the file:
-                    call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP, NumPar, Mat_DOS, kind_of_particle)
+                    call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
                     open(FN2, file=trim(adjustl(Input_elastic_file)))
                     write(*,'(a,a,a)') 'Elastic mean free paths of an electron calculated using CDF phonon peaks in ', trim(adjustl(Material_name)), ' are storred in the file'
                     write(*, '(a)') trim(adjustl(Input_elastic_file))
@@ -341,7 +342,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 NumPar%kind_of_EMFP = 0
                 go to 0001
             endif     
-         else if (NumPar%kind_of_EMFP .EQ. 0) then ! Calculate or read Mott elastic MFP
+         case (0) ! Calculate or read Mott elastic MFP
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
             Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Electron_Mott_EMFPs.dat'
             if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Electron_Mott_EMFPs.dat' ! save for later use
@@ -353,13 +354,13 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 write(*, '(a)') ' '
                 open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
             else    ! create and write to the file:
-                call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP, NumPar, Mat_DOS, kind_of_particle)
+                call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
                 open(FN2, file=trim(adjustl(Input_elastic_file)))
                 write(*,'(a,a,a)') 'Elastic mean free paths of an electron calculated using Mott formulae in ', trim(adjustl(Material_name)), ' are storred in the file'
                 write(*, '(a)') trim(adjustl(Input_elastic_file))
                 write(*, '(a)') ' '
             endif
-         else el_elastic_CS             ! Elastic scattering is disabled
+         case default ! el_elastic_CS             ! Elastic scattering is disabled
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
             Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Electron_No_elas_EMFPs.dat'
             if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Electron_No_elas_EMFPs.dat' ! save for later use
@@ -367,28 +368,90 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             open(FN2, file=trim(adjustl(Input_elastic_file)))
             write(*,'(a)') 'Electron kinetics will be traces without elastic scatterings on target atoms'
             file_exist = .false.
-            call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP, NumPar, Mat_DOS, kind_of_particle)
-            Elastic_MFP%L(:) = 1.0d30 
-         endif el_elastic_CS
+            call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
+            Elastic_MFP%Total%L(:) = 1.0d30
+         endselect ! el_elastic_CS
     else if (kind_of_particle .EQ. 'Hole') then
-        write(temp_char, '(f7.2, a)') Matter%temp, '_K'
-        Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Hole_EMFPs_'//trim(adjustl(temp_char))//'.dat'
-        if (allocated(File_names%F)) File_names%F(5) = 'OUTPUT_Hole_EMFPs_'//trim(adjustl(temp_char))//'.dat' ! save for later use
-        FN2 = 204
-        file_exist = .false.
-        call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP, NumPar, Mat_DOS, kind_of_particle)
-        open(FN2, file=trim(adjustl(Input_elastic_file)))
-        write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are storred in the file'
-        write(*, '(a)') trim(adjustl(Input_elastic_file))
+!         write(temp_char, '(f7.2, a)') Matter%temp, '_K'
+!         Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Hole_EMFPs_'//trim(adjustl(temp_char))//'.dat'
+!         if (allocated(File_names%F)) File_names%F(5) = 'OUTPUT_Hole_EMFPs_'//trim(adjustl(temp_char))//'.dat' ! save for later use
+!         FN2 = 204
+!         file_exist = .false.
+!         call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
+!         open(FN2, file=trim(adjustl(Input_elastic_file)))
+!         write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are storred in the file'
+!         write(*, '(a)') trim(adjustl(Input_elastic_file))
+        select case (NumPar%kind_of_EMFP)
+        case (2)    ! Read DSF elastic MFP
+            write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
+            Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Hole_DSF_EMFPs_'//trim(adjustl(temp_char1))//'.dat'
+            if (allocated(File_names%F)) File_names%F(5) = 'OUTPUT_Hole_DSF_EMFPs.dat'//trim(adjustl(temp_char1))//'.dat' ! save for later use
+            FN2 = 2032
+
+            file_exist = .false.
+            write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are storred in the file:'
+            write(*, '(a)') trim(adjustl(Input_elastic_file))
+            write(*, '(a)') ' '
+            open(FN2, file=trim(adjustl(Input_elastic_file)))
+            deallocate(Elastic_MFP%Total%E)
+            deallocate(Elastic_MFP%Total%L)
+            deallocate(Elastic_MFP%Total%dEdx)
+            Nelast = size(DSF_DEMFP%E)
+            allocate(Elastic_MFP%Total%E(Nelast))
+            allocate(Elastic_MFP%Total%L(Nelast))
+            allocate(Elastic_MFP%Total%dEdx(Nelast))
+            do i = 1, Nelast
+                Elastic_MFP%Total%E(i) = DSF_DEMFP(i)%E
+                Elastic_MFP%Total%L(i) = DSF_DEMFP(i)%dL(size(DSF_DEMFP(1)%dL))
+            enddo
+         case (1) ! Calculate or read CDF elastic MFP
+            write(temp_char, '(f7.2, a)') Matter%temp, '_K'
+            Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Hole_CDF_EMFPs_'//trim(adjustl(temp_char))//'.dat'
+            if (allocated(File_names%F)) File_names%F(5) = 'OUTPUT_Hole_CDF_EMFPs_'//trim(adjustl(temp_char))//'.dat' ! save for later use
+            FN2 = 204
+            file_exist = .false.
+            call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
+            open(FN2, file=trim(adjustl(Input_elastic_file)))
+            write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are storred in the file'
+            write(*, '(a)') trim(adjustl(Input_elastic_file))
+         case (0) ! Mott cross-sections
+            write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
+            Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Hole_Mott_EMFPs'//trim(adjustl(temp_char1))//'.dat'
+            if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Hole_Mott_EMFPs'//trim(adjustl(temp_char1))//'.dat' ! save for later use
+            FN2 = 2043
+            inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
+            if (file_exist) then    ! read from the file:
+                write(*,'(a,a,a)') 'Mott EMFPs of a hole in ', trim(adjustl(Material_name)), ' are already in the file:'
+                write(*, '(a)') trim(adjustl(Input_elastic_file))
+                write(*, '(a)') ' '
+                open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+            else    ! create and write to the file:
+                call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
+                open(FN2, file=trim(adjustl(Input_elastic_file)))
+                write(*,'(a,a,a)') 'Elastic mean free paths of an hole calculated using Mott formulae is in ', trim(adjustl(Material_name)), ' are storred in the file'
+                write(*, '(a)') trim(adjustl(Input_elastic_file))
+                write(*, '(a)') ' '
+            endif
+         case default ! disabled
+            write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
+            Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Hole_No_elas_EMFPs.dat'
+            if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Hole_No_elas_EMFPs.dat' ! save for later use
+            FN2 = 2031
+            open(FN2, file=trim(adjustl(Input_elastic_file)))
+            write(*,'(a)') 'Valence hole kinetics will be traces without elastic scatterings on target atoms'
+            file_exist = .false.
+            call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
+            Elastic_MFP%Total%L(:) = 1.0d30
+         endselect
     endif kind_of_part2
     
     ! Now write the elastic output into the file:
     if (kind_of_particle .NE. 'Photon') then
         do i = 1, Nelast
            if (.not. file_exist) then  ! if file didn't exist and we just created it:
-             write(FN2,'(f,e)') Elastic_MFP%E(i), Elastic_MFP%L(i)
+             write(FN2,'(f,e)') Elastic_MFP%Total%E(i), Elastic_MFP%Total%L(i)
            else
-             read(FN2,*, IOSTAT=Reason) Elastic_MFP%E(i), Elastic_MFP%L(i)
+             read(FN2,*, IOSTAT=Reason) Elastic_MFP%Total%E(i), Elastic_MFP%Total%L(i)
              call read_file_here(Reason, i, read_well)
              if (.not. read_well) print*, trim(adjustl(Input_elastic_file))
              if (.not. read_well) goto 2016
@@ -466,7 +529,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
 
         do i = 1, size(Mat_DOS%E)
             call linear_approx(Temp_MFP, Mat_DOS%E(i), InelMFP)             ! find inelastic MFP
-            call linear_approx(Elastic_MFP%E, Elastic_MFP%L, Mat_DOS%E(i), ElasMFP)
+            call linear_approx(Elastic_MFP%Total%E, Elastic_MFP%Total%L, Mat_DOS%E(i), ElasMFP)
             if (Matter%Hole_mass .LT. 0) then
                 Mass = Mat_DOS%Eff_m(i)
             else
@@ -876,8 +939,12 @@ subroutine Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin
        E(j) =  SHI_1%E  ! save energy to write into file later
        call All_shells_SHI_dEdx(SHI_1, Target_atoms, IMFP, dEdx, Matter, Mat_DOS, NumPar)  ! get dEdx for all shells summed up
        SHI_dEdx(j, :, :) = dEdx(:,:)   ! [eV/A]
-       SHI_IMFP(j, :, :) = 1.0d0/IMFP(:,:) ! [A]
-       SHI_IMFP(j, :, :) = 1.0d0/IMFP(:,:) ! [A]
+       !SHI_IMFP(j, :, :) = 1.0d0/IMFP(:,:) ! [A]
+       where (IMFP(:,:) > 1.0d-10)  ! calculated inverse MFP
+          SHI_IMFP(j, :, :) = 1.0d0/IMFP(:,:) ! [A]
+       elsewhere    ! infinity
+          SHI_IMFP(j, :, :) = 1.0d28     ! [A]
+       endwhere
        Zeff(j) = SHI_1%Zeff   ! equilibrium charge
        call progress(' Progress of calculation: ', j, N)
    enddo

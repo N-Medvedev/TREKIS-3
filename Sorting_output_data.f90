@@ -12,6 +12,26 @@ implicit none
 contains
 
 
+subroutine TREKIS_title(FN)
+   integer, intent(in) :: FN    ! file/screen number to print to
+   character(200) :: starline
+   starline =      '********************************************************'
+
+   write(FN,'(a)') trim(adjustl(starline))
+   write(FN,'(a)') '*      _______   ___     _____   _   _   _    ___      *'
+   write(FN,'(a)') '*     |__   __| |  _ \  |  ___| | | / / | |  / __|     *'
+   write(FN,'(a)') '*        | |    | |_) ) | |___  | |/ /  | | ( (_       *'
+   write(FN,'(a)') '*        | |    |    /  |  ___| |   (   | |  \_ \      *'
+   write(FN,'(a)') '*        | |    | |\ \  | |___  | |\ \  | |  __) )     *'
+   write(FN,'(a)') '*        |_|    |_| \_\ |_____| |_| \_\ |_| |___/      *'
+   write(FN,'(a)') '*                                                      *'
+   write(FN,'(a)') trim(adjustl(starline))
+   write(FN,'(a)') 'Time-Resolved Electron Kinetics in SHI-Irradiated Solids'
+   write(FN,'(a)') 'Version: 3.0.8  (update 08.05.2023)     '
+   write(FN,'(a)') trim(adjustl(starline))
+end subroutine TREKIS_title
+
+
 subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, &
                        SHI, Out_R, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_E_at, Out_E_h, Out_Eat_dens, & 
                        Out_Distr, Out_Elat, Out_theta, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, NumPar, &
@@ -38,24 +58,20 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     real(8), dimension(:,:), allocatable, intent(in) :: Out_Elat
     real(8), dimension(:,:), allocatable, intent(in) :: Out_theta
     real(8), dimension(:,:), allocatable, intent(in) :: Out_field_all
-    
     real(8), dimension(:), allocatable, intent(in) :: Out_diff_coeff
-    
     real(8), dimension(:), intent(in) :: Out_E_field
-    
     real(8), dimension(:,:), intent(in) :: Out_Ee_vs_E_Em
     real(8), dimension(:), intent(in) :: Out_Ne_Em
     real(8), dimension(:), intent(in) :: Out_E_Em
-    
     type(Cylinder_distr), intent(in) :: Out_Distr   ! OUTPUT radial distributions
     type(Flag), intent(in) :: NumPar
-        
-    real(8) t, as1, tim_glob
-    integer c1(8), i, j,k,l,N, Nat, N_R, FN, FN1, FN2, FN3, FN31, FN4, Lowest_Ip_At, Lowest_Ip_Shl !, NOTP
-    character(200) command, charge_name, charge_kind, File_name, File_name1, File_name2, File_name3, File_name4, C_time
-    character(30) ch1, ch2, ch3
-    character(LEN=25) FMT
-    logical file_exist, file_opened
+    !-------------------------------------------------
+    real(8) :: t, as1, tim_glob, out_val
+    integer :: c1(8), i, j,k,l,N, Nat, N_R, FN, FN1, FN2, FN3, FN31, FN4, Lowest_Ip_At, Lowest_Ip_Shl !, NOTP
+    character(200) :: command, charge_name, charge_kind, File_name, File_name1, File_name2, File_name3, File_name4, C_time
+    character(30) :: ch1, ch2, ch3
+    character(LEN=25) :: FMT
+    logical :: file_exist, file_opened
     real(8), dimension(:), allocatable :: time_grid ! grid_points in time
     
     Nat = size(Target_atoms)    ! number of atoms
@@ -128,6 +144,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     FN1 = 299
     File_name = trim(adjustl(File_name2))//'/!Parameters.txt'
     open(unit = FN1, FILE = trim(adjustl(File_name)))
+    call TREKIS_title(FN1)  ! above
     write(FN1, '(a,a,a)') 'Material: ', trim(adjustl(Material_name)), ' ('//trim(adjustl(Matter%Target_name))//')'
     write(FN1, '(a,f10.2,a,e16.7,a)') 'Material density: ', Matter%Dens, ' [g/cm^3] or ', Matter%At_dens, ' [1/cm^3]'
     if (Matter%hole_mass .GT. 0) then
@@ -428,6 +445,34 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     inquire(unit=FN3,opened=file_opened)    ! check if this file is opened
     if (file_opened) close(FN3)             ! and if it is, close it
     
+
+    !=============================== Electron radial temperature
+    FN3 = 303
+    File_name = trim(adjustl(File_name2))//'/Radial_electron_temperature[K].txt'
+    open(unit = FN3, FILE = trim(adjustl(File_name)))
+    write(FN3, '(a)', advance='no') 'Radius[A] '
+    t = 0.0d0
+    do i = 1, N     ! timesteps
+        t = time_grid(i)
+        write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+    enddo
+    write(FN3, '(a)') ' '
+    do i = 1, N_R   ! radii
+        write(FN3, '(f9.1)', advance='no') Out_R(i)
+        t = 0.0d0
+        do k = 1, N ! time-steps
+            t = time_grid(k)
+            if (Out_Distr%ne(k,i) .GT. 0.0d0) then
+                out_val = Out_Distr%Ee(k,i)/Out_Distr%ne(k,i)*g_kb*2.0d0/3.0d0
+            else
+                out_val = 0.0d0
+            endif
+            write(FN3, '(e)', advance='no') out_val
+        enddo
+        write(FN3, '(a)') ' '
+    enddo
+    inquire(unit=FN3,opened=file_opened)    ! check if this file is opened
+    if (file_opened) close(FN3)             ! and if it is, close it
     
     photons_here:if (NumPar%include_photons) then ! only if we include photons:
         !Photon density vs R vs time:
@@ -551,6 +596,30 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     enddo
     inquire(unit=FN3,opened=file_opened)    ! check if this file is opened
     if (file_opened) close(FN3)             ! and if it is, close it
+
+
+    !Lattice temperature
+    FN3 = 303
+    File_name = trim(adjustl(File_name2))//'/Radial_Lattice_temperature[K].txt'
+    open(unit = FN3, FILE = trim(adjustl(File_name)))
+    write(FN3, '(a)', advance='no') 'Radius[A] '
+    t = 0.0d0
+    do i = 1, N     ! timesteps
+        t = time_grid(i)
+        write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+    enddo
+    write(FN3, '(a)') ' '
+    do i = 1, N_R   ! radii
+        write(FN3, '(f9.1)', advance='no') Out_R(i)
+        t = 0.0d0
+        do k = 1, N ! time-steps
+            t = time_grid(k)
+            write(FN3, '(e)', advance='no') SUM(Out_Elat(1:k,i))/(Matter%At_dens*1e-24)*g_kb*2.0d0/3.0d0
+        enddo
+        write(FN3, '(a)') ' '
+    enddo
+    inquire(unit=FN3,opened=file_opened)    ! check if this file is opened
+    if (file_opened) close(FN3)             ! and if it is, close it
     
     
     !Holes densities vs R vs time:
@@ -648,6 +717,43 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
           
         enddo   ! l
     enddo   ! j
+
+
+    !Holes temperature:
+    do j = 1, Nat   ! all atoms
+        do l = 1, size(Target_atoms(j)%Ip)  ! all shells
+            FN3 = 304
+            if (Target_atoms(j)%Shl_num(l) .EQ. 63) then    ! VB
+                write(File_name4, '(a)') trim(adjustl(Target_atoms(j)%Shell_name(l)))
+                File_name = trim(adjustl(File_name2))//'/Radial_'//trim(adjustl(File_name4))//'_holes_temperature[K].txt'
+                open(unit = FN3, FILE = trim(adjustl(File_name)))
+                write(FN3, '(a)', advance='no') 'Radius[A] '
+                t = 0.0d0
+                do i = 1, N     ! timesteps
+                    t = time_grid(i)
+                    write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+                enddo
+                write(FN3, '(a)') ' '
+                do i = 1, N_R   ! radii
+                    write(FN3, '(f9.1)', advance='no') Out_R(i)
+                    t = 0.0d0
+                    do k = 1, N ! time-steps
+                        t = time_grid(k)
+                        if (Out_Distr%Atom(j)%Shl(l)%nh(k,i) .GT. 0.0d0) then
+                            out_val = Out_Distr%Atom(j)%Shl(l)%Ehkin(k,i)/Out_Distr%Atom(j)%Shl(l)%nh(k,i)*g_kb*2.0d0/3.0d0
+                        else
+                            out_val = 0.0d0
+                        endif
+                        write(FN3, '(e)', advance='no') out_val
+                    enddo
+                    write(FN3, '(a)') ' '
+                enddo
+                inquire(unit=FN3,opened=file_opened)    ! check if this file is opened
+                if (file_opened) close(FN3)             ! and if it is, close it
+            endif
+        enddo   ! l
+    enddo   ! j
+
 end subroutine Save_output
 
 

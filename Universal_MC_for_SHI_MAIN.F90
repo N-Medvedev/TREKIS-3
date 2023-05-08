@@ -80,11 +80,8 @@ integer OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
 character(8) kind_of_particle
 
 ! Print the program name:
-write(*,'(a)') ''
-write(*,'(a)') '*************************************************************************'
-write(*,'(a)') '*   TREKIS: Time Resolved Electron Kinetics in SHI-Irradiated Solids    *'
-write(*,'(a)') '*************************************************************************'
-write(*,'(a)') ''
+call TREKIS_title(6)   ! module "Sorting_output_data"
+
 !TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 Error_message%Err = .false. ! no errors at the beginning, turn it into 'true' if any occurs
 call get_path_separator(Numpar%path_sep, Error_message, read_well)   ! module: Path_separator from Variables.f90
@@ -97,7 +94,7 @@ write(*, 1005) ctim(5), ctim(6), ctim(7), ctim(3), ctim(2), ctim(1)
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! Reading input file:
 call Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, dt, Output_path, Output_path_SHI, Material_name, &
-                     NMC, Num_th, Error_message, read_well, DSF_DEMFP, NumPar, File_names)  ! this subroutine is in the 'Reading_files_and_parameters' module
+                     NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names)  ! this subroutine is in the 'Reading_files_and_parameters' module
 if (.not. read_well) goto 2012  ! if we couldn't read the input files, there is nothing else to do, go to end
 call get_num_shells(Target_atoms, Nshtot) ! from module 'Reading_files_and_parameters'
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
@@ -123,7 +120,7 @@ if (allocated(File_names%F)) call Gnuplot_electrons_MFP(NumPar%path_sep, File_na
 ! Hole MFPs:
 kind_of_particle = 'Hole'
 call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_Hole_MFPs, & 
-          Elastic_Hole_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names) ! from module Analytical_IMPS / openmp parallelization
+          Elastic_Hole_MFP, Error_message, read_well, DSF_DEMFP_H, Mat_DOS, NumPar, kind_of_particle, File_names) ! from module Analytical_IMPS / openmp parallelization
 
 ! Photon MFPs:
 if (NumPar%include_photons) then ! only if we include photons:
@@ -180,9 +177,10 @@ do MC_stat = 1, NMC   ! MC iterations to be averaged
     ! Perform all the MC calculations within this subroutine:
     call Monte_Carlo_modelling(SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
      Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, &
-     Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
+     Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, &
+     Out_tot_Nphot, Out_tot_E, &
      Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
-     Error_message, DSF_DEMFP, Out_field_all, Out_E_field, Out_diff_coeff)  ! module Monte_carlo
+     Error_message, DSF_DEMFP, DSF_DEMFP_H, Out_field_all, Out_E_field, Out_diff_coeff)  ! module Monte_carlo
     Nit = Nit + 1   ! just count the number of iteration to test parallelization
     my_id = 1 + OMP_GET_THREAD_NUM() ! identify which thread it is
     call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
@@ -269,7 +267,11 @@ endif
 1008 format (a, i4, a, i6, a, i2.2, ':', i2.2, ':', i2.2)
 
 if (NumPar%path_sep .EQ. '\') then
-    PAUSE 'The program is finished, press RETURN to go out...'
+    !PAUSE 'The program is finished, press RETURN to go out...'
 endif    
 STOP
+
+contains
+
+
 END PROGRAM Universal_MC_for_SHI

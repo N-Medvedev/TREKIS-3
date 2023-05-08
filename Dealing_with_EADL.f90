@@ -203,7 +203,7 @@ subroutine check_atomic_parameters(NumPar, Target_atoms, N_at, cur_shl, shl, Err
                  !READ_EADL_TYPE_FILE_real(FN, File_name, Z_needed, I_needed, Array1, cur_shl, shl_tot, Shl_dsgtr) 
             call READ_EADL_TYPE_FILE_real(FN1, File_name_EADL, Z, 921, Target_atoms(N_at)%Radiat, cur_shl, shl, Target_atoms(N_at)%Shl_num(cur_shl)) ! read radiative decay-times
             Target_atoms(N_at)%Radiat(cur_shl)=1d15*g_h/(g_e*Target_atoms(N_at)%Radiat(cur_shl)) ! [fs]
-            print*, N_at, cur_shl, Target_atoms(N_at)%Radiat(cur_shl)
+            !print*, N_at, cur_shl, Target_atoms(N_at)%Radiat(cur_shl)
          endif
          
          if (Target_atoms(N_at)%Shl_num(cur_shl) .GE. 63) then

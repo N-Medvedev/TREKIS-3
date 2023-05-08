@@ -43,12 +43,12 @@ public :: Integrate_function, Trapeziod
 contains
 
 subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, dt, Output_path, Output_path_SHI, &
-           Material_name, NMC, Num_th, Error_message, read_well, DSF_DEMFP, NumPar, File_names)
+           Material_name, NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names)
    type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(CDF), intent(inout) :: CDF_Phonon   ! CDF parameters for phonon to be read from a file
    type(Solid), intent(inout) :: Matter   ! all material parameters
    type(Density_of_states), intent(inout) :: Mat_DOS  ! materail DOS
-   type(Differential_MFP), dimension(:), allocatable, intent(inout) :: DSF_DEMFP
+   type(Differential_MFP), dimension(:), allocatable, intent(inout) :: DSF_DEMFP, DSF_DEMFP_H
    class(Ion), intent (out) :: SHI  ! we'll read an information about SHI from input-file
    real(8), intent(out) :: Tim !  [fs] total duration of the analysis
    real(8), intent(out) :: dt  !  [fs] timestep
@@ -61,14 +61,14 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    type(Flag), intent(inout) :: NumPar
    
    real(8) M, SUM_DOS
-   integer FN, Reason, i, temp, temp1, temp2(1)
+   integer FN, Reason, i, temp, temp1, temp2(1), temper
    character(100)   Material_file   ! file with material parameters, name MUST coinside with 'Material_name'!!!
    character(100)   Short_material_file ! short version of the 'material parameters file'
    character(100)   File_name   ! file name if needed to use
    character(100)   DOS_file    ! file with material DOS, name MUST coinside with 'Material_name'!!!
-   character(100)   DSF_file    ! file with DSF differential cross-sections, name MUST coinside with 'Material_name'!!!
+   character(100)   DSF_file, DSF_file_h    ! file with DSF differential cross-sections, name MUST coinside with 'Material_name'!!!
    character(100)   Error_descript  ! to write a description of an error, if any
-   character(100)   Temp_char
+   character(100)   Temp_char, temp_char1
    character(3) Name    ! for reading elements names
    character(30) Full_Name    ! for reading full elements names
    character(100) command   ! to pass to cmd a command
@@ -97,7 +97,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    Material_file = 'INPUT_CDF/'//trim(adjustl(Material_name))//'.cdf' ! that's the file where material properties must be storred, or alternatively:
    Short_material_file = 'INPUT_EADL/'//trim(adjustl(Material_name))//'.scdf' ! that's the file where short version of material properties must be storred
    DOS_file = 'INPUT_DOS/'//trim(adjustl(Material_name))//'.dos'      ! that's the file where material DOS must be storred!
-   DSF_file = 'INPUT_DSF/'//trim(adjustl(Material_name))//'_Electron_DSF_Differential_EMFPs.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
+   !//trim(adjustl(Material_name))//'_Electron_DSF_Differential_EMFPs.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
    
    READ(FN,*,IOSTAT=Reason) SHI%Zat   ! atomic number
    call read_file(Reason, i, read_well) ! reports if everything read well
@@ -141,6 +141,12 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    READ(FN,*,IOSTAT=Reason) Matter%temp    ! [K] temperature of the target
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2013
+
+   temper = int(Matter%temp)    ! material temperature
+   write(temp_char1, '(i)') temper
+   DSF_file = 'INPUT_DSF/'//trim(adjustl(Material_name))//'/'//trim(adjustl(Material_name))//'_Electron_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
+   DSF_file_h = 'INPUT_DSF/'//trim(adjustl(Material_name))//'/'//trim(adjustl(Material_name))//'_Hole_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
+
    
    READ(FN,*,IOSTAT=Reason) SHI%Kind_Zeff, SHI%fixed_Zeff   ! 0=Barkas; 1=Bohr; 2=Nikolaev-Dmitriev; 3=Schiwietz-Grande, 4 - fixed value;
    call read_file(Reason, i, read_well) ! reports if everything read well
@@ -237,7 +243,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       command='mkdir '//trim(adjustl(Output_path)) ! to create a folder use this command
       CALL system(command)  ! create the folder
    endif
-   
+
    Error_message%File_Num = 100 ! this is the file where error-log will be storred
    if (SHI%Zat .GT. 0) then
     File_name = trim(adjustl(Output_path))//'/'//trim(adjustl(SHI%Name))//'_in_'//trim(adjustl(Material_name))//'_error_log.txt'
@@ -278,7 +284,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
        endif
        if (SHI%E .GE. 175.0d6/2.0d0*SHI%Mass) goto 2015
    endif
-   
+
    call reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_message, read_well)    ! read material DOS
    if (.not. read_well) goto 2015
          
@@ -297,6 +303,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
      
    if (NumPar%kind_of_EMFP .EQ. 2) then
        call reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message, read_well)
+       call reading_DSF_cross_sections(DSF_file_h, DSF_DEMFP_H, NumPar, Error_message, read_well)
    else
       allocate(DSF_DEMFP(0))
    endif
@@ -394,7 +401,8 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    READ(FN2,*,IOSTAT=Reason) Matter%Dens, Matter%Vsound, Matter%E_F   ! material density [g/cm^3], speed of sound in the material [m/s], Fermi energy []
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2014
-   Matter%At_Dens = 1.0d-3*Matter%Dens/(g_Mp*SUM(Target_atoms(:)%Mass)/size(Target_atoms)) ! [1/cm^3] atomic density
+   !Matter%At_Dens = 1.0d-3*Matter%Dens/(g_Mp*SUM(Target_atoms(:)%Mass)/size(Target_atoms)) ! [1/cm^3] atomic density
+   Matter%At_Dens = 1.0d-3*Matter%Dens/(g_Mp*SUM(Target_atoms(:)%Mass*Target_atoms(:)%Pers)/SUM(Target_atoms(:)%Pers))
    Matter%v_f = sqrt(2.0d0*Matter%E_f/g_me) ! units as used in one-pole approximation (not SI!)
   
    do j = 1, N  ! read for each element its shells data:
@@ -599,7 +607,9 @@ subroutine read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_
    READ(FN2,*,IOSTAT=Reason) Matter%Dens, Matter%Vsound, Matter%E_F   ! material density [g/cm^3], speed of sound in the material [m/s]
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2014
-   Matter%At_Dens = 1.0d-3*Matter%Dens/(g_Mp*SUM(Target_atoms(:)%Mass)/size(Target_atoms)) ! [1/cm^3] atomic density
+   ! [1/cm^3] atomic density:
+   !Matter%At_Dens = 1.0d-3*Matter%Dens/(g_Mp*SUM(Target_atoms(:)%Mass)/size(Target_atoms)) ! [1/cm^3] atomic density
+   Matter%At_Dens = 1.0d-3*Matter%Dens/(g_Mp*SUM(Target_atoms(:)%Mass*Target_atoms(:)%Pers)/SUM(Target_atoms(:)%Pers))
    Matter%v_f = sqrt(2.0d0*Matter%E_f/g_me) ! units as used in one-pole approximation (not SI!)
    
    call check_atomic_parameters(NumPar, Target_atoms, Error_message=Error_message, read_well=read_well) ! from module 'Dealing_with_EADL'
@@ -719,7 +729,7 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_m
        !Mat_DOS%Eff_m_inv(:) = 1.0d20
        Mat_DOS%Eff_m_inv(:) = 1.0d0 ! too slow to get rom DOS, assume free particle mass
     elsewhere   ! regular energy particle
-       Mat_DOS%Eff_m_inv(:) = g_h*g_h*Mat_DOS%k_inv(:)*Mat_DOS%k_inv(:)/(2*Mat_DOS%E(:)*g_e)/g_me
+       Mat_DOS%Eff_m_inv(:) = g_h*g_h*Mat_DOS%k_inv(:)*Mat_DOS%k_inv(:)/(2.0*Mat_DOS%E(:)*g_e)/g_me
     endwhere
     
 2016 inquire(unit=FN2,opened=file_opened)    ! check if this file is opened
@@ -727,7 +737,123 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_m
 end subroutine reading_material_DOS
 
 
+
 subroutine reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message, read_well)    ! read material DOS
+    character(100), intent(in) :: DSF_file  ! file with DSF crossections
+    type(Differential_MFP), dimension(:), allocatable, intent(inout) :: DSF_DEMFP  ! diffential elastic MFPs calculated with DSF
+    type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
+    logical, intent(inout) :: read_well  ! did we read the file well?
+    type(Flag), intent(inout) :: NumPar
+
+    real(8), dimension(:,:), allocatable :: Temp_EMFP, Temp_array
+
+    type(Differential_MFP), dimension(:), allocatable :: Temp_DEMFP
+    real(8), dimension(:), allocatable :: Temp_E
+    real(8) Sum_MFP, loc_EMFP, E, dE, Emin, Emax
+    integer FN2, i, j, N, Reason, M, NEPo, NTEPo, k
+    character(100) Error_descript
+    logical file_opened, file_exist, file_exist2
+
+    FN2 = 212
+    inquire(file=trim(adjustl(DSF_file)),exist=file_exist)    ! check if input file excists
+    if (file_exist) then
+       print*, 'File with DSF elastic cross-sections is there: ', trim(adjustl(DSF_file))
+       open(unit = FN2, FILE = trim(adjustl(DSF_file)), status = 'old', readonly)   ! if yes, open it and read
+    else ! no DSF file, try CDF phonon peaks or atomic approxiamtion instead...
+       print*, 'File ', trim(adjustl(DSF_file)), ' is not found.'
+       print*, 'The calculations proceed with Mott atomic cross-sections.'
+       Error_descript = 'File '//trim(adjustl(DSF_file))//' is not found.'    ! description of an error
+       call Save_error_details(Error_message, 6, Error_descript) ! write it into the error-log file
+       read_well = .true.  ! no file found
+       NumPar%kind_of_EMFP = 0
+       goto 2017
+    endif
+
+    call Count_lines_in_file(FN2, N) ! count how many line the file contains
+    M = N - 1
+
+    allocate(Temp_EMFP(2,M)) ! to read from file
+    allocate(Temp_E(M)) ! to read from file
+    read(FN2, *, IOSTAT=Reason) NTEPo        ! Number of transferred Energy Points for each energy
+
+    do i = 2, M ! read all lines
+        read(FN2, *, IOSTAT=Reason) Temp_E(i-1), Temp_EMFP(1,i-1), Temp_EMFP(2,i-1)
+        if (Temp_EMFP(2,i-1) .LT. 1.0d-10) Temp_EMFP(2,i-1) = 0.0d0
+        call read_file_here(Reason, i-1, read_well)
+        if (.not. read_well) goto 2017
+    enddo
+
+    NEPo = M/NTEPo
+    if(allocated(DSF_DEMFP)) deallocate(DSF_DEMFP)
+    allocate(DSF_DEMFP(NEPo))
+    allocate(Temp_DEMFP(NEPo))
+    allocate(Temp_array(2,NTEPo))
+    k = 0
+    do i = 1, NEPo
+        allocate(DSF_DEMFP(i)%dE(NTEPo))
+        allocate(Temp_DEMFP(i)%dE(NTEPo))
+        allocate(DSF_DEMFP(i)%dL(NTEPo))
+        allocate(Temp_DEMFP(i)%dL(NTEPo))
+
+        Temp_DEMFP(i)%E = Temp_E(1+NTEPo*(i-1))
+
+        do j = 1, NTEPo  ! fill all points in the array:
+            k = k+1
+            Temp_DEMFP(i)%dE(j) = Temp_EMFP(1,k) ! [eV] energy
+            Temp_DEMFP(i)%dL(j) = Temp_EMFP(2,k) ! [1/eV] DSF
+        enddo
+    enddo
+    DSF_DEMFP(:)%E = Temp_DEMFP(:)%E
+
+    do i = 1, NEPo
+        do j = 1, NTEPo  ! fill all points in the array:
+            DSF_DEMFP(i)%dE(j) = Temp_DEMFP(i)%dE(NTEPo+1-j)
+            DSF_DEMFP(i)%dL(j) = Temp_DEMFP(i)%dL(NTEPo+1-j)
+        enddo
+    enddo
+
+    do i = 1, NEPo  ! fill all points in the array:
+        sum_MFP = 0.0d0
+
+        Temp_array(1,:) = DSF_DEMFP(i)%dE(:)
+        Temp_array(2,:) = DSF_DEMFP(i)%dL(:)
+
+        Emin = -0.2d0 !Temp_array(1,1)    ! start from the first point of transferred energy [eV]
+        E = Emin
+        Emax = Temp_array(1,NTEPo)
+        if (Emax .GT. 0.2d0) Emax = 0.2d0
+
+        dE = (Emax - Emin)/dble(NTEPo)
+
+        do j = 1, NTEPo
+            E = E + dE   ! energy grid [eV]
+
+            call Linear_approx(Temp_array, E, loc_EMFP, (Emin-dE), 0.0d0)
+            Temp_DEMFP(i)%dE(j) = E                         ! [eV] transferred energy
+            Temp_DEMFP(i)%dL(j) = loc_EMFP                  ! [(A*eV)^-1] cross-section
+
+            Sum_MFP = Sum_MFP + Temp_DEMFP(i)%dL(j)*dE      ! for integrated EMFP
+            DSF_DEMFP(i)%dE(j) = Temp_DEMFP(i)%dE(j)
+            if (abs(Sum_MFP) > 1.0d-10) then
+                DSF_DEMFP(i)%dL(j) = 1.0d0/Sum_MFP          ! integrated MFP
+            else
+                DSF_DEMFP(i)%dL(j) = 1.0d30
+            endif
+        enddo
+    enddo
+
+    deallocate(Temp_E)
+    deallocate(Temp_DEMFP)
+    deallocate(Temp_EMFP)
+    deallocate(Temp_array)
+
+2017 inquire(unit=FN2,opened=file_opened)    ! check if this file is opened
+    if (file_opened) close(FN2)             ! and if it is, close it
+end subroutine reading_DSF_cross_sections
+
+
+
+subroutine reading_DSF_cross_sections_OLD(DSF_file, DSF_DEMFP, NumPar, Error_message, read_well)    ! read material DOS
     character(100), intent(in) :: DSF_file  ! file with DSF crossections
     type(Differential_MFP), dimension(:), allocatable, intent(inout) :: DSF_DEMFP  ! diffential elastic MFPs calculated with DSF
     type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
@@ -830,7 +956,7 @@ subroutine reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message
         
 2017 inquire(unit=FN2,opened=file_opened)    ! check if this file is opened
     if (file_opened) close(FN2)             ! and if it is, close it
-end subroutine reading_DSF_cross_sections
+end subroutine reading_DSF_cross_sections_OLD
 
 
 subroutine read_SHI_MFP(FN, FN2, Nat, Target_atoms, SHI_MFP, read_well)
@@ -1079,7 +1205,8 @@ subroutine Find_in_monotonous_1D_array(Array, Value0, Number)
        else
            coun = 0
            do ! until the Value is in between Array(i_cur) and Array(i_cur+1) => we found i_cur
-                if ((Value0 .GE. Array(i_cur)) .AND. (Value0 .LE. Array(i_cur+1))) exit ! when the Value is in between Array(i_cur) and Array(i_cur+1) => we found i_cur
+                !if ((Value0 .GE. Array(i_cur)) .AND. (Value0 .LE. Array(i_cur+1))) exit ! when the Value is in between Array(i_cur) and Array(i_cur+1) => we found i_cur
+                if (i_1 == i_2-1) exit
                 if (temp_val .LE. Value0) then
                    i_1 = i_cur
                    val_1 = Array(i_1)
@@ -1310,6 +1437,66 @@ subroutine Trapeziod_save(x,f,x0,xn,i_0,i_n,res)
     enddo
     res(i_n) = res(i_n-1)
 end subroutine
+
+
+subroutine Linear_approx_2x1d_DSF(Array, Array2, In_val, Value1, El1, El2)
+   REAL(8), dimension(:), INTENT(in) :: Array       ! Array correcp to In_val
+   REAL(8), dimension(:), INTENT(in) :: Array2      ! in this array make an ouput approximation
+   real(8), INTENT(in) :: In_val    ! this is the value
+   real(8), intent(in), optional :: El1, El2    ! where to start approximation from, if needed
+   real(8), intent(out) :: Value1   ! output, approximated value
+   real(8) el_one
+   integer Number, i, kk
+
+   kk = size(array)
+!    i = 1
+!    do while (Array(i) .GT. In_val)
+!         if (i .EQ. kk) exit
+!         i = i+1
+!    enddo
+!    Number = i
+   !print*, Number
+
+   ! The following subroutine works for monotoneusly increasing array,
+   ! where as Array passed is decreaseing, so use negative array to find the correct index:
+   call Find_in_array_monoton(-Array, -In_val, Number)    ! find the closest value in the array to a given one
+   !print*, Number
+   !pause
+
+   if (Number .EQ. 1) then
+       if (present(El1)) then  ! the starting points are known, use them:
+          if (present(El2)) then ! the starting points are known, use them:
+             Value1 = El2+(Array2(Number)-El2)/(Array(Number)-El1)*(In_val - El1)
+          else ! only the X-starting point is known, Y is not, use some assumptions:
+             if (size(Array2) .GE. 2) then ! array is long enough to assume something:
+                if (Array2(1) .GT. Array2(2)) then ! it is locally decreasing array, assume starting point "infinity"
+                    Value1 = 1d21
+                else    ! it is locally increasing, assume starting point 'zero'
+                    Value1 = Array2(Number)/(Array(Number)-El1)*(In_val - El1)
+                endif
+             else   ! array is too short, no assumption can be made, just make it equal to the first value:
+                Value1 = El1
+             endif
+          endif
+       else ! no starting points are present, nothing to assume, use first point as approximation:
+          Value1 = Array2(1) ! [A] total mean free path
+       endif
+   else if (Number .EQ. kk) then
+      Value1 = Array2(Number)
+   else
+      if (Array2(Number-1) .GT. 1d20) then ! if it starts from infinity, approximate as 'infinity'
+         Value1 = Array2(Number-1)
+      else  ! if it's normal array, just interpolate:
+         Value1 = Array2(Number-1)+(Array2(Number)-Array2(Number-1))/(Array(Number)-Array(Number-1))*(In_val - Array(Number-1))
+      endif
+   endif
+!   if (Value1 .GT. 1.0) then
+!        print*, 'Linear approx subr = '
+!        print*, Number, kk, Value1
+!        print*, array(Number), array2(Number)
+!        pause
+!   endif
+end subroutine Linear_approx_2x1d_DSF
 
 
 end module Reading_files_and_parameters

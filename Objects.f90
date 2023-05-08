@@ -125,6 +125,16 @@ type :: MFP
 end type MFP
 !==============================================
 
+
+!==============================================
+! All electron mean free paths for all shells combined together:
+type :: MFP_elastic
+   type(MFP) :: Total   ! total MFP for scatterign on phonons
+   type(MFP) :: Absorb  ! MFP for phonon absorption (inrease of electron energy)
+   type(MFP) :: Emit    ! MFP for phonon emission (derease of electron energy)
+end type MFP_elastic
+!==============================================
+
 !==============================================
 ! All electron mean free paths for all shells combined together:
 type :: All_MFP
