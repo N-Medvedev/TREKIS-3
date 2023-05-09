@@ -15,7 +15,11 @@ type :: Basic_particle
    real(8) t0   ! [fs] current time
    real(8) tn   ! [fs] time of the next collision
    real(8) X, Y, Z  ! [A] coordinates
+   real(8) vX, vY, vZ  ! [A] velocities
+   real(8) aX, aY, aZ  ! [A] accelerations
    real(8) L        ! [A] sampled mean free path
+   real(8) theta    ! current theta angle
+   real(8) phi      ! current phi angle
 end type Basic_particle
 ! Extend this type for particular particles:
 
@@ -31,24 +35,33 @@ type, EXTENDS (Basic_particle) :: Ion ! SHI as an object contains:
 end type Ion
 
 type, EXTENDS (Basic_particle) :: Electron ! electron as an object contains:
-   real(8) theta    ! current theta angle
-   real(8) phi      ! current phi angle
+   integer emission_flag
 end type Electron
 
 type, EXTENDS (Basic_particle) :: Hole ! hole as an object contains:
    integer KOA   ! kind of atom which this hole is sitting in
    integer Shl   ! number of shell which this hole is in
-   real(8) theta    ! current theta angle
-   real(8) phi      ! current phi angle
    real(8) Mass     ! [me] effective hole mass in units of electron mass
    real(8) Ehkin     ! [eV] Valence hole kinetic energy (Etot - Egap), Holes%E is used to save holes potential energy (Egap or IP)
 end type Hole
 
-type, EXTENDS (Basic_particle) :: Photon ! photon as an object:
-   real(8) theta    ! current theta angle
-   real(8) phi      ! current phi angle
+type, EXTENDS (Basic_particle) :: Photon ! photon as an object
+    ! No additional attributes required
 end type Photon
 !==============================================
+
+!==============================================
+!R_z distributions
+type :: all_R_Z_distr
+    real(8), dimension(:,:,:), allocatable :: Electron_Ee
+    real(8), dimension(:,:,:), allocatable :: Electron_Ne
+    real(8), dimension(:,:,:), allocatable :: Lattice_En
+    real(8), dimension(:,:,:), allocatable :: ValHoles_RZ_ee, ValHoles_RZ_ee_pot, ValHoles_RZ_ne
+    real(8), dimension(:,:), allocatable :: El_ee_Z
+endtype all_R_Z_distr
+!==============================================
+
+
 
 !==============================================
 ! Material parameters are all in here:
@@ -102,6 +115,12 @@ type :: Flag
     logical :: include_photons  ! to include or not radiative decays of holes and further photons propagation
     logical :: plasmon_Emax     ! to use maximal plasmon energy as upper integration limit in cross-sections calculations
     integer :: CDF_elast_Zeff ! kind of effective charge of target atoms (1=1, 0=Barkas-like Zeff)
+    real(8) :: MD_dt
+    integer :: MD_grid
+    integer :: Num_Z_points
+    real(8) :: Zout_min
+    real(8) :: Zout_max
+    real(8) :: Zout_dz
 end type Flag
 !==============================================
 
@@ -250,6 +269,7 @@ end subroutine Save_error_details
 ! To change parameters of a certain type:
 subroutine Particle_event(Particle, E, t0, tn, X, Y, Z, L, & ! for each particle
                           Zat, Zeff, Mass, Name, Full_name, Kind_Zeff, &    ! for ion
+                          vx, vy, vz, ax, ay, az, &
                           theta, phi, &   ! for electron or photon
                           KOA, Shl, Ehkin) ! for hole
    class(Basic_particle), intent(inout) :: Particle ! can be Ion, or Electron, or Hole
@@ -258,6 +278,8 @@ subroutine Particle_event(Particle, E, t0, tn, X, Y, Z, L, & ! for each particle
    real(8), intent(in), optional :: t0   ! [fs] current time
    real(8), intent(in), optional :: tn   ! [fs] time of the next collision
    real(8), intent(in), optional :: X, Y, Z  ! [A] coordinates
+   real(8), intent(in), optional :: vx, vy, vz  ! [m/s] velosities
+   real(8), intent(in), optional :: ax, ay, az  ! [m/s^2] accelerations
    real(8), intent(in), optional :: L        ! [A] neaxt mean free path
    integer, intent(in), optional :: Zat      ! atomic number of the SHI
    real(8), intent(in), optional :: Zeff     ! effective charge in units of electron charge
@@ -277,6 +299,14 @@ subroutine Particle_event(Particle, E, t0, tn, X, Y, Z, L, & ! for each particle
    if (present(Y)) Particle%Y = Y       ! [A] change Y-coordinate
    if (present(Z)) Particle%Z = Z       ! [A] change Z-coordinate
    if (present(L)) Particle%L = L       ! next mean free path
+   if (present(vx)) Particle%vx = vx       ! [m/s] change X-velosity component
+   if (present(vy)) Particle%vy = vy       ! [m/s] change y-velosity component
+   if (present(vz)) Particle%vz = vz       ! [m/s] change z-velosity component
+   if (present(ax)) Particle%ax = ax       ! [m/s^2] change X-acceleration component
+   if (present(ay)) Particle%ay = ay       ! [m/s^2] change y-acceleration component
+   if (present(az)) Particle%az = az       ! [m/s^2] change z-acceleration component
+
+
    select type(Particle)
     class is (Ion)
         if (present(Zat)) Particle%Zat = Zat        ! atomic number of the SHI
@@ -369,5 +399,23 @@ subroutine resize_array(Electrons, Holes, Photons, i, M)
         deallocate(p_trans)
     endif
 end subroutine resize_array
+
+
+subroutine Convert_Obj_to_arrays(Out_R_Z, Out_Electron_RZ_ee, Out_Electron_RZ_ne, Out_lattice_RZ, Out_ValHoles_RZ_ee, &
+                                  Out_ValHoles_RZ_ee_pot, Out_ValHoles_RZ_ne, Out_Electron_Z_ne)
+    type(all_R_Z_distr), intent(in) :: Out_R_Z
+    real(8), dimension(:,:,:), intent(inout) :: Out_Electron_RZ_ee, Out_Electron_RZ_ne, Out_Lattice_RZ
+    real(8), dimension(:,:,:), intent(inout) :: Out_ValHoles_RZ_ee, Out_ValHoles_RZ_ee_pot, Out_ValHoles_RZ_ne
+    real(8), dimension(:,:), intent(inout) :: Out_Electron_Z_ne
+
+    Out_Electron_RZ_ee = Out_R_Z%Electron_Ee
+    Out_Electron_RZ_ne = Out_R_Z%Electron_ne
+    Out_Lattice_RZ = Out_R_Z%Lattice_En
+    Out_Electron_Z_ne = Out_R_Z%El_ee_Z
+    Out_ValHoles_RZ_ee = Out_R_Z%ValHoles_RZ_ee
+    Out_ValHoles_RZ_ee_pot = Out_R_Z%ValHoles_RZ_ee_pot
+    Out_ValHoles_RZ_ne = Out_R_Z%ValHoles_RZ_ne
+
+end subroutine Convert_Obj_to_arrays
  
 end MODULE Objects

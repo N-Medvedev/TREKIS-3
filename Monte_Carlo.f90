@@ -169,7 +169,8 @@ subroutine Monte_Carlo_modelling(SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowes
                 select case (KOP)
                 case (1)    ! SHI
                     call SHI_Monte_Carlo(SHI_MFP, SHI_path, SHI_loc, diff_SHI_MFP, Target_atoms, All_electrons, All_holes, Tot_Nel, &
-                               Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Matter, NumPar)
+                        Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, El_IMFP, El_EMFP, &
+                        Hole_IMFP, Hole_EMFP, Matter, NumPar)
                     ! Now if SHI is out of the layer, we let it go...
                     if (SHI_loc%Z .GE. Matter%Layer) call Particle_event(SHI_loc, tn=1d16) ! SHI is out of the analyzed layer
                 case (2)    ! electron
@@ -185,7 +186,8 @@ subroutine Monte_Carlo_modelling(SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowes
                         Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
                         At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar)
                 case (4)    ! photon
-                    call Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
+                    call Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, &
+                        Hole_IMFP, Hole_EMFP, Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
                         Total_Photon_MFPs, Tot_Nel, Tot_Nphot, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
                         t_cur, NumPar)
                 endselect
@@ -193,9 +195,12 @@ subroutine Monte_Carlo_modelling(SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowes
         enddo grid_do ! propagate particles until the time grid point     
         !dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
         ! Save distributions for this time-step:
-        call Calculated_statistics(i, tim_glob, Tot_Nel, Tot_Nphot, At_NRG, All_electrons, Em_electrons, All_holes, All_photons, Target_atoms, Out_R, Out_V, &
-                Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eat_dens, Out_nh, Out_Eh, Out_Ehkin, &
-                Out_theta, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Em_Nel, Matter, Out_field, Out_field_all, Tot_field, Out_E_field, Out_diff_coeff, NumPar)
+        call Calculated_statistics(i, tim_glob, Tot_Nel, Tot_Nphot, At_NRG, All_electrons, Em_electrons, &
+                All_holes, All_photons, Target_atoms, Out_R, Out_V, &
+                Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_ne, Out_Ee, &
+                Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eat_dens, Out_nh, Out_Eh, Out_Ehkin, &
+                Out_theta, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Em_Nel, Matter, &
+                Out_field, Out_field_all, Tot_field, Out_E_field, Out_diff_coeff, NumPar)
         !dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
         call Find_min_time_particle(SHI_loc, All_electrons, All_holes, All_photons, KOP, NOP, t_cur, NumPar) ! finds what particle collides next
         
@@ -287,7 +292,8 @@ subroutine Hole_parameters(All_holes, Matter, Mat_DOS, target_atoms, Hole_IMFP, 
             
             call random_number(RN)
             MFP_tot = -log(RN)/(1.0d0/HIMFP + 1.0d0/HEMFP)
-            call Get_time_of_next_event(All_holes, MFP=MFP_tot, Target_atoms=Target_atoms, KOA=All_holes%KOA, Shl=All_holes%Shl, Lowest_Ip_At=Lowest_Ip_At, Lowest_Ip_Shl=Lowest_Ip_Shl)
+            call Get_time_of_next_event(All_holes, MFP=MFP_tot, Target_atoms=Target_atoms, &
+                KOA=All_holes%KOA, Shl=All_holes%Shl, Lowest_Ip_At=Lowest_Ip_At, Lowest_Ip_Shl=Lowest_Ip_Shl)
             All_holes%L = MFP_tot
         else
             All_holes%L = 1.0d30
@@ -296,7 +302,9 @@ subroutine Hole_parameters(All_holes, Matter, Mat_DOS, target_atoms, Hole_IMFP, 
     else    ! it's deep shell:
         All_holes%Mass = 1.0d29
         call random_number(RN)
-        call Get_time_of_next_event(All_holes, RN=RN, Target_atoms=Target_atoms, KOA=All_holes%KOA, Shl=All_holes%Shl, Lowest_Ip_At=Lowest_Ip_At, Lowest_Ip_Shl=Lowest_Ip_Shl) ! => All_holes(Tot_Nel)%tn is updated [fs] Auger
+        ! => All_holes(Tot_Nel)%tn is updated [fs] Auger:
+        call Get_time_of_next_event(All_holes, RN=RN, Target_atoms=Target_atoms, &
+            KOA=All_holes%KOA, Shl=All_holes%Shl, Lowest_Ip_At=Lowest_Ip_At, Lowest_Ip_Shl=Lowest_Ip_Shl)
         All_holes%L = 1.0d30
         All_holes%E = Eh
         All_holes%Ehkin = 0.0d0
@@ -381,9 +389,12 @@ subroutine Get_velosity(Particle, V, Target_atoms)
 end subroutine Get_velosity
 
 
-subroutine Calculated_statistics(i, tim, Tot_Nel, Tot_Nphot, At_NRG, All_electrons, Em_electrons, All_holes, All_photons, target_atoms, Out_R, Out_V, &
-           Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eat_dens, Out_nh, Out_Eh, Out_Ehkin, &
-           Out_theta, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Em_Nel, Matter, Out_field, Out_field_all, Tot_field, Out_E_field, Out_diff_coeff, NumPar)
+subroutine Calculated_statistics(i, tim, Tot_Nel, Tot_Nphot, At_NRG, All_electrons, Em_electrons, &
+        All_holes, All_photons, target_atoms, Out_R, Out_V, &
+        Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, &
+        Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eat_dens, Out_nh, Out_Eh, Out_Ehkin, &
+        Out_theta, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Em_Nel, Matter, &
+        Out_field, Out_field_all, Tot_field, Out_E_field, Out_diff_coeff, NumPar)
     integer, intent(in) :: i    ! number of the time-step
     real(8), intent(in) :: tim
     integer, intent(in) :: Tot_Nel  ! number of electrons
@@ -442,9 +453,11 @@ subroutine Calculated_statistics(i, tim, Tot_Nel, Tot_Nphot, At_NRG, All_electro
     if (NumPar%include_photons) then ! count photons in:
         Out_tot_Nphot(i) = Out_tot_Nphot(i) + real(Tot_Nphot) ! total the number of photons, not normalized
         Out_E_phot(i) = Out_E_phot(i) + SUM(All_photons(:)%E)   ! [eV] total photon energy
-        Out_tot_E(i) = Out_tot_E(i) + SUM(All_electrons(:)%E) + SUM(All_holes(:)%E) + SUM(All_holes(:)%Ehkin) + SUM(All_photons(:)%E) + At_NRG + Tot_field    ! total energy, not normalized
+        Out_tot_E(i) = Out_tot_E(i) + SUM(All_electrons(:)%E) + SUM(All_holes(:)%E) + &
+            SUM(All_holes(:)%Ehkin) + SUM(All_photons(:)%E) + At_NRG + Tot_field    ! total energy, not normalized
     else    ! no photons:
-        Out_tot_E(i) = Out_tot_E(i) + SUM(All_electrons(:)%E) + SUM(All_holes(:)%E) + SUM(All_holes(:)%Ehkin) + At_NRG + Tot_field    ! total energy, not normalized
+        Out_tot_E(i) = Out_tot_E(i) + SUM(All_electrons(:)%E) + SUM(All_holes(:)%E) + &
+            SUM(All_holes(:)%Ehkin) + At_NRG + Tot_field    ! total energy, not normalized
     endif
     Out_E_e(i) = Out_E_e(i) + SUM(All_electrons(:)%E)   ! [eV] total electron energy
     Out_E_at(i) = Out_E_at(i) + At_NRG                  ! [eV] total lattice energy
@@ -456,7 +469,9 @@ subroutine Calculated_statistics(i, tim, Tot_Nel, Tot_Nphot, At_NRG, All_electro
     
     do k = 1, Nat != size(target_atoms)    ! number of atom
         do j = 1, size(target_atoms(k)%Ip)  ! all shells
-            Out_E_h(i,k,j) = Out_E_h(i,k,j) + SUM(All_holes(:)%E, MASK = ((All_holes(:)%KOA .EQ. k) .AND. (All_holes(:)%Shl) .EQ. j)) + SUM(All_holes(:)%Ehkin, MASK = ((All_holes(:)%KOA .EQ. k) .AND. (All_holes(:)%Shl) .EQ. j)) ! energy of this shell [eV]
+            Out_E_h(i,k,j) = Out_E_h(i,k,j) + SUM(All_holes(:)%E, &
+                MASK = ((All_holes(:)%KOA .EQ. k) .AND. (All_holes(:)%Shl) .EQ. j)) + &
+                SUM(All_holes(:)%Ehkin, MASK = ((All_holes(:)%KOA .EQ. k) .AND. (All_holes(:)%Shl) .EQ. j)) ! energy of this shell [eV]
         enddo
     enddo
    
@@ -575,9 +590,9 @@ subroutine Calculated_statistics(i, tim, Tot_Nel, Tot_Nphot, At_NRG, All_electro
         if (isnan(Em_electrons(k))) print*, 'Negative emitted electron energy in stat ', 'E = ', Em_electrons(k)
         call Find_in_array_monoton(Out_E, Em_electrons(k), j) ! find where in the distribution array it is
         if (j .GT. 1) then
-            Out_Ee_vs_E_Em(i,j) = Out_Ee_vs_E_Em(i,j) + 1.0d0/(Out_E(j)-Out_E(j-1))/real(Em_Nel)     !/Em_Nel ! number of electrons in this ENERGY interval
+            Out_Ee_vs_E_Em(i,j) = Out_Ee_vs_E_Em(i,j) + 1.0d0/(Out_E(j)-Out_E(j-1))/dble(Em_Nel)     !/Em_Nel ! number of electrons in this ENERGY interval
         else    ! j = 1, energy interval is 1
-            Out_Ee_vs_E_Em(i,j) = Out_Ee_vs_E_Em(i,j) + 1.0d0/Out_E(j)/real(Em_Nel)    !/Em_Nel ! number of electrons in this ENERGY interval
+            Out_Ee_vs_E_Em(i,j) = Out_Ee_vs_E_Em(i,j) + 1.0d0/Out_E(j)/dble(Em_Nel)    !/Em_Nel ! number of electrons in this ENERGY interval
         endif
     end do
 end subroutine Calculated_statistics    
@@ -684,7 +699,7 @@ subroutine Update_particle_angles_lat(target_atoms, E, dE, theta, phi, Mass)    
    
    !E11 = E-dE
    E11 = abs(E-dE)
-   Mtarget = g_Mp*SUM(target_atoms(:)%Mass*real(target_atoms(:)%Pers))/real(SUM(target_atoms(:)%Pers))
+   Mtarget = g_Mp*SUM(target_atoms(:)%Mass*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers))
    if (present(Mass)) then          ! Hole
         arg = (E*(Mass*g_me - Mtarget)+E11*(Mass*g_me + Mtarget))/(2*Mass*g_me*sqrt(E*E11))
    else                             ! Electron
@@ -829,7 +844,8 @@ subroutine Auger_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_
   endif ! (coun .GT. 0)
 
   if ((Ee .LT. 0.0d0) .OR. (E_new1 .LT. 0.0d0) .OR. (E_new2 .LT. 0.0d0)) then
-     write(Writing_var,'(a,e,e,i,i,i,i,i,i)') 'Impossible Auger-decay ', Target_atoms(KOA1)%Ip(Sh1), Target_atoms(KOA1)%Ip(Sh1), KOA, SHL, KOA1, Sh1, KOA2, Sh2
+     write(Writing_var,'(a,e,e,i,i,i,i,i,i)') 'Impossible Auger-decay ', Target_atoms(KOA1)%Ip(Sh1), &
+        Target_atoms(KOA1)%Ip(Sh1), KOA, SHL, KOA1, Sh1, KOA2, Sh2
      write(*,'(a)') trim(adjustl(Writing_var))
      call Save_error_details(Error_message, 25, Writing_var)
   endif
@@ -896,7 +912,8 @@ subroutine Auger_decay_old(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, 
       endif ! (coun .GT. 0)
 
       if (iter .GE. 100) then
-         write(Writing_var,'(a,e,e,i,i,i,i,i,i)') 'Impossible Auger-decay ', Target_atoms(KOA1)%Ip(Sh1), Target_atoms(KOA1)%Ip(Sh1), KOA, SHL, KOA1, Sh1, KOA2, Sh2
+         write(Writing_var,'(a,e,e,i,i,i,i,i,i)') 'Impossible Auger-decay ', Target_atoms(KOA1)%Ip(Sh1), &
+            Target_atoms(KOA1)%Ip(Sh1), KOA, SHL, KOA1, Sh1, KOA2, Sh2
          write(*,'(a)') trim(adjustl(Writing_var))
          call Save_error_details(Error_message, 25, Writing_var)
       endif                
@@ -958,7 +975,8 @@ subroutine count_for_Auger_shells(Target_atoms, NRG, coun)
       M = size(Target_atoms(i)%Ip)
       do j = 1, M
         !if (Target_atoms(i)%Ip(j) .LT. NRG) then
-         if ((Target_atoms(i)%Ip(j) .LT. NRG) .AND. (Target_atoms(i)%Ip(j) .GE. Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))) ) then ! it is possible
+         if ((Target_atoms(i)%Ip(j) .LT. NRG) .AND. &
+         (Target_atoms(i)%Ip(j) .GE. Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))) ) then ! it is possible
             coun = coun + Target_atoms(i)%Nel(j)
          endif
       enddo
@@ -977,7 +995,8 @@ subroutine Choose_for_Auger_shell(Target_atoms, NRG, Shel, Sh1, KOA1)   ! chose 
       M = size(Target_atoms(i)%Ip) ! number of shells
       do j = 1, M
          !if (Target_atoms(i)%Ip(j) .LT. NRG) then ! it is possible
-         if ((Target_atoms(i)%Ip(j) .LT. NRG) .AND. (Target_atoms(i)%Ip(j) .GE. Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))) ) then ! it is possible
+         if ((Target_atoms(i)%Ip(j) .LT. NRG) .AND. &
+          (Target_atoms(i)%Ip(j) .GE. Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))) ) then ! it is possible
             coun_sh = coun_sh + Target_atoms(i)%Nel(j)
             if (coun_sh .GE. Shel) then 
                Sh1 = j ! this is the shell
@@ -994,11 +1013,12 @@ end subroutine Choose_for_Auger_shell
 ! EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
 ! Dealing with energies:
 
-subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message)    ! => dE [eV] transferred energy to electron
+subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message)
+! => dE [eV] transferred energy to electron
     real(8), intent(in) :: dE   ! given energy [eV]
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
     type(Density_of_states), intent(in) :: Mat_DOS  ! materail DOS
-    integer, intent(in) :: Nat_cur, Nshl_cur, Lowest_Ip_At, Lowest_Ip_Shl   ! number of atom, shell, and number of atom and shell for the VB
+    integer, intent(in) :: Nat_cur, Nshl_cur, Lowest_Ip_At, Lowest_Ip_Shl   ! # of atom, shell, and # of atom and shell for the VB
     real(8), intent(out) :: dE_cur  ! [eV] kinetic energy of an electron
     type(Error_handling), intent(inout) :: Error_message	! error messages are dealed with as objects
     real(8) RN, Tot_N, Sum_DOS, E
@@ -1064,9 +1084,12 @@ subroutine SHI_energy_transfer(SHI_loc, MFP_Object, Target_atoms, Matter, Mat_DO
         call random_number(RN)
         
         E_cur = Target_atoms(Nat_cur)%Ip(Nshl_cur)  ! exactly ionization potential [eV]
-        call Find_in_array_monoton(MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E, Target_atoms(Nat_cur)%Ip(Nshl_cur), M_temp) ! find the closest value in the precalculated array of energy losses
+        ! find the closest value in the precalculated array of energy losses:
+        call Find_in_array_monoton(MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E, Target_atoms(Nat_cur)%Ip(Nshl_cur), M_temp)
         if (M_temp .GT. 1) then
-            call Interpolate(5, MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp-1), MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp), MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp-1), MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp), E_cur, dL)  ! interpolate to find exact value
+            call Interpolate(5, MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp-1), &
+                MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp), MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp-1), &
+                MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp), E_cur, dL)  ! interpolate to find exact value
         else
             dL = MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(1)
         endif
@@ -1074,12 +1097,15 @@ subroutine SHI_energy_transfer(SHI_loc, MFP_Object, Target_atoms, Matter, Mat_DO
         Tot_N = 1.0d0/dL + RN*(1.0d0/MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(N) - 1.0d0/dL)
 
         if (Tot_N .LT. 1d20) then
-            call Find_in_array(1.0d0/MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L, Tot_N, N_temmp) ! find the closest value in the precalculated array of energy losses
+            ! find the closest value in the precalculated array of energy losses:
+            call Find_in_array(1.0d0/MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L, Tot_N, N_temmp)
         else
             N_temmp = M_temp
         endif
         if (N_temmp .GT. M_temp) then
-            call Interpolate(5, 1.0d0/MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(N_temmp-1), 1.0d0/MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(N_temmp), MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(N_temmp-1), MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(N_temmp), Tot_N, dE)  ! interpolate to find exact value
+            call Interpolate(5, 1.0d0/MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(N_temmp-1), &
+                1.0d0/MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(N_temmp), MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(N_temmp-1), &
+                MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(N_temmp), Tot_N, dE)  ! interpolate to find exact value
         else
             dE = Target_atoms(Nat_cur)%Ip(Nshl_cur)  ! [eV]
         endif
@@ -1117,10 +1143,12 @@ subroutine Which_shell(MFP_Object, MFP_full, E, Nat, Nshl)
             if (N_temmp .EQ. 1) then
                 MFP = 1.0d20
             else
-                if ((MFP_Object(i)%ELMFP(j)%L(N_temmp-1) .EQ. MFP_Object(i)%ELMFP(j)%L(N_temmp)) .OR. (MFP_Object(i)%ELMFP(j)%L(N_temmp-1) .GT. 1d20)) then
+                if ((MFP_Object(i)%ELMFP(j)%L(N_temmp-1) .EQ. MFP_Object(i)%ELMFP(j)%L(N_temmp)) .OR. &
+                 (MFP_Object(i)%ELMFP(j)%L(N_temmp-1) .GT. 1d20)) then
                     MFP = MFP_Object(i)%ELMFP(j)%L(N_temmp-1)
                 else
-                    call Interpolate(5, MFP_Object(i)%ELMFP(j)%E(N_temmp-1), MFP_Object(i)%ELMFP(j)%E(N_temmp), MFP_Object(i)%ELMFP(j)%L(N_temmp-1), MFP_Object(i)%ELMFP(j)%L(N_temmp), E, MFP)  ! interpolate to find exact value
+                    call Interpolate(5, MFP_Object(i)%ELMFP(j)%E(N_temmp-1), MFP_Object(i)%ELMFP(j)%E(N_temmp), &
+                      MFP_Object(i)%ELMFP(j)%L(N_temmp-1), MFP_Object(i)%ELMFP(j)%L(N_temmp), E, MFP)  ! interpolate to find exact value
                 endif
             endif
             Temp_MFPs(i,j) = 1.0d0/MFP
@@ -1157,7 +1185,8 @@ subroutine Next_free_path_1d(E, MFP_E_array, MFP_L_array, MFP) ! temp = MFP [A] 
         if (MFP_L_array(N_last) .GE. 1.0d16) then
             MFP = MFP_L_array(N_last)
         else
-            call Interpolate(5, MFP_E_array(N_last), MFP_E_array(N_temmp), MFP_L_array(N_last), MFP_L_array(N_temmp), E, MFP)  ! interpolate to find exact value
+            ! interpolate to find exact value:
+            call Interpolate(5, MFP_E_array(N_last), MFP_E_array(N_temmp), MFP_L_array(N_last), MFP_L_array(N_temmp), E, MFP)
         endif
     endif
 end subroutine Next_free_path_1d
@@ -1175,15 +1204,16 @@ subroutine Next_free_path_2d(E, MFP_array, MFP) ! temp = MFP [A] for this array,
         if (MFP_array(2,N_last) .GE. 1.0d16) then
             MFP = MFP_array(2,N_last)
         else
-            call Interpolate(5, MFP_array(1,N_last), MFP_array(1,N_temmp), MFP_array(2,N_last), MFP_array(2,N_temmp), E, MFP)  ! interpolate to find exact value
+            ! interpolate to find exact value:
+            call Interpolate(5, MFP_array(1,N_last), MFP_array(1,N_temmp), MFP_array(2,N_last), MFP_array(2,N_temmp), E, MFP)
         endif
     endif
 end subroutine Next_free_path_2d
 
 
 subroutine How_many_electrons(Nat, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Phot_IMFP, SHI_path, SHI_loss, target_atoms, &
-                            Matter, Lowest_Ip_At, Lowest_Ip_Shl, SHI, SHI_MFP, Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, &
-                            Elastic_Hole_MFP, Total_Photon_MFPs, All_electrons, Em_electrons, All_holes, All_photons, Nel, NumPar)
+                Matter, Lowest_Ip_At, Lowest_Ip_Shl, SHI, SHI_MFP, Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, &
+                Elastic_Hole_MFP, Total_Photon_MFPs, All_electrons, Em_electrons, All_holes, All_photons, Nel, NumPar)
     integer, intent(in) :: Nat, Lowest_Ip_At, Lowest_Ip_Shl  ! number of atoms, and VB numbers
     real(8), dimension(:,:), allocatable, intent(inout) :: El_IMFP     ! to use in a subroutine, we need this shape of an array
     real(8), dimension(:,:), allocatable, intent(inout) :: El_EMFP     ! to use in a subroutine, we need this shape of an array
@@ -1234,7 +1264,8 @@ subroutine How_many_electrons(Nat, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Phot_
     endwhere
 
     call Find_in_array_monoton(SHI_loss, SHI%E, 1, N_temmp) ! find the closes value in the precalculated array of energy losses
-    call Interpolate(5, SHI_loss(1,N_temmp-1), SHI_loss(1,N_temmp), SHI_loss(2,N_temmp-1), SHI_loss(2,N_temmp), SHI%E, SHI_dEdx)    ! interpolate to find exact value
+    ! interpolate to find exact value:
+    call Interpolate(5, SHI_loss(1,N_temmp-1), SHI_loss(1,N_temmp), SHI_loss(2,N_temmp-1), SHI_loss(2,N_temmp), SHI%E, SHI_dEdx)
     dEdx = SHI_dEdx*Matter%Layer ![eV] total energy loss by SHI within the given layer
     
     
@@ -1251,8 +1282,10 @@ subroutine How_many_electrons(Nat, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Phot_
     !eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
     ! Electrons (and some holes) arrays:
     do i = 1, size(All_electrons)
-       call Particle_event(All_electrons(i), E=0.0d0, t0=SHI%t0, tn=1d20, X=0.0d0, Y=0.0d0, Z=0.0d0, theta=0.0d0, phi=0.0d0) ! set initial electron data
-       call Particle_event(All_holes(i), E=0.0d0, Ehkin=0.0d0, t0=SHI%t0, tn=1d21, X=0.0d0, Y=0.0d0, Z=0.0d0, L=1.0d30, KOA=0, Shl=0, Mass=1.0d30, theta=0.0d0, phi=0.0d0) ! set initial hole data
+       ! set initial electron data:
+       call Particle_event(All_electrons(i), E=0.0d0, t0=SHI%t0, tn=1d20, X=0.0d0, Y=0.0d0, Z=0.0d0, theta=0.0d0, phi=0.0d0)
+       call Particle_event(All_holes(i), E=0.0d0, Ehkin=0.0d0, t0=SHI%t0, tn=1d21, X=0.0d0, Y=0.0d0, Z=0.0d0, L=1.0d30, &
+                KOA=0, Shl=0, Mass=1.0d30, theta=0.0d0, phi=0.0d0) ! set initial hole data
     enddo
     
     Em_electrons = 0.0d0
@@ -1303,7 +1336,8 @@ subroutine How_many_electrons(Nat, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Phot_
     if (NumPar%include_photons) then ! only if we include photons:
        if (.not. allocated(All_photons)) allocate(All_photons(INT(Nel))) ! define array of photons
        do i = 1, size(All_photons)
-          call Particle_event(All_photons(i), E=0.0d0, t0=SHI%t0, tn=1d20, X=0.0d0, Y=0.0d0, Z=0.0d0, theta=0.0d0, phi=0.0d0) ! set initial photon data
+          ! set initial photon data:
+          call Particle_event(All_photons(i), E=0.0d0, t0=SHI%t0, tn=1d20, X=0.0d0, Y=0.0d0, Z=0.0d0, theta=0.0d0, phi=0.0d0)
        enddo
        if (.not. allocated(Phot_IMFP)) allocate(Phot_IMFP(2,size(Total_Photon_MFPs(1)%ELMFP(1)%E)))
        Phot_IMFP = 0.0d0
@@ -1336,9 +1370,11 @@ subroutine Find_min_time_particle(SHI, Electrons, Holes, Photons, KOP, NOP, t_cu
    integer i
    
    if (NumPar%include_photons) then ! only if we include photons:
-    KOP = transfer( minloc((/SHI%tn,minval(Electrons%tn),minval(Holes%tn),minval(Photons%tn)/)) , i) ! kind of particle determines the next select case: order of arrays must coinside with select-case!!!
+    ! kind of particle determines the next select case: order of arrays must coinside with select-case!!!:
+    KOP = transfer( minloc((/SHI%tn,minval(Electrons%tn),minval(Holes%tn),minval(Photons%tn)/)) , i)
    else ! no photons:
-    KOP = transfer( minloc((/SHI%tn,minval(Electrons%tn),minval(Holes%tn)/)) , i) ! kind of particle determines the next select case: order of arrays must coinside with select-case!!!
+    ! kind of particle determines the next select case: order of arrays must coinside with select-case!!!:
+    KOP = transfer( minloc((/SHI%tn,minval(Electrons%tn),minval(Holes%tn)/)) , i)
    endif
    select case (KOP)
     case (1) ! SHI
@@ -1372,7 +1408,8 @@ subroutine barrier_parameters (Matter, Em_E1, Em_gamma)
     Em_bb = cosh(2.0d0*g_pi*Em_ksi)
     Em_delta = 2.0d0*g_pi*Em_L*sqrt(2.0d0*g_me*g_e)/(2.0d0*g_pi*g_h)
     
-    Em_E1 = bar_height + 2.0d0*sqrt(bar_height*(bar_height - work_function))*(acosh(Em_bb)/(Em_delta*(sqrt(bar_height) + sqrt(bar_height - work_function)))-1.0d0)
+    Em_E1 = bar_height + 2.0d0*sqrt(bar_height*(bar_height - work_function))*(acosh(Em_bb)/(Em_delta*(sqrt(bar_height) &
+                + sqrt(bar_height - work_function)))-1.0d0)
     Em_gam1 = Em_delta*(sqrt(Em_E1) + sqrt(Em_E1 - work_function))
     Em_gam2 = Em_delta*(sqrt(Em_E1) - sqrt(Em_E1 - work_function))
     Em_gamma = (Em_gam1*sinh(Em_gam1) + 2.0d0*Em_gam2*sinh(Em_gam2))/(sqrt(Em_E1*(Em_E1 - work_function))*(Em_bb + cosh(Em_gam1)))
@@ -1415,8 +1452,8 @@ end subroutine set_time_grid
 
 ! Monte-Carlo of the SHI passage
 subroutine SHI_Monte_Carlo(SHI_MFP, SHI_path, SHI_loc, diff_SHI_MFP, Target_atoms, All_electrons, All_holes, Tot_Nel, &
-                           Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Matter, &
-                           NumPar)
+                Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Matter, &
+                NumPar)
     type(All_MFP), dimension(:), intent(in) :: SHI_MFP         ! SHI mean free paths for all shells
     type(All_MFP), dimension(:), intent(in) :: diff_SHI_MFP    ! SHI differential mean free paths for all shells
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
@@ -1462,8 +1499,8 @@ subroutine SHI_Monte_Carlo(SHI_MFP, SHI_path, SHI_loc, diff_SHI_MFP, Target_atom
     
     !eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
     
-    ! How much energy an electron recieves:
-    call Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message)    ! => dE_cur [eV] kinetic energy of the electron
+    ! How much energy an electron recieves ( ! => dE_cur [eV] kinetic energy of the electron):
+    call Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message)
     
     ! Find the correct angles of electron emmition/scattering:
     call Update_electron_angles(SHI_loc, dE, theta, phi)    ! => theta, phi
@@ -1479,13 +1516,15 @@ subroutine SHI_Monte_Carlo(SHI_MFP, SHI_path, SHI_loc, diff_SHI_MFP, Target_atom
     L = Impact_parameter(SHI_loc, dE)   ! [A] SHI impact parameter
     X = SHI_loc%X+L*sin(phi)    ! [A] new X coordinate
     Y = SHI_loc%Y+L*cos(phi)    ! [A] new Y coordinate
-    call Particle_event(All_electrons(Tot_Nel), E=dE_cur, t0=SHI_loc%t0, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta, phi=phi) ! new electron parameters
+    ! new electron parameters:
+    call Particle_event(All_electrons(Tot_Nel), E=dE_cur, t0=SHI_loc%t0, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta, phi=phi)
     call Get_time_of_next_event(All_electrons(Tot_Nel), MFP=MFP_tot)   ! => All_electrons(Tot_Nel)%tn is updated for next collision [fs]
     
     call cut_off(Matter%cut_off, All_electrons=All_electrons(Tot_Nel)) ! compare electron energy with cut-off and update it's time
     
     if ((All_electrons(Tot_Nel)%E .LT. -1.0d-9) .OR. isnan(All_electrons(Tot_Nel)%E)) then  ! Error, electron got negative energy!
-        write(Error_descript, '(a,i,a,e)') 'SHI electron #', Tot_Nel, ' got negative energy ', All_electrons(Tot_Nel)%E ! description of an error
+        ! description of an error:
+        write(Error_descript, '(a,i,a,e)') 'SHI electron #', Tot_Nel, ' got negative energy ', All_electrons(Tot_Nel)%E
         call Save_error_details(Error_message, 20, Error_descript) ! write it into the error-log file
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
     endif
@@ -1494,11 +1533,13 @@ subroutine SHI_Monte_Carlo(SHI_MFP, SHI_path, SHI_loc, diff_SHI_MFP, Target_atom
 
     call Update_holes_angles_SHI((dE-dE_cur), htheta, hphi)         !Random angles of hole
     call Particle_event(All_holes(Tot_Nel), t0=SHI_loc%t0, X=X, Y=Y, Z=Z, KOA=Nat_cur, Shl=Nshl_cur, theta=htheta, phi=hphi)
-    call Hole_parameters(All_holes(Tot_Nel), Matter, Mat_DOS, target_atoms, Hole_IMFP, Hole_EMFP, (dE-dE_cur), Lowest_Ip_At, Lowest_Ip_Shl)
+    call Hole_parameters(All_holes(Tot_Nel), Matter, Mat_DOS, target_atoms, Hole_IMFP, Hole_EMFP, (dE-dE_cur), &
+            Lowest_Ip_At, Lowest_Ip_Shl)
     call cut_off(Matter%cut_off, All_holes=All_holes(Tot_Nel)) ! compare hole energy with cut-off and update it's time
     
     if ((All_holes(Tot_Nel)%Ehkin .LT. -1.0d-9) .OR. isnan(All_holes(Tot_Nel)%Ehkin)) then  ! Error, hole got negative energy!
-        write(Error_descript, '(a,i,a,e)') 'SHI hole #', Tot_Nel, ' got negative energy ', All_holes(Tot_Nel)%Ehkin ! description of an error
+        ! description of an error:
+        write(Error_descript, '(a,i,a,e)') 'SHI hole #', Tot_Nel, ' got negative energy ', All_holes(Tot_Nel)%Ehkin
         call Save_error_details(Error_message, 20, Error_descript) ! write it into the error-log file
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
     endif
@@ -1508,9 +1549,8 @@ end subroutine SHI_Monte_Carlo
 
 ! Monte-carlo of an electron
 subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, CDF_Phonon, Matter, target_atoms, &
-                                Total_el_MFPs, Elastic_MFP, Tot_Nel, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, Em_electrons, &
-                                Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar)
-                                     
+            Total_el_MFPs, Elastic_MFP, Tot_Nel, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, Em_electrons, &
+            Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar)
     integer, intent(in) :: Lowest_Ip_At, Lowest_Ip_Shl ! number of atom and of shell which correspond to the lowest ionization potential
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
     type(CDF), intent(in) :: CDF_Phonon ! declare CDF for phonons
@@ -1565,14 +1605,16 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
         Tot_Nel = Tot_Nel + 1   ! we have ionized a new electron!
         call Check_size(All_electrons, All_holes, N=Tot_Nel)    ! check if electrons are too many and the size of arrays must be increased
         
-        call Next_free_path(Eel, Total_el_MFPs(Nat_cur)%ELMFP(Nshl_cur)%E, Total_el_MFPs(Nat_cur)%ELMFP(Nshl_cur)%L, IMFP) ! => find IMFP of electron [A] needed for calculation of transferred energy
-        call Electron_energy_transfer(Eel, Target_atoms, Nat_cur, Nshl_cur, IMFP, dE, Matter, Mat_DOS, NumPar, kind_of_particle)   ! => dE [eV] transferred energy
+        ! => find IMFP of electron [A] needed for calculation of transferred energy:
+        call Next_free_path(Eel, Total_el_MFPs(Nat_cur)%ELMFP(Nshl_cur)%E, Total_el_MFPs(Nat_cur)%ELMFP(Nshl_cur)%L, IMFP)
+        ! => dE [eV] transferred energy:
+        call Electron_energy_transfer(Eel, Target_atoms, Nat_cur, Nshl_cur, IMFP, dE, Matter, Mat_DOS, NumPar, kind_of_particle)
         call Update_electron_angles(All_electrons(NOP)%E, dE, theta, phi)    ! => theta, phi
         
         ! 222222222222222222222222222222222
         ! New ionized electrons parameters:
-        ! How much energy an electron recieves:
-        call Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message)    ! => dE_cur [eV] kinetic energy of the electron
+        ! How much energy an electron recieves (! => dE_cur [eV] kinetic energy of the electron):
+        call Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message)
         
         ! Its parameters:
         call Next_free_path(dE_cur, El_IMFP, IMFP) ! => IMFP of electron [A]
@@ -1582,13 +1624,15 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
         theta2 = g_Pi/2.0d0 - theta ! scattering of particles with equal masses
         phi2 = phi + g_Pi
         call New_Angles_both(phi0, theta0, theta2, phi2, phi1, theta1)    ! => phi1, theta1
-        call Particle_event(All_electrons(Tot_Nel), E=dE_cur, t0=All_electrons(NOP)%tn, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1) ! new electron parameters
+        ! new electron parameters:
+        call Particle_event(All_electrons(Tot_Nel), E=dE_cur, t0=All_electrons(NOP)%tn, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1)
         call Get_time_of_next_event(All_electrons(Tot_Nel), MFP=MFP_tot)   ! => All_electrons(NOP)%tn is updated for next collision [fs]
         
         call cut_off(Matter%cut_off, All_electrons=All_electrons(Tot_Nel)) ! compare electron energy with cut-off        
         
         if ((All_electrons(Tot_Nel)%E .LT. -1.0d-9) .OR. isnan(All_electrons(Tot_Nel)%E)) then  ! Error, electron got negative energy!
-            write(Error_descript, '(a,i,a,e)') 'Impact electron #', Tot_Nel, ' got negative energy ', All_electrons(Tot_Nel)%E ! description of an error
+            ! description of an error:
+            write(Error_descript, '(a,i,a,e)') 'Impact electron #', Tot_Nel, ' got negative energy ', All_electrons(Tot_Nel)%E
             print*, 'Incident electron parameters: ', NOP, All_electrons(NOP)%E
             print*, kind_of_particle
             print*, All_electrons(NOP)%L, All_electrons(NOP)%tn, All_electrons(NOP)%t0
@@ -1601,29 +1645,35 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
         ! Get parameters of the created hole:
         
         call Update_holes_angles_SHI((dE-dE_cur), htheta, hphi)     !Random angles of hole
-        call Particle_event(All_holes(Tot_Nel), t0=All_electrons(NOP)%t0, X=X, Y=Y, Z=Z, KOA=Nat_cur, Shl=Nshl_cur, theta=htheta, phi=hphi) ! new hole parameters
-        call Hole_parameters(All_holes(Tot_Nel), Matter, Mat_DOS, Target_atoms, Hole_IMFP, Hole_EMFP, (dE-dE_cur), Lowest_Ip_At, Lowest_Ip_Shl)
+        call Particle_event(All_holes(Tot_Nel), t0=All_electrons(NOP)%t0, X=X, Y=Y, Z=Z, KOA=Nat_cur, &
+                Shl=Nshl_cur, theta=htheta, phi=hphi) ! new hole parameters
+        call Hole_parameters(All_holes(Tot_Nel), Matter, Mat_DOS, Target_atoms, Hole_IMFP, Hole_EMFP, &
+                (dE-dE_cur), Lowest_Ip_At, Lowest_Ip_Shl)
         call cut_off(Matter%cut_off, All_holes=All_holes(Tot_Nel)) ! compare hole energy with cut-off and update it's time
 
         if ((All_holes(Tot_Nel)%Ehkin .LT. -1.0d-9) .OR. isnan(All_holes(Tot_Nel)%Ehkin)) then  ! Error, electron got negative energy!
-            write(Error_descript, '(a,i,a,e)') 'El-el impact hole #', Tot_Nel, ' got negative energy ', All_holes(Tot_Nel)%Ehkin ! description of an error
+            ! description of an error:
+            write(Error_descript, '(a,i,a,e)') 'El-el impact hole #', Tot_Nel, ' got negative energy ', All_holes(Tot_Nel)%Ehkin
             call Save_error_details(Error_message, 20, Error_descript) ! write it into the error-log file
             print*, trim(adjustl(Error_descript)) ! print it also on the sreen
         endif
         
     else el_vs_inel ! elastic
-        call Next_free_path(Eel, Elastic_MFP%E, Elastic_MFP%L, EMFP) ! => find IMFP of electron [A] needed for calculation of transferred energy
+
+        ! => find IMFP of electron [A] needed for calculation of transferred energy:
+        call Next_free_path(Eel, Elastic_MFP%E, Elastic_MFP%L, EMFP)
         
         if (NumPar%kind_of_EMFP .EQ. 2) then           ! DSF cross-sections
             call NRG_transfer_elastic_DSF(DSF_DEMFP, Eel, EMFP, dE) ! module "Cross_sections"
         else if (NumPar%kind_of_EMFP .EQ. 1) then      ! CDF phonon peaks
-            call Electron_energy_transfer(Eel, EMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, kind_of_particle) ! => dE [eV] transferred energy
+            ! => dE [eV] transferred energy:
+            call Electron_energy_transfer(Eel, EMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, kind_of_particle)
         else                                    ! Atomic cross-sections of Mott 
             dE = 0.0d0                          ! [eV] transferred energy
             do ii = 1, size(Target_atoms)        ! for all atomic spicies:
                call NRG_transfer_elastic_atomic(Target_atoms, ii, Eel, dE_loc)
                !dE = dE + dE_loc                 ! [eV] sum of transferred energies during collision witn all kind of atoms
-               dE = dE + dE_loc*Target_atoms(ii)%Pers                 ! [eV] sum of transferred energies during collision witn all kind of atoms
+               dE = dE + dE_loc*Target_atoms(ii)%Pers ! [eV] sum of transferred energies during collision witn all kind of atoms
             enddo
             !dE = dE/size(Target_atoms)          ! [eV] Average dE over kinds of atoms
             dE = dE/dble(SUM(target_atoms(:)%Pers))          ! [eV} Average dE over kinds of atoms
@@ -1657,7 +1707,8 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
     call random_number(RN)
     MFP_tot = -log(RN)/(1.0d0/IMFP + 1.0d0/EMFP)    ! [A] sample total electron free path (inelastic + elastic)
     call New_Angles_both(phi0, theta0, theta, phi, phi1, theta1)    ! => phi1, theta1
-    call Particle_event(All_electrons(NOP), E=Eel-dE, t0=All_electrons(NOP)%tn, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1) ! new electron parameters
+    ! new electron parameters:
+    call Particle_event(All_electrons(NOP), E=Eel-dE, t0=All_electrons(NOP)%tn, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1)
     call Get_time_of_next_event(All_electrons(NOP), MFP=MFP_tot)   ! => All_electrons(NOP)%tn is updated for next collision [fs]
     
     call cut_off(Matter%cut_off, All_electrons=All_electrons(NOP)) ! compare electron energy with cut-off    
@@ -1667,7 +1718,8 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
     endif
     
     if ((All_electrons(NOP)%E .LT. -1.0d-9) .OR. isnan(All_electrons(NOP)%E)) then  ! Error, electron got negative energy!
-        write(Error_descript, '(a,i,a,e)') 'Incident electron #', NOP, ' got negative energy ', All_electrons(NOP)%E ! description of an error
+        ! description of an error:
+        write(Error_descript, '(a,i,a,e)') 'Incident electron #', NOP, ' got negative energy ', All_electrons(NOP)%E
         call Save_error_details(Error_message, 22, Error_descript) ! write it into the error-log file
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
     endif
@@ -1709,7 +1761,8 @@ endsubroutine calculate_emission
 
 
 ! Monte-Carlo of a hole
-subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
+subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, &
+            Hole_IMFP, Hole_EMFP, Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
             Total_Hole_MFPs, Elastic_Hole_MFP, Tot_Nel, Tot_Nphot, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
             At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar)
     type(Electron), dimension(:), intent(inout), allocatable :: All_electrons   ! define array of electrons
@@ -1770,12 +1823,15 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             call Which_shell(Total_Hole_MFPs, Hole_IMFP, Eel, Nat_cur, Nshl_cur)   ! => Nat_cur, Nshl_cur
             
             Tot_Nel = Tot_Nel + 1   ! we have ionized a new electron!
-            call Check_size(All_electrons, All_holes, N=Tot_Nel)    ! check if electrons are too many and the size of arrays must be increased
+            ! check if electrons are too many and the size of arrays must be increased:
+            call Check_size(All_electrons, All_holes, N=Tot_Nel)
             
             ! => find IMFP of incident hole [A] needed for calculation of transferred energy                        
             call Next_free_path(Eel, Total_Hole_MFPs(Nat_cur)%ELMFP(Nshl_cur)%E, Total_Hole_MFPs(Nat_cur)%ELMFP(Nshl_cur)%L, HIMFP)
-            call Electron_energy_transfer(Eel, Target_atoms, Nat_cur, Nshl_cur, HIMFP, dE, Matter, Mat_DOS, NumPar, kind_of_particle)   ! => dE [eV] transferred energy
-            call Update_holes_angles_el(All_holes(NOP), Eel, dE, htheta, hphi, htheta1, hphi1)    ! => htheta, hphi of ionized electron, htheta1, hphi1 angles of incident hole
+            ! => dE [eV] transferred energy:
+            call Electron_energy_transfer(Eel, Target_atoms, Nat_cur, Nshl_cur, HIMFP, dE, Matter, Mat_DOS, NumPar, kind_of_particle)
+            ! => htheta, hphi of ionized electron, htheta1, hphi1 angles of incident hole:
+            call Update_holes_angles_el(All_holes(NOP), Eel, dE, htheta, hphi, htheta1, hphi1)
                                     
             ! New ionized electrons parameters:
             ! How much energy an electron recieves:
@@ -1789,8 +1845,10 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             call random_number(RN)
             phi2 = hphi
             call New_Angles_both(phi0, theta0, theta2, phi2, phi1, theta1)    ! => phi1, theta1. Angles measured from Z axis
-            call Particle_event(All_electrons(Tot_Nel), E=dE_cur, t0=All_holes(NOP)%t0, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1) ! new electron parameters
-            call Get_time_of_next_event(All_electrons(Tot_Nel), MFP=MFP_tot)   ! => All_electrons(NOP)%tn is updated for next collision [fs]
+            ! new electron parameters:
+            call Particle_event(All_electrons(Tot_Nel), E=dE_cur, t0=All_holes(NOP)%t0, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1)
+            ! => All_electrons(NOP)%tn is updated for next collision [fs]:
+            call Get_time_of_next_event(All_electrons(Tot_Nel), MFP=MFP_tot)
             
             call cut_off(Matter%cut_off, All_electrons=All_electrons(Tot_Nel)) ! compare electron energy with cut-off    
             
@@ -1801,25 +1859,30 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             endif    
             
             if ((All_electrons(Tot_Nel)%E .LT. -1.0d-9) .OR. isnan(All_electrons(Tot_Nel)%E)) then  ! Error, electron got negative energy!
-                write(Error_descript, '(a,i,a,e)') 'Hole-impact electron #', Tot_Nel, ' got negative energy ', All_electrons(Tot_Nel)%E ! description of an error
+                write(Error_descript, '(a,i,a,e)') 'Hole-impact electron #', Tot_Nel, ' got negative energy ', &
+                    All_electrons(Tot_Nel)%E ! description of an error
                 call Save_error_details(Error_message, 40, Error_descript) ! write it into the error-log file
                 print*, trim(adjustl(Error_descript)) ! print it also on the sreen
             endif
             
             ! Get parameters of the created holes:
             call Update_holes_angles_SHI((dE-dE_cur), htheta, hphi)
-            call Particle_event(All_holes(Tot_Nel), t0=All_holes(NOP)%t0, X=X, Y=Y, Z=Z, KOA=Nat_cur, Shl=Nshl_cur, theta=htheta, phi=hphi) ! new hole parameters
-            call Hole_parameters(All_holes(Tot_Nel), Matter, Mat_DOS, Target_atoms, Hole_IMFP, Hole_EMFP, (dE-dE_cur), Lowest_Ip_At, Lowest_Ip_Shl)
+            call Particle_event(All_holes(Tot_Nel), t0=All_holes(NOP)%t0, X=X, Y=Y, Z=Z, &
+                KOA=Nat_cur, Shl=Nshl_cur, theta=htheta, phi=hphi) ! new hole parameters
+            call Hole_parameters(All_holes(Tot_Nel), Matter, Mat_DOS, Target_atoms, Hole_IMFP, Hole_EMFP, &
+                (dE-dE_cur), Lowest_Ip_At, Lowest_Ip_Shl)
             call cut_off(Matter%cut_off, All_holes=All_holes(Tot_Nel)) ! compare hole energy with cut-off and update it's time
                        
             if ((All_holes(Tot_Nel)%Ehkin .LT. -1.0d-9) .OR. isnan(All_holes(Tot_Nel)%Ehkin)) then  ! Error, hole got negative energy!
-                write(Error_descript, '(a,i,a,e)') 'Hole-impact hole #', Tot_Nel, ' got negative energy ', All_holes(Tot_Nel)%Ehkin ! description of an error
+                ! description of an error:
+                write(Error_descript, '(a,i,a,e)') 'Hole-impact hole #', Tot_Nel, ' got negative energy ', All_holes(Tot_Nel)%Ehkin
                 call Save_error_details(Error_message, 41, Error_descript) ! write it into the error-log file
                 print*, trim(adjustl(Error_descript)) ! print it also on the sreen
             endif
             
             if (((All_holes(Tot_Nel)%E + All_holes(Tot_Nel)%Ehkin) .LT. Egap-1.0d-12)) then  ! Error, hole in band gap!
-                write(Error_descript, '(a,i,a,e,e,e)') 'Hole-impact hole #', Tot_Nel, ' is in the band gap ', All_holes(Tot_Nel)%Ehkin, All_holes(Tot_Nel)%E, Egap ! description of an error
+                write(Error_descript, '(a,i,a,e,e,e)') 'Hole-impact hole #', Tot_Nel, ' is in the band gap ', &
+                    All_holes(Tot_Nel)%Ehkin, All_holes(Tot_Nel)%E, Egap ! description of an error
                 call Save_error_details(Error_message, 41, Error_descript) ! write it into the error-log file
                 print*, trim(adjustl(Error_descript)) ! print it also on the sreen
             endif
@@ -1828,18 +1891,20 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             call check_hole_parameters(Mat_DOS, Eel, dE, Ehole, All_electrons(Tot_Nel))
                                                                                    
         else inel_vs_el  !Elastic
-            call Next_free_path(Eel, Elastic_Hole_MFP%E, Elastic_Hole_MFP%L, HEMFP) ! => find EMFP of hole [A] needed for calculation of transferred energy
+            ! => find EMFP of hole [A] needed for calculation of transferred energy:
+            call Next_free_path(Eel, Elastic_Hole_MFP%E, Elastic_Hole_MFP%L, HEMFP)
             !call Electron_energy_transfer(Eel, HEMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, kind_of_particle) ! => dE [eV] transferred energy
             if (NumPar%kind_of_EMFP .EQ. 2) then           ! DSF cross-sections
                 call NRG_transfer_elastic_DSF(DSF_DEMFP_H, Eel, HEMFP, dE) ! module "Cross_sections"
             else if (NumPar%kind_of_EMFP .EQ. 1) then      ! CDF phonon peaks
-                call Electron_energy_transfer(Eel, HEMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, kind_of_particle) ! => dE [eV] transferred energy
+                ! => dE [eV] transferred energy:
+                call Electron_energy_transfer(Eel, HEMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, kind_of_particle)
             else                                    ! Atomic cross-sections of Mott
                 dE = 0.0d0                          ! [eV] transferred energy
                 do ii = 1, size(Target_atoms)        ! for all atomic spicies:
                     call NRG_transfer_elastic_atomic(Target_atoms, ii, Eel, dE_loc, M_eff = All_holes(NOP)%Mass)
                     !dE = dE + dE_loc                 ! [eV] sum of transferred energies during collision witn all kind of atoms
-                    dE = dE + dE_loc*Target_atoms(ii)%Pers                 ! [eV] sum of transferred energies during collision witn all kind of atoms
+                    dE = dE + dE_loc*Target_atoms(ii)%Pers ! [eV] sum of transferred energies during collision witn all kind of atoms
                 enddo
                 !dE = dE/size(Target_atoms)          ! [eV] Average dE over kinds of atoms
                 dE = dE/dble(SUM(target_atoms(:)%Pers))          ! [eV} Average dE over kinds of atoms
@@ -1872,14 +1937,17 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
         
         ! Incident hole new parameters:
         call New_Angles_both(phi0, theta0, htheta1, hphi1, hphi2, htheta2)
-        call Particle_event(All_holes(NOP), t0=All_holes(NOP)%tn, X=X, Y=Y, Z=Z, KOA=All_holes(NOP)%KOA, Shl=All_holes(NOP)%Shl, theta=htheta2, phi=hphi2) ! new hole parameters
-        call Hole_parameters(All_holes(NOP), Matter, Mat_DOS, Target_atoms, Hole_IMFP, Hole_EMFP, (Ehole+Egap), Lowest_Ip_At, Lowest_Ip_Shl)
+        call Particle_event(All_holes(NOP), t0=All_holes(NOP)%tn, X=X, Y=Y, Z=Z, &
+            KOA=All_holes(NOP)%KOA, Shl=All_holes(NOP)%Shl, theta=htheta2, phi=hphi2) ! new hole parameters
+        call Hole_parameters(All_holes(NOP), Matter, Mat_DOS, Target_atoms, &
+            Hole_IMFP, Hole_EMFP, (Ehole+Egap), Lowest_Ip_At, Lowest_Ip_Shl)
         call cut_off(Matter%cut_off, All_holes=All_holes(NOP)) ! compare hole energy with cut-off and update it's time
 
         if (isnan(All_holes(NOP)%X)) print*, 'inc_hole', NOP, All_holes(NOP)%KOA, All_holes(NOP)%Shl, Ehole+Egap, htheta2, phi2
         
         if ((All_holes(NOP)%Ehkin .LT. -1.0d-9) .OR. isnan(All_holes(NOP)%Ehkin)) then  ! Error, electron got negative energy!
-            write(Error_descript, '(a,i,a,e)') 'Hole-el incident hole #', NOP, ' got negative energy ', All_holes(NOP)%Ehkin ! description of an error
+            write(Error_descript, '(a,i,a,e)') 'Hole-el incident hole #', NOP, ' got negative energy ', &
+                All_holes(NOP)%Ehkin ! description of an error
             call Save_error_details(Error_message, 20, Error_descript) ! write it into the error-log file
             print*, trim(adjustl(Error_descript)) ! print it also on the sreen
         endif
@@ -1911,7 +1979,8 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
                 ! Change the parameters of the decayed hole:
                 call Update_holes_angles_SHI(E_new1, htheta, hphi)
                 call Particle_event(All_holes(NOP), t0=All_holes(NOP)%tn, KOA=KOA1, Shl=Sh1, theta=htheta, phi=hphi) ! new hole parameters
-                call Hole_parameters(All_holes(NOP), Matter, Mat_DOS, Target_atoms, Hole_IMFP, Hole_EMFP, E_new1, Lowest_Ip_At, Lowest_Ip_Shl) ! Update times for the old hole
+                call Hole_parameters(All_holes(NOP), Matter, Mat_DOS, Target_atoms, &
+                        Hole_IMFP, Hole_EMFP, E_new1, Lowest_Ip_At, Lowest_Ip_Shl) ! Update times for the old hole
                 call cut_off(Matter%cut_off, All_holes=All_holes(NOP)) ! compare hole energy with cut-off and update it's time
                
 !               Consistency test
@@ -1923,12 +1992,15 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
 !               endif
                 
                 Tot_Nel = Tot_Nel + 1   ! we have ionized a new electron!
-                call Check_size(All_electrons, All_holes, N=Tot_Nel)    ! check if electrons are too many and the size of arrays must be increased
+                ! check if electrons are too many and the size of arrays must be increased:
+                call Check_size(All_electrons, All_holes, N=Tot_Nel)
                 
                 ! The new hole created:
                 call Update_holes_angles_SHI(E_new2, htheta, hphi)
-                call Particle_event(All_holes(Tot_Nel), t0=All_holes(NOP)%t0, X=All_holes(NOP)%X, Y=All_holes(NOP)%Y, Z=All_holes(NOP)%Z, KOA=KOA2, Shl=Sh2, theta=htheta, phi=hphi) ! new hole parameters
-                call Hole_parameters(All_holes(Tot_Nel), Matter, Mat_DOS, Target_atoms, Hole_IMFP, Hole_EMFP, E_new2, Lowest_Ip_At, Lowest_Ip_Shl)
+                call Particle_event(All_holes(Tot_Nel), t0=All_holes(NOP)%t0, X=All_holes(NOP)%X, Y=All_holes(NOP)%Y, &
+                        Z=All_holes(NOP)%Z, KOA=KOA2, Shl=Sh2, theta=htheta, phi=hphi) ! new hole parameters
+                call Hole_parameters(All_holes(Tot_Nel), Matter, Mat_DOS, Target_atoms, &
+                        Hole_IMFP, Hole_EMFP, E_new2, Lowest_Ip_At, Lowest_Ip_Shl)
                 call cut_off(Matter%cut_off, All_holes=All_holes(Tot_Nel)) ! compare hole energy with cut-off and update it's time
                      
 !               Consistency test
@@ -1948,14 +2020,18 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
                 phi1 = 2.0d0*g_Pi*RN    ! random angle
                 call random_number(RN)
                 theta1 = g_Pi*RN        ! random angle
-                call Particle_event(All_electrons(Tot_Nel), E=dE, t0=All_holes(NOP)%t0, X=All_holes(NOP)%X, Y=All_holes(NOP)%Y, Z=All_holes(NOP)%Z, L=MFP_tot, theta=theta1, phi=phi1) ! new electron parameters
-                call Get_time_of_next_event(All_electrons(Tot_Nel), MFP=MFP_tot)   ! => All_electrons(NOP)%tn is updated for next collision [fs]
+                call Particle_event(All_electrons(Tot_Nel), E=dE, t0=All_holes(NOP)%t0, X=All_holes(NOP)%X, Y=All_holes(NOP)%Y, &
+                    Z=All_holes(NOP)%Z, L=MFP_tot, theta=theta1, phi=phi1) ! new electron parameters
+                ! => All_electrons(NOP)%tn is updated for next collision [fs]:
+                call Get_time_of_next_event(All_electrons(Tot_Nel), MFP=MFP_tot)
                 
                 call cut_off(Matter%cut_off, All_electrons=All_electrons(Tot_Nel)) ! compare electron energy with cut-off    
                 
-                if ((All_electrons(Tot_Nel)%E .LT. -1.0d-9) .OR. isnan(All_electrons(Tot_Nel)%E)) then  ! Error, electron got negative energy!
+                ! Error, electron got negative energy!:
+                if ((All_electrons(Tot_Nel)%E .LT. -1.0d-9) .OR. isnan(All_electrons(Tot_Nel)%E)) then
+                    ! description of an error:
                     print*, 'ERROR #4 in Hole_Monte_Carlo'
-                    write(Error_descript, '(a,i6,a,f9.3)') 'Auger electron #', Tot_Nel, ' got negative energy ', All_electrons(Tot_Nel)%E  ! description of an error
+                    write(Error_descript, '(a,i6,a,f9.3)') 'Auger electron #', Tot_Nel, ' got negative energy ', All_electrons(Tot_Nel)%E
                     call Save_error_details(Error_message, 23, Error_descript) ! write it into the error-log file
                     print*, trim(adjustl(Error_descript)) ! print it also on the sreen
                     print*, 'KOA=', All_holes(NOP)%KOA, 'Shl=', All_holes(NOP)%Shl
@@ -1974,7 +2050,8 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
                                  
             ! Change the parameters of the decayed hole:
             call Update_holes_angles_SHI(E_new1, htheta, hphi)
-            call Particle_event(All_holes(NOP), t0=All_holes(NOP)%tn, X=All_holes(NOP)%X, Y=All_holes(NOP)%Y, Z=All_holes(NOP)%Z, KOA=KOA1, Shl=Sh1, theta=htheta, phi=hphi) ! new hole parameters
+            call Particle_event(All_holes(NOP), t0=All_holes(NOP)%tn, X=All_holes(NOP)%X, Y=All_holes(NOP)%Y, &
+                Z=All_holes(NOP)%Z, KOA=KOA1, Shl=Sh1, theta=htheta, phi=hphi) ! new hole parameters
             call Hole_parameters(All_holes(NOP), Matter, Mat_DOS, Target_atoms, Hole_IMFP, Hole_EMFP, E_new1, Lowest_Ip_At, Lowest_Ip_Shl)
             call cut_off(Matter%cut_off, All_holes=All_holes(NOP)) ! compare hole energy with cut-off and update it's time
             
@@ -1988,11 +2065,13 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             phi1 = 2.0d0*g_Pi*RN    ! random angle
             call random_number(RN)
             theta1 = g_Pi*RN        ! random angle
-            call Particle_event(All_photons(Tot_Nphot), E=dE, t0=All_holes(NOP)%t0, X=All_holes(NOP)%X, Y=All_holes(NOP)%Y, Z=All_holes(NOP)%Z, L=MFP_tot, theta=theta1, phi=phi1) ! new photon's parameters
+            call Particle_event(All_photons(Tot_Nphot), E=dE, t0=All_holes(NOP)%t0, X=All_holes(NOP)%X, Y=All_holes(NOP)%Y, &
+                Z=All_holes(NOP)%Z, L=MFP_tot, theta=theta1, phi=phi1) ! new photon's parameters
             call Get_time_of_next_event(All_photons(Tot_Nphot), MFP=MFP_tot)   ! => All_photons(NOP)%tn is updated for next collision [fs]    
             if ((All_photons(Tot_Nphot)%E .LT. -1.0d-9) .OR. isnan(All_photons(Tot_Nphot)%E)) then  ! Error, electron got negative energy!
+                ! description of an error:
                 print*, 'ERROR #5 in Hole_Monte_Carlo'
-                write(Error_descript, '(a,i6,a,f9.3)') 'Auger photon #', Tot_Nphot, ' got negative energy ', All_photons(Tot_Nphot)%E  ! description of an error
+                write(Error_descript, '(a,i6,a,f9.3)') 'Auger photon #', Tot_Nphot, ' got negative energy ', All_photons(Tot_Nphot)%E
                 call Save_error_details(Error_message, 30, Error_descript) ! write it into the error-log file
                 print*, trim(adjustl(Error_descript)) ! print it also on the sreen
                 print*, 'KOA=', All_holes(NOP)%KOA, 'Shl=', All_holes(NOP)%Shl
@@ -2005,9 +2084,10 @@ end subroutine Hole_Monte_Carlo
 
 
 
-subroutine Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
-                                    Total_Photon_MFPs, Tot_Nel, Tot_Nphot, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
-                                    t_cur, NumPar)
+subroutine Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, &
+        Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
+        Total_Photon_MFPs, Tot_Nel, Tot_Nphot, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
+        t_cur, NumPar)
     type(Electron), dimension(:), intent(inout), allocatable :: All_electrons   ! define array of electrons
     type(Hole), dimension(:), intent(inout), allocatable :: All_holes           ! define array of holes
     type(Photon), dimension(:), intent(inout), allocatable :: All_photons       ! define array of photons
@@ -2047,21 +2127,23 @@ subroutine Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El
     Tot_Nel = Tot_Nel + 1   ! we have ionized a new electron!
     call Check_size(All_electrons, All_holes, N=Tot_Nel)    ! check if electrons are too many and the size of arrays must be increased
     ! New ionized electrons parameters:
-    ! How much energy an electron recieves:
-    call Electron_recieves_E(Eel, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message) !=> dE_cur [eV] kinetic energy of the electron
+    ! How much energy an electron recieves (!=> dE_cur [eV] kinetic energy of the electron):
+    call Electron_recieves_E(Eel, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message)
 
     call Next_free_path(dE_cur, El_IMFP, IMFP) ! => IMFP of electron [A]
     call Next_free_path(dE_cur, El_EMFP, EMFP) ! => EMFP of electron [A]
     call random_number(RN)
     MFP_tot = -log(RN)/(1.0d0/IMFP + 1.0d0/EMFP)    ! [A] sample total electron free path (inelastic + elastic)
     call New_Angles_both(All_photons(NOP)%phi, All_photons(NOP)%theta, g_Pi/2.0d0, 0.0d0, phi1, theta1)    ! => phi1, theta1
-    call Particle_event(All_electrons(Tot_Nel), E=dE_cur, t0=All_photons(NOP)%t0, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1) ! new electron parameters
+    ! new electron parameters:
+    call Particle_event(All_electrons(Tot_Nel), E=dE_cur, t0=All_photons(NOP)%t0, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1)
     call Get_time_of_next_event(All_electrons(Tot_Nel), MFP=MFP_tot)   ! => All_electrons(NOP)%tn is updated for next collision [fs]
     
     call cut_off(Matter%cut_off, All_electrons=All_electrons(Tot_Nel)) ! compare electron energy with cut-off    
 
     if ((All_electrons(Tot_Nel)%E .LT. -1.0d-9) .OR. isnan(All_electrons(Tot_Nel)%E)) then  ! Error, electron got negative energy!
-        write(Error_descript, '(a,i,a,e)') 'Photo-electron #', Tot_Nel, ' got negative energy ', All_electrons(Tot_Nel)%E ! description of an error
+        ! description of an error:
+        write(Error_descript, '(a,i,a,e)') 'Photo-electron #', Tot_Nel, ' got negative energy ', All_electrons(Tot_Nel)%E
         call Save_error_details(Error_message, 50, Error_descript) ! write it into the error-log file
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
     endif
@@ -2069,17 +2151,20 @@ subroutine Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El
     ! New hole:
     ! Get parameters of the created holes:
     call Update_holes_angles_SHI((Eel-dE_cur), htheta, hphi)
-    call Particle_event(All_holes(Tot_Nel), t0=All_photons(NOP)%t0, X=X, Y=Y, Z=Z, KOA=Nat_cur, Shl=Nshl_cur, theta=htheta, phi=hphi) ! new hole parameters
+    ! new hole parameters:
+    call Particle_event(All_holes(Tot_Nel), t0=All_photons(NOP)%t0, X=X, Y=Y, Z=Z, KOA=Nat_cur, Shl=Nshl_cur, theta=htheta, phi=hphi)
     call Hole_parameters(All_holes(Tot_Nel), Matter, Mat_DOS, Target_atoms, Hole_IMFP, Hole_EMFP, (Eel-dE_cur), Lowest_Ip_At, Lowest_Ip_Shl)
     call cut_off(Matter%cut_off, All_holes=All_holes(Tot_Nel)) ! compare hole energy with cut-off and update it's time
 
     if ((All_holes(Tot_Nel)%Ehkin .LT. -1.0d-9) .OR. isnan(All_holes(Tot_Nel)%Ehkin)) then  ! Error, hole got negative energy!
-        write(Error_descript, '(a,i,a,e)') 'Photo-hole #', Tot_Nel, ' got negative energy ', All_holes(Tot_Nel)%Ehkin ! description of an error
+        ! description of an error:
+        write(Error_descript, '(a,i,a,e)') 'Photo-hole #', Tot_Nel, ' got negative energy ', All_holes(Tot_Nel)%Ehkin
         call Save_error_details(Error_message, 51, Error_descript) ! write it into the error-log file
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
     endif
     if (((All_holes(Tot_Nel)%E + All_holes(Tot_Nel)%Ehkin) .LT. Egap)) then  ! Error, hole in band gap!
-        write(Error_descript, '(a,i,a,e)') 'Photo-hole #', Tot_Nel, ' is in the band gap ', All_holes(Tot_Nel)%Ehkin ! description of an error
+        ! description of an error:
+        write(Error_descript, '(a,i,a,e)') 'Photo-hole #', Tot_Nel, ' is in the band gap ', All_holes(Tot_Nel)%Ehkin
         call Save_error_details(Error_message, 52, Error_descript) ! write it into the error-log file
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
     endif
@@ -2092,7 +2177,7 @@ end subroutine Photon_Monte_Carlo
 
 
 subroutine Radiative_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, &
-                             Sh1, KOA1, dE, E_new1, Error_message)   ! => Sh1, KOA1, dE
+            Sh1, KOA1, dE, E_new1, Error_message)   ! => Sh1, KOA1, dE
    integer, intent(in) :: KOA, SHL ! atomic species and shell numbers
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects
    integer, intent(in) :: Lowest_Ip_At, Lowest_Ip_Shl ! number of atom and of shell which correspond to the lowest ionization potential
@@ -2202,7 +2287,7 @@ subroutine update_fields(NumPar, Matter, target_atoms, Out_R, All_electrons, All
             endif
             call Find_in_array_monoton(Out_R, R, j)             ! find where in the distribution array it is
             
-            call Particle_event(All_electrons(k), X=X, Y=Y, Z=Z, t0=tim)            ! Update electron coordinates and time to current value
+            call Particle_event(All_electrons(k), X=X, Y=Y, Z=Z, t0=tim) ! Update electron coordinates and time to current value
             
             Out_field_loc(j) = Out_field_loc(j) - 1.0d0         ! here is the electron
             
@@ -2232,7 +2317,7 @@ subroutine update_fields(NumPar, Matter, target_atoms, Out_R, All_electrons, All
             endif
             call Find_in_array_monoton(Out_R, R, j) ! find where in the distribution array it is
             
-            call Particle_event(All_holes(k), X=X, Y=Y, Z=Z, t0=tim)           ! Update hole coordinates and time to current value
+            call Particle_event(All_holes(k), X=X, Y=Y, Z=Z, t0=tim)  ! Update hole coordinates and time to current value
             Out_field_loc(j) = Out_field_loc(j) + 1.0d0   ! here is the hole
         enddo all_el ! do k = 1, Tot_Nel
                
@@ -2323,7 +2408,8 @@ subroutine update_particle_velocities(All_electrons, All_holes, Out_field, Out_R
                 Vsq = Vx*Vx + Vy*Vy + Vz*Vz         ! [m/s] Nev velocity modulus
                 Enrg = g_me*Vsq/2.0d0/g_e
                 
-                dE = All_electrons(k)%E - Enrg      ! Change of particle energy during time dt. Negative - electron get energy, Positive - Electron lose energy
+                ! Change of particle energy during time dt. Negative - electron get energy, Positive - Electron lose energy:
+                dE = All_electrons(k)%E - Enrg
                 Tot_field = Tot_field + dE          ! Virtual vault of field energy (to check conservation of energy)
                 
                 if (dE .LT. 0) then
@@ -2335,7 +2421,8 @@ subroutine update_particle_velocities(All_electrons, All_holes, Out_field, Out_R
                 All_electrons(k)%E = Enrg           ! New energy of electron
                 
                 if ((All_electrons(k)%E .LT. -1.0d-9) .OR. isnan(All_electrons(k)%E)) then  ! Error, electron got negative energy!
-                    write(Error_descript, '(a,i,a,e, a)') 'Electron #', k, ' got negative energy ', All_electrons(k)%E, ' during interaction with electric field.' ! description of an error
+                    write(Error_descript, '(a,i,a,e, a)') 'Electron #', k, ' got negative energy ', &
+                        All_electrons(k)%E, ' during interaction with electric field.' ! description of an error
                     call Save_error_details(Error_message, 22, Error_descript) ! write it into the error-log file
                     print*, trim(adjustl(Error_descript)) ! print it also on the sreen
                 endif
