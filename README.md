@@ -1,5 +1,7 @@
 # TREKIS-3
- ## TREKIS-3: Time-Resolved Electron Kinetics in SHI-Irradiated Solids -- a Monte Carlo simulation of the effects of SHI impact on matter
+ ## TREKIS : Time Resolved Electron Kinetics in SHI-irradiated Solids
+ ## Monte-Carlo code modelling electronic kinetics swift-heavy ion impact on matter
+ ## Current version: 3.0.8 (update from 08.05.2023)
  
  For all details and instruction, address the files
  !READ_ME_TREKIS_3.doc  or  !READ_ME_TREKIS_3.pdf

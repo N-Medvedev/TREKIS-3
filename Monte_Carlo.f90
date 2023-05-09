@@ -1644,7 +1644,7 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
             print*, 'Elastic', Eel, dE, theta, phi
             pause
         endif
-        
+
         ! save this energy in the array of radial distributions of atomic energies:
         R = SQRT(X*X + Y*Y) ! [A] radius of this electron at the moment of scattering
         call Find_in_array_monoton(Out_R, R, j) ! find where in the distribution array it is
