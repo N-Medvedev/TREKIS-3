@@ -129,8 +129,9 @@ end type Flag
 !DSF cross-sections
 type :: Differential_MFP
     real(8) :: E           ! Incedent electron energy [eV]
-    real(8), dimension(:), allocatable :: dE          ! Transferred energy in the interaction event [eV]
-    real(8), dimension(:), allocatable :: dL        ! Differential over transferred energy mean free path [A]
+    real(8), dimension(:), allocatable :: dE    ! Transferred energy in the interaction event [eV]
+    real(8), dimension(:), allocatable :: dL    ! Differential over transferred energy mean free path [A]
+    real(8), dimension(:), allocatable :: dL_absorb, dL_emit ! Differential MFP for absorption (dE<0) and emission of energy (dE>0)
 end type Differential_MFP
 !==============================================
 

@@ -28,7 +28,8 @@ contains    ! the MC code itself is all here:
 
 subroutine Monte_Carlo_modelling(SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
             Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, &
-            Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
+            Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, &
+            Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
             Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta1, &
             Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Error_message, DSF_DEMFP, DSF_DEMFP_H, Out_field_all, Out_E_field, &
             Out_diff_coeff)
@@ -53,7 +54,7 @@ subroutine Monte_Carlo_modelling(SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowes
     real(8), dimension(:,:), intent(inout) :: Out_Ee  ! [eV/A^3] electron energy density
     real(8), dimension(:,:), intent(inout) :: Out_nphot ! [1/cm^3] photon density
     real(8), dimension(:,:), intent(inout) :: Out_Ephot ! [eV/A^3] photon energy density
-    real(8), dimension(:,:), intent(inout) :: Out_Ee_vs_E   ! [1/eV] electron distribution in energy space vs time
+    real(8), dimension(:,:), intent(inout) :: Out_Ee_vs_E, Out_Eh_vs_E ! [1/eV] electron spectrum in energy space vs time; VB holes
     real(8), dimension(:,:), intent(inout) :: Out_Elat  ! [eV/A^3] lattuce energy density vs time vs R
     real(8), dimension(:,:), intent(inout) :: Out_Eat_dens  ! [eV/A^3] atom's energy energy
     real(8), dimension(:,:,:,:), intent(inout) :: Out_nh    ! [1/cm^3] holes densities
@@ -176,13 +177,13 @@ subroutine Monte_Carlo_modelling(SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowes
                 case (2)    ! electron
                     call Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, &
                         CDF_Phonon, Matter, target_atoms, &
-                        Total_el_MFPs, Elastic_MFP%Total, Tot_Nel, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, &
+                        Total_el_MFPs, Elastic_MFP, Tot_Nel, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, &
                         Error_message, Em_electrons, &
                         Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar)
                 case (3)    ! hole
                     call Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, &
                         Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
-                        Total_Hole_MFPs, Elastic_Hole_MFP%Total, Tot_Nel, Tot_Nphot, NOP, &
+                        Total_Hole_MFPs, Elastic_Hole_MFP, Tot_Nel, Tot_Nphot, NOP, &
                         Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
                         At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar)
                 case (4)    ! photon
@@ -195,10 +196,11 @@ subroutine Monte_Carlo_modelling(SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowes
         enddo grid_do ! propagate particles until the time grid point     
         !dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
         ! Save distributions for this time-step:
-        call Calculated_statistics(i, tim_glob, Tot_Nel, Tot_Nphot, At_NRG, All_electrons, Em_electrons, &
+        call Calculated_statistics(Mat_DOS, Lowest_Ip_At, Lowest_Ip_Shl, i, tim_glob, Tot_Nel, Tot_Nphot,&
+                At_NRG, All_electrons, Em_electrons, &
                 All_holes, All_photons, Target_atoms, Out_R, Out_V, &
                 Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_ne, Out_Ee, &
-                Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eat_dens, Out_nh, Out_Eh, Out_Ehkin, &
+                Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Eat_dens, Out_nh, Out_Eh, Out_Ehkin, &
                 Out_theta, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Em_Nel, Matter, &
                 Out_field, Out_field_all, Tot_field, Out_E_field, Out_diff_coeff, NumPar)
         !dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
@@ -353,7 +355,11 @@ subroutine Get_time_of_next_event(Particle, RN, MFP, Target_atoms, KOA, Shl, Low
     class is (Hole)
         if ((Particle%KOA .EQ. Lowest_Ip_At) .AND. (Particle%Shl .EQ. Lowest_Ip_Shl)) then   ! it's VB:
             call Get_velosity(Particle, V, Target_atoms)
-            Particle%tn = Particle%t0 + MFP/V*1d5   ! [fs]
+            if (V > 1.0d-10) then   ! real velosity
+               Particle%tn = Particle%t0 + MFP/V*1d5   ! [fs]
+            else    ! zero velosity, immobile
+               Particle%tn = 1.0d25
+            endif
         else    ! it's deep shell:
             !Particle%tn = Particle%t0 - log(RN)*Target_atoms(KOA)%Auger(Shl)
             nu = 1.0d0/Target_atoms(KOA)%Auger(Shl) + 1.0d0/Target_atoms(KOA)%Radiat(Shl) ! Auger ot Radiative decay
@@ -379,7 +385,14 @@ subroutine Get_velosity(Particle, V, Target_atoms)
         if (Particle%Mass .LT. 1.0e6) then
             !Egap = Target_atoms(1)%Ip(size(Target_atoms(1)%Ip)) ! [eV] bandgap
             !V = SQRT(2.0d0*(Particle%E - Egap)*g_e/(Particle%Mass*g_me)) ! [m/s] free-flight time of a hole
-            V = SQRT(2.0d0*(Particle%Ehkin)*g_e/(Particle%Mass*g_me))
+            if ((Particle%Ehkin < -1.0d-6) .or. (Particle%Mass < 1.0d-10) ) then
+                print*, 'Problem in Get_velosity (for hole):', Particle%Ehkin, Particle%Mass
+                V = 0.0d0
+            elseif ( abs(Particle%Ehkin) < 1.0d-6) then
+                V = 0.0d0
+            else
+                V = SQRT(2.0d0*(Particle%Ehkin)*g_e/(Particle%Mass*g_me))
+            endif
         else
             V = 0.0d0   ! [m/s] immobile hole
         endif
@@ -389,12 +402,14 @@ subroutine Get_velosity(Particle, V, Target_atoms)
 end subroutine Get_velosity
 
 
-subroutine Calculated_statistics(i, tim, Tot_Nel, Tot_Nphot, At_NRG, All_electrons, Em_electrons, &
+subroutine Calculated_statistics(Mat_DOS, Lowest_Ip_At, Lowest_Ip_Shl, i, tim, Tot_Nel, Tot_Nphot, At_NRG, All_electrons, Em_electrons, &
         All_holes, All_photons, target_atoms, Out_R, Out_V, &
         Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, &
-        Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eat_dens, Out_nh, Out_Eh, Out_Ehkin, &
+        Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Eat_dens, Out_nh, Out_Eh, Out_Ehkin, &
         Out_theta, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Em_Nel, Matter, &
         Out_field, Out_field_all, Tot_field, Out_E_field, Out_diff_coeff, NumPar)
+    type(Density_of_states), intent(in) :: Mat_DOS  ! material DOS
+    integer, intent(in) :: Lowest_Ip_At, Lowest_Ip_Shl ! number of atom and of shell which correspond to the lowest ionization potential
     integer, intent(in) :: i    ! number of the time-step
     real(8), intent(in) :: tim
     integer, intent(in) :: Tot_Nel  ! number of electrons
@@ -417,7 +432,7 @@ subroutine Calculated_statistics(i, tim, Tot_Nel, Tot_Nphot, At_NRG, All_electro
     real(8), dimension(:,:), intent(inout) :: Out_Ee  ! [eV/A^3] electron energy density
     real(8), dimension(:,:), intent(inout) :: Out_nphot ! [1/cm^3] photon density
     real(8), dimension(:,:), intent(inout) :: Out_Ephot ! [eV/A^3] photon energy density
-    real(8), dimension(:,:), intent(inout) :: Out_Ee_vs_E   ! [1/eV] electron distribution in energy space
+    real(8), dimension(:,:), intent(inout) :: Out_Ee_vs_E, Out_Eh_vs_E   ! [1/eV] electron distribution in energy space; VB holes
     real(8), dimension(:,:), intent(inout) :: Out_Eat_dens  ! [eV/A^3] atom's energy energy
     real(8), dimension(:,:,:), intent(inout) :: Out_E_h
     real(8), dimension(:,:,:,:), intent(inout) :: Out_nh    ! [1/cm^3] holes densities
@@ -442,7 +457,7 @@ subroutine Calculated_statistics(i, tim, Tot_Nel, Tot_Nphot, At_NRG, All_electro
     
     real(8) R, X, Y, Z, L0, theta0, phi0, V,xx
     real(8) Xh, Yh
-    integer j, k, l, m, Nat, N0Ee, N_VB_h
+    integer j, k, l, m, Nat, N0Ee, N_VB_h, N_VB_h_tot
     
     Nat = size(target_atoms)    ! number of atom
     
@@ -501,7 +516,9 @@ subroutine Calculated_statistics(i, tim, Tot_Nel, Tot_Nphot, At_NRG, All_electro
         endif
     endif
    
-    N_VB_h = 0
+    ! total number of VB holes:
+    N_VB_h_tot = COUNT( (All_holes(:)%KOA == Lowest_Ip_At) .AND. (All_holes(:)%Shl == Lowest_Ip_Shl) )
+    N_VB_h = 0  ! counter of VB holes
     do k = 1, Tot_Nel   ! for all electrons
         if (All_electrons(k)%E .GT. max(0.0d0, Matter%cut_off)) then
             call Get_velosity(All_electrons(k), V)
@@ -530,11 +547,23 @@ subroutine Calculated_statistics(i, tim, Tot_Nel, Tot_Nphot, At_NRG, All_electro
         if (isnan(All_electrons(k)%E)) print*, 'Negative electron energy in stat ', 'E = ', All_electrons(k)%E
         call Find_in_array_monoton(Out_R, All_electrons(k)%E, j) ! find where in the distribution array it is
         if (j .GT. 1) then
-            Out_Ee_vs_E(i,j) = Out_Ee_vs_E(i,j) + 1.0d0/(Out_R(j)-Out_R(j-1))/real(Tot_Nel) ! number of electrons in this ENERGY interval
+            Out_Ee_vs_E(i,j) = Out_Ee_vs_E(i,j) + 1.0d0/(Out_R(j)-Out_R(j-1))/dble(Tot_Nel) ! number of electrons in this ENERGY interval
         else    ! j = 1, energy interval is 1
-            Out_Ee_vs_E(i,j) = Out_Ee_vs_E(i,j) + 1.0d0/Out_R(j)/real(Tot_Nel) ! number of electrons in this ENERGY interval
+            Out_Ee_vs_E(i,j) = Out_Ee_vs_E(i,j) + 1.0d0/Out_R(j)/dble(Tot_Nel) ! number of electrons in this ENERGY interval
         endif
-        
+
+        ! VB holes spectrum:
+        if ( (All_holes(k)%KOA == Lowest_Ip_At) .AND. (All_holes(k)%Shl == Lowest_Ip_Shl) ) then ! it is VB
+            call Find_in_array_monoton(Mat_DOS%E, All_holes(k)%Ehkin, j) ! find where in the distribution array it is
+            ! Number of VB holes in this ENERGY interval:
+            if (j > 1) then
+                Out_Eh_vs_E(i,j) = Out_Eh_vs_E(i,j) + 1.0d0/(Mat_DOS%E(j)-Mat_DOS%E(j-1))/dble(N_VB_h_tot)
+            else    ! j = 1, energy interval is 1
+                Out_Eh_vs_E(i,j) = Out_Eh_vs_E(i,j) + 1.0d0/(Mat_DOS%E(j+1)-Mat_DOS%E(j))/dble(N_VB_h_tot)
+            endif
+        endif
+
+
         xx = theta0/g_Pi*180.0d0 ! Electron angles array 1=phi, 2=theta
         if (isnan(xx)) then
             print*, 'The problem is with angles in stst...', xx, All_electrons(k)%theta, All_electrons(k)%E, k
@@ -1230,6 +1259,7 @@ subroutine How_many_electrons(Nat, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Phot_
     type(MFP), intent(in) :: Elastic_MFP                    ! elastic mean free path
     type(All_MFP), dimension(:), intent(in) :: Total_Hole_MFPs      ! hole mean free paths for all shells
     type(MFP), intent(in) :: Elastic_Hole_MFP               ! hole elastic mean free path
+    !type(MFP_elastic), intent(in) :: Elastic_Hole_MFP            ! elastic mean free path
     type(All_MFP), dimension(:), intent(in) :: Total_Photon_MFPs    ! photon mean free paths for all shells
     type(Electron), dimension(:), allocatable, intent(inout) :: All_electrons ! define array of electrons
     real(8), dimension(:), allocatable, intent(inout) :: Em_electrons ! emitted electrons energies
@@ -1558,7 +1588,8 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
     type(Density_of_states), intent(in) :: Mat_DOS  ! material DOS
     type(Error_handling), intent(inout) :: Error_message	! error messages are dealed with as objects
     type(All_MFP), dimension(:), intent(in), target :: Total_el_MFPs    ! electron mean free paths for all shells
-    type(MFP), intent(in), target :: Elastic_MFP                        ! elastic mean free path
+    !type(MFP), intent(in), target :: Elastic_MFP                        ! elastic mean free path
+    type(MFP_elastic), intent(in) :: Elastic_MFP            ! elastic mean free paths
     type(Electron), dimension(:), allocatable :: All_electrons ! define array of electrons
     type(Hole), dimension(:), intent(inout), allocatable :: All_holes ! define array of holes
     real(8), dimension(:), intent(inout) :: Em_electrons                     ! define array of energies of emitted electrons
@@ -1660,11 +1691,13 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
         
     else el_vs_inel ! elastic
 
-        ! => find IMFP of electron [A] needed for calculation of transferred energy:
-        call Next_free_path(Eel, Elastic_MFP%E, Elastic_MFP%L, EMFP)
+        ! => find EMFP of electron [A] needed for calculation of transferred energy:
+        call Next_free_path(Eel, Elastic_MFP%Total%E, Elastic_MFP%Total%L, EMFP)
         
         if (NumPar%kind_of_EMFP .EQ. 2) then           ! DSF cross-sections
-            call NRG_transfer_elastic_DSF(DSF_DEMFP, Eel, EMFP, dE) ! module "Cross_sections"
+            !call NRG_transfer_elastic_DSF(DSF_DEMFP, Eel, EMFP, dE) ! module "Cross_sections"  -- OLD
+            call NRG_transfer_elastic_DSF(Elastic_MFP, DSF_DEMFP, Eel, dE) ! module "Cross_sections"
+            !dE = 0.0d0  ! Testing
         else if (NumPar%kind_of_EMFP .EQ. 1) then      ! CDF phonon peaks
             ! => dE [eV] transferred energy:
             call Electron_energy_transfer(Eel, EMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, kind_of_particle)
@@ -1775,7 +1808,8 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
     type(Density_of_states), intent(in) :: Mat_DOS  ! material DOS
     type(Error_handling), intent(inout) :: Error_message	! error messages are dealed with as objects
     type(All_MFP), dimension(:), intent(in), target :: Total_Hole_MFPs    ! electron mean free paths for all shells
-    type(MFP), intent(in), target :: Elastic_Hole_MFP                        ! elastic mean free path
+    !type(MFP), intent(in), target :: Elastic_Hole_MFP                        ! elastic mean free path
+    type(MFP_elastic), intent(in) :: Elastic_Hole_MFP            ! elastic mean free path
     real(8), intent(in) :: t_cur
     type(Flag), intent(inout) :: NumPar
     real(8), dimension(:,:), intent(in) :: El_IMFP    ! total IMFP for electron, to use in a subroutine, we need this shape of an array
@@ -1892,10 +1926,21 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
                                                                                    
         else inel_vs_el  !Elastic
             ! => find EMFP of hole [A] needed for calculation of transferred energy:
-            call Next_free_path(Eel, Elastic_Hole_MFP%E, Elastic_Hole_MFP%L, HEMFP)
+            call Next_free_path(Eel, Elastic_Hole_MFP%Total%E, Elastic_Hole_MFP%Total%L, HEMFP)
             !call Electron_energy_transfer(Eel, HEMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, kind_of_particle) ! => dE [eV] transferred energy
+
+            !print*, 'Hole', NumPar%kind_of_EMFP
+
             if (NumPar%kind_of_EMFP .EQ. 2) then           ! DSF cross-sections
-                call NRG_transfer_elastic_DSF(DSF_DEMFP_H, Eel, HEMFP, dE) ! module "Cross_sections"
+!                 print*, '------------------ HOLE --------------------'
+!                 print*, '::', size(DSF_DEMFP_H), HEMFP
+!                 do ii = 1, 40    ! testing
+!                     Eel = dble(ii)/10.0d0    ! testing
+!                     call Next_free_path(Eel, Elastic_Hole_MFP%Total%E, Elastic_Hole_MFP%Total%L, HEMFP) ! Testing
+                !call NRG_transfer_elastic_DSF(DSF_DEMFP_H, Eel, HEMFP, dE) ! module "Cross_sections" -- OLD
+                call NRG_transfer_elastic_DSF(Elastic_Hole_MFP, DSF_DEMFP_H, Eel, dE) ! module "Cross_sections"
+!                 enddo ! testing
+!                 pause '------------------ HOLE --------------------'
             else if (NumPar%kind_of_EMFP .EQ. 1) then      ! CDF phonon peaks
                 ! => dE [eV] transferred energy:
                 call Electron_energy_transfer(Eel, HEMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, kind_of_particle)

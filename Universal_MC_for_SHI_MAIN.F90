@@ -126,7 +126,7 @@ call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phon
 if (NumPar%include_photons) then ! only if we include photons:
     kind_of_particle = 'Photon'
     call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_Photon_MFPs, &
-              Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names=File_names) ! from module Analytical_IMPS / openmp parallelization
+            Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names=File_names) ! from module Analytical_IMPS / openmp parallelization
 else
    allocate(Total_Photon_MFPs(0))
 endif
@@ -160,8 +160,8 @@ call Radius_for_distributions(Target_atoms, Out_Distr, Out_V, Tim, dt, NumPar%dt
 
 !MCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMC
 ! Allocate arrays for MC iterations:
-call Allocate_out_arrays(target_atoms, Out_Distr, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, &
-      Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, &
+call Allocate_out_arrays(target_atoms, Out_Distr, Mat_DOS, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, &
+      Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, &
       Out_theta, Out_theta1, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_E_field, Out_diff_coeff) !Module 'Sorting_output_data.f90'
 
 write(*,'(a)') ' '
@@ -172,16 +172,16 @@ write(*,'(a)') '--------------------------------------------------------'
 Nit = 0
 !$omp parallel &
 !$omp private (MC_stat, my_id)
-!$omp do reduction( + : Nit, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_field_all, Out_E_field, Out_diff_coeff)
+!$omp do schedule(dynamic) reduction( + : Nit, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_field_all, Out_E_field, Out_diff_coeff)
 do MC_stat = 1, NMC   ! MC iterations to be averaged
     ! Perform all the MC calculations within this subroutine:
     call Monte_Carlo_modelling(SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
      Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, &
-     Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, &
-     Out_tot_Nphot, Out_tot_E, &
+     Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, &
+     Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
      Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
-     Error_message, DSF_DEMFP, DSF_DEMFP_H, Out_field_all, Out_E_field, Out_diff_coeff)  ! module Monte_carlo
-    Nit = Nit + 1   ! just count the number of iteration to test parallelization
+     Error_message, DSF_DEMFP, DSF_DEMFP_H, Out_field_all, Out_E_field, Out_diff_coeff)  ! module "Monte_carlo"
+    Nit = Nit + 1   ! count the number of iteration to test parallelization
     my_id = 1 + OMP_GET_THREAD_NUM() ! identify which thread it is
     call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
     write(*, 1008) 'Thread #', my_id, ' Iteration #', Nit, ' at ', c1(5), c1(6), c1(7)
@@ -190,47 +190,51 @@ enddo
 !$omp end parallel
 
 ! Average the distributions over the statistics:
-Out_tot_Ne = Out_tot_Ne/real(NMC)
-Out_tot_Nphot = Out_tot_Nphot/real(NMC)
-Out_tot_E = Out_tot_E/real(NMC)
-Out_E_e = Out_E_e/real(NMC)
-Out_E_phot = Out_E_phot/real(NMC)
-Out_E_at = Out_E_at/real(NMC)
-Out_E_h = Out_E_h/real(NMC)
-Out_Eat_dens = Out_Eat_dens/real(NMC)
-Out_Distr%ne = Out_ne/real(NMC)
-Out_Distr%Ee = Out_Ee/real(NMC)
-Out_nphot = Out_nphot/real(NMC)
-Out_Ephot = Out_Ephot/real(NMC)
-Out_Ee_vs_E = Out_Ee_vs_E/real(NMC)
-Out_Elat = Out_Elat/real(NMC)
-Out_theta = Out_theta/real(NMC)
-Out_field_all = Out_field_all/real(NMC)
-Out_E_field = Out_E_field/real(NMC)
-Out_Ne_Em = Out_Ne_Em/real(NMC)
-Out_E_Em = Out_E_Em/real(NMC)
-Out_Ee_vs_E_Em = Out_Ee_vs_E_Em/real(NMC)
-Out_diff_coeff = Out_diff_coeff/real(NMC)
+Out_tot_Ne = Out_tot_Ne/dble(NMC)
+Out_tot_Nphot = Out_tot_Nphot/dble(NMC)
+Out_tot_E = Out_tot_E/dble(NMC)
+Out_E_e = Out_E_e/dble(NMC)
+Out_E_phot = Out_E_phot/dble(NMC)
+Out_E_at = Out_E_at/dble(NMC)
+Out_E_h = Out_E_h/dble(NMC)
+Out_Eat_dens = Out_Eat_dens/dble(NMC)
+Out_Distr%ne = Out_ne/dble(NMC)
+Out_Distr%Ee = Out_Ee/dble(NMC)
+Out_nphot = Out_nphot/dble(NMC)
+Out_Ephot = Out_Ephot/dble(NMC)
+Out_Ee_vs_E = Out_Ee_vs_E/dble(NMC) ! electron spectrum
+Out_Eh_vs_E = Out_Eh_vs_E/dble(NMC) ! VB holes spectrum
+Out_Elat = Out_Elat/dble(NMC)
+Out_theta = Out_theta/dble(NMC)
+Out_field_all = Out_field_all/dble(NMC)
+Out_E_field = Out_E_field/dble(NMC)
+Out_Ne_Em = Out_Ne_Em/dble(NMC)
+Out_E_Em = Out_E_Em/dble(NMC)
+Out_Ee_vs_E_Em = Out_Ee_vs_E_Em/dble(NMC)
+Out_diff_coeff = Out_diff_coeff/dble(NMC)
 do k = 1, size(Out_Distr%Atom(1)%Shl(1)%nh,1) ! for all the timesteps:
     do i = 1, size(Out_Distr%Atom)    ! for all atoms
         do j = 1, size(Out_Distr%Atom(i)%Shl)    ! for all shells of atom
-            Out_Distr%Atom(i)%Shl(j)%nh(k,:) = Out_nh(k,:,i,j)/real(NMC)
-            Out_Distr%Atom(i)%Shl(j)%Eh(k,:) = Out_Eh(k,:,i,j)/real(NMC)
-            Out_Distr%Atom(i)%Shl(j)%Ehkin(k,:) = Out_Ehkin(k,:,i,j)/real(NMC)
+            Out_Distr%Atom(i)%Shl(j)%nh(k,:) = Out_nh(k,:,i,j)/dble(NMC)
+            Out_Distr%Atom(i)%Shl(j)%Eh(k,:) = Out_Eh(k,:,i,j)/dble(NMC)
+            Out_Distr%Atom(i)%Shl(j)%Ehkin(k,:) = Out_Ehkin(k,:,i,j)/dble(NMC)
         enddo ! j
     enddo   ! i
 enddo   ! k
 
 !OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
 2011    continue
-call Save_output(Output_path_SHI, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, &
-                SHI, Out_R, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_E_at, Out_E_h, Out_Eat_dens, Out_Distr, &
-                Out_Elat, Out_theta, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, NumPar, Out_E_field, Out_diff_coeff) !Module 'Sorting_output_data.f90'
+call Save_output(Output_path_SHI, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, &
+                SHI, Out_R, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_nphot, Out_Ephot,&
+                Out_Ee_vs_E, Out_Eh_vs_E, Out_E_at, Out_E_h, Out_Eat_dens, Out_Distr, &
+                Out_Elat, Out_theta, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
+                NumPar, Out_E_field, Out_diff_coeff) !Module 'Sorting_output_data.f90'
 
 ! clean up after using temporary arrays:
-call Deallocate_out_arrays(Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, &
-                           Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, Out_theta, Out_field_all, Out_Ne_Em, Out_E_Em, &
-                           Out_Ee_vs_E_Em, Out_E_field)       !Module 'Sorting_output_data.f90'
+call Deallocate_out_arrays(Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_R, Out_V, &
+    Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, &
+    Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, Out_theta, Out_field_all, Out_Ne_Em, Out_E_Em, &
+    Out_Ee_vs_E_Em, Out_E_field)       !Module 'Sorting_output_data.f90'
 !MCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMC
 
 
@@ -238,10 +242,9 @@ call Deallocate_out_arrays(Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_
 ! End of the program:
 ! Printing out the duration of the program, starting and ending time and date:
 2012 call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
-as1=REAL(24*60*60*(c1(3)-ctim(3))+3600*(c1(5)-ctim(5))+60*(c1(6)-ctim(6))+(c1(7)-ctim(7))+(c1(8)-ctim(8))*0.001)	! sec
+as1=dble(24*60*60*(c1(3)-ctim(3))+3600*(c1(5)-ctim(5))+60*(c1(6)-ctim(6))+(c1(7)-ctim(7))+(c1(8)-ctim(8))*0.001) ! sec
 
 call parse_time(as1,Text_var) ! module "Sorting_output_data.f90"
-
 print*, '   '
 write(*,'(a, a)') 'Duration of execution of the program: ', trim(adjustl(Text_var))
 print*, '   '
@@ -268,7 +271,9 @@ endif
 
 if (NumPar%path_sep .EQ. '\') then
     !PAUSE 'The program is finished, press RETURN to go out...'
-endif    
+endif
+
+print*, 'TREKIS has completed its calculations...'
 STOP
 
 contains

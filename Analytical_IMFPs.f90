@@ -299,6 +299,19 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 allocate(Elastic_MFP%Total%E(Nelast))
                 allocate(Elastic_MFP%Total%L(Nelast))
                 allocate(Elastic_MFP%Total%dEdx(Nelast))
+                ! And separately absorption and emission of energy:
+                if (allocated(Elastic_MFP%Emit%E)) deallocate(Elastic_MFP%Emit%E)
+                if (allocated(Elastic_MFP%Emit%L)) deallocate(Elastic_MFP%Emit%L)
+                if (allocated(Elastic_MFP%Emit%dEdx)) deallocate(Elastic_MFP%Emit%dEdx)
+                if (allocated(Elastic_MFP%Absorb%E)) deallocate(Elastic_MFP%Absorb%E)
+                if (allocated(Elastic_MFP%Absorb%L)) deallocate(Elastic_MFP%Absorb%L)
+                if (allocated(Elastic_MFP%Absorb%dEdx)) deallocate(Elastic_MFP%Absorb%dEdx)
+                allocate(Elastic_MFP%Emit%E(Nelast), source = 0.0d0)
+                allocate(Elastic_MFP%Emit%L(Nelast), source = 0.0d0)
+                allocate(Elastic_MFP%Emit%dEdx(Nelast), source = 0.0d0)
+                allocate(Elastic_MFP%Absorb%E(Nelast), source = 0.0d0)
+                allocate(Elastic_MFP%Absorb%L(Nelast), source = 0.0d0)
+                allocate(Elastic_MFP%Absorb%dEdx(Nelast), source = 0.0d0)
             else    ! create and write to the file:
                 write(*,'(a,a,a)') 'Calculated elastic mean free paths of an electron in ', trim(adjustl(Material_name)), ' are storred in the file:'
                 write(*, '(a)') trim(adjustl(Input_elastic_file))
@@ -311,10 +324,28 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 allocate(Elastic_MFP%Total%E(Nelast))
                 allocate(Elastic_MFP%Total%L(Nelast))
                 allocate(Elastic_MFP%Total%dEdx(Nelast))
+                ! And separately absorption and emission of energy:
+                if (allocated(Elastic_MFP%Emit%E)) deallocate(Elastic_MFP%Emit%E)
+                if (allocated(Elastic_MFP%Emit%L)) deallocate(Elastic_MFP%Emit%L)
+                if (allocated(Elastic_MFP%Emit%dEdx)) deallocate(Elastic_MFP%Emit%dEdx)
+                if (allocated(Elastic_MFP%Absorb%E)) deallocate(Elastic_MFP%Absorb%E)
+                if (allocated(Elastic_MFP%Absorb%L)) deallocate(Elastic_MFP%Absorb%L)
+                if (allocated(Elastic_MFP%Absorb%dEdx)) deallocate(Elastic_MFP%Absorb%dEdx)
+                allocate(Elastic_MFP%Emit%E(Nelast), source = 0.0d0)
+                allocate(Elastic_MFP%Emit%L(Nelast), source = 0.0d0)
+                allocate(Elastic_MFP%Emit%dEdx(Nelast), source = 0.0d0)
+                allocate(Elastic_MFP%Absorb%E(Nelast), source = 0.0d0)
+                allocate(Elastic_MFP%Absorb%L(Nelast), source = 0.0d0)
+                allocate(Elastic_MFP%Absorb%dEdx(Nelast), source = 0.0d0)
+
                 do i = 1, Nelast
                     Elastic_MFP%Total%E(i) = DSF_DEMFP(i)%E
                     Elastic_MFP%Total%L(i) = DSF_DEMFP(i)%dL(size(DSF_DEMFP(1)%dL))
+                    Elastic_MFP%Emit%L(i)   = DSF_DEMFP(i)%dL_emit(size(DSF_DEMFP(1)%dL_emit)) ! Emission
+                    Elastic_MFP%Absorb%L(i) = DSF_DEMFP(i)%dL_absorb(size(DSF_DEMFP(1)%dL_absorb)) ! Absorption
+                    !print*, i, Elastic_MFP%Total%E(i), Elastic_MFP%Total%L(i), 1.0d0/(1.0d0/Elastic_MFP%Emit%L(i) + 1.0d0/Elastic_MFP%Absorb%L(i))
                 enddo
+                !pause 'DSF Test electron'
            endif
          case (1) ! Calculate or read CDF elastic mean free path
             if (allocated(CDF_Phonon%A)) then
@@ -400,10 +431,30 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             allocate(Elastic_MFP%Total%E(Nelast))
             allocate(Elastic_MFP%Total%L(Nelast))
             allocate(Elastic_MFP%Total%dEdx(Nelast))
+            ! And separately absorption and emission of energy:
+            if (allocated(Elastic_MFP%Emit%E)) deallocate(Elastic_MFP%Emit%E)
+            if (allocated(Elastic_MFP%Emit%L)) deallocate(Elastic_MFP%Emit%L)
+            if (allocated(Elastic_MFP%Emit%dEdx)) deallocate(Elastic_MFP%Emit%dEdx)
+            if (allocated(Elastic_MFP%Absorb%E)) deallocate(Elastic_MFP%Absorb%E)
+            if (allocated(Elastic_MFP%Absorb%L)) deallocate(Elastic_MFP%Absorb%L)
+            if (allocated(Elastic_MFP%Absorb%dEdx)) deallocate(Elastic_MFP%Absorb%dEdx)
+            allocate(Elastic_MFP%Emit%E(Nelast), source = 0.0d0)
+            allocate(Elastic_MFP%Emit%L(Nelast), source = 0.0d0)
+            allocate(Elastic_MFP%Emit%dEdx(Nelast), source = 0.0d0)
+            allocate(Elastic_MFP%Absorb%E(Nelast), source = 0.0d0)
+            allocate(Elastic_MFP%Absorb%L(Nelast), source = 0.0d0)
+            allocate(Elastic_MFP%Absorb%dEdx(Nelast), source = 0.0d0)
+
             do i = 1, Nelast
                 Elastic_MFP%Total%E(i) = DSF_DEMFP(i)%E
-                Elastic_MFP%Total%L(i) = DSF_DEMFP(i)%dL(size(DSF_DEMFP(1)%dL))
+                Elastic_MFP%Total%L(i) = DSF_DEMFP(i)%dL(size(DSF_DEMFP(1)%dL)) ! Total
+                Elastic_MFP%Emit%L(i)   = DSF_DEMFP(i)%dL_emit(size(DSF_DEMFP(1)%dL_emit)) ! Emission
+                Elastic_MFP%Absorb%L(i) = DSF_DEMFP(i)%dL_absorb(size(DSF_DEMFP(1)%dL_absorb)) ! Absorption
+                !print*, i, Elastic_MFP%Total%E(i), Elastic_MFP%Total%L(i), &
+                !Elastic_MFP%Emit%L(i), Elastic_MFP%Absorb%L(i) &
+                !1.0d0/(1.0d0/Elastic_MFP%Emit%L(i) + 1.0d0/Elastic_MFP%Absorb%L(i))
             enddo
+            !pause 'DSF Test VB hole'
          case (1) ! Calculate or read CDF elastic MFP
             write(temp_char, '(f7.2, a)') Matter%temp, '_K'
             Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Hole_CDF_EMFPs_'//trim(adjustl(temp_char))//'.dat'
@@ -447,7 +498,20 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     
     ! Now write the elastic output into the file:
     if (kind_of_particle .NE. 'Photon') then
-        do i = 1, Nelast
+        select case (NumPar%kind_of_EMFP)
+        case (2)    ! DSF: resolved emission vs absorption
+         do i = 1, Nelast
+           if (.not. file_exist) then  ! if file didn't exist and we just created it:
+             write(FN2,'(f,es,es,es)') Elastic_MFP%Total%E(i), Elastic_MFP%Total%L(i), Elastic_MFP%Emit%L(i), Elastic_MFP%Absorb%L(i)
+           else
+             read(FN2,*, IOSTAT=Reason) Elastic_MFP%Total%E(i), Elastic_MFP%Total%L(i), Elastic_MFP%Emit%L(i), Elastic_MFP%Absorb%L(i)
+             call read_file_here(Reason, i, read_well)
+             if (.not. read_well) print*, trim(adjustl(Input_elastic_file))
+             if (.not. read_well) goto 2016
+           endif
+         enddo
+        case default ! no resolution of emission vs absorption
+         do i = 1, Nelast
            if (.not. file_exist) then  ! if file didn't exist and we just created it:
              write(FN2,'(f,e)') Elastic_MFP%Total%E(i), Elastic_MFP%Total%L(i)
            else
@@ -456,7 +520,8 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
              if (.not. read_well) print*, trim(adjustl(Input_elastic_file))
              if (.not. read_well) goto 2016
            endif
-        enddo
+         enddo
+        end select
     endif
     
     !rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr

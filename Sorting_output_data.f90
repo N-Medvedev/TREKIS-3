@@ -27,21 +27,23 @@ subroutine TREKIS_title(FN)
    write(FN,'(a)') '*                                                      *'
    write(FN,'(a)') trim(adjustl(starline))
    write(FN,'(a)') 'Time-Resolved Electron Kinetics in SHI-Irradiated Solids'
-   write(FN,'(a)') 'Version: 3.0.8  (update 08.05.2023)     '
+   write(FN,'(a)') 'Version: 3.0.8  (update 12.05.2023)     '
    write(FN,'(a)') trim(adjustl(starline))
 end subroutine TREKIS_title
 
 
-subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, &
-                       SHI, Out_R, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_E_at, Out_E_h, Out_Eat_dens, & 
-                       Out_Distr, Out_Elat, Out_theta, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, NumPar, &
-                       Out_E_field, Out_diff_coeff)
+subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, &
+                SHI, Out_R, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_nphot, Out_Ephot, &
+                Out_Ee_vs_E, Out_Eh_vs_E, Out_E_at, Out_E_h, Out_Eat_dens, &
+                Out_Distr, Out_Elat, Out_theta, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, NumPar, &
+                Out_E_field, Out_diff_coeff)
     character(100), intent(in) :: Output_path, Material_name
     integer, dimension(:), intent(in) :: ctim
     integer, intent(in) :: NMC, Num_th  ! number of MC iterations, and number of threads used for openmp
     real(8), intent(in) :: Tim, dt ! [fs]
     type(Solid), intent(in) :: Matter   ! all material parameters
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! target atoms as objects
+    type(Density_of_states), intent(in) :: Mat_DOS   ! Material DOS for VB distribution
     type(Ion), intent(in) :: SHI   ! declare SHI as an object with atributes "Ion"
     real(8), dimension(:), allocatable, intent(in) :: Out_R
     real(8), dimension(:), allocatable, intent(in) :: Out_tot_Ne
@@ -51,7 +53,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     real(8), dimension(:), allocatable, intent(in) :: Out_E_phot
     real(8), dimension(:,:), intent(in) :: Out_nphot 
     real(8), dimension(:,:), intent(in) :: Out_Ephot
-    real(8), dimension(:,:), allocatable, intent(in) :: Out_Ee_vs_E
+    real(8), dimension(:,:), allocatable, intent(in) :: Out_Ee_vs_E, Out_Eh_vs_E
     real(8), dimension(:), allocatable, intent(in) :: Out_E_at
     real(8), dimension(:,:,:), allocatable, intent(in) :: Out_E_h
     real(8), dimension(:,:), allocatable, intent(in) :: Out_Eat_dens
@@ -547,6 +549,30 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     enddo
     inquire(unit=FN3,opened=file_opened)    ! check if this file is opened
     if (file_opened) close(FN3)             ! and if it is, close it
+
+
+    !VB holes distribution in energy space (vs E) vs time:
+    FN3 = 303
+    File_name = trim(adjustl(File_name2))//'/VB_holes_distribution_vs_E[1_eV].txt'
+    open(unit = FN3, FILE = trim(adjustl(File_name)))
+    write(FN3, '(a)', advance='no') 'Energy[eV] '
+    t = 0.0d0
+    do i = 1, N     ! timesteps
+        t = time_grid(i)
+        write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+    enddo
+    write(FN3, '(a)') ' '
+    do i = 1, N_R   ! radii
+        write(FN3, '(f9.1)', advance='no') Mat_DOS%E(i)
+        t = 0.0d0
+        do k = 1, N ! time-steps
+            t = time_grid(k)
+            write(FN3, '(e)', advance='no') Out_Eh_vs_E(k,i)
+        enddo
+        write(FN3, '(a)') ' '
+    enddo
+    inquire(unit=FN3,opened=file_opened)    ! check if this file is opened
+    if (file_opened) close(FN3)             ! and if it is, close it
     
 
     !Lattice energy density vs R vs time:
@@ -758,11 +784,14 @@ end subroutine Save_output
 
 
 
-subroutine Allocate_out_arrays(target_atoms, Out_Distr, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, &
-                         Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, &
-                         Out_theta, Out_theta1, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_E_field, Out_diff_coeff)
+subroutine Allocate_out_arrays(target_atoms, Out_Distr, Mat_DOS, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
+            Out_E_e, Out_E_phot, Out_E_at, Out_E_h, &
+            Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, &
+            Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, &
+            Out_theta, Out_theta1, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_E_field, Out_diff_coeff)
     type(Atom), dimension(:), allocatable, intent(in) :: Target_atoms  ! target atoms as objects
     type(Cylinder_distr), intent(in) :: Out_Distr   ! OUTPUT radial distributions
+    type(Density_of_states), intent(in) :: Mat_DOS   ! Material DOS for VB distribution
     real(8), dimension(:), allocatable, intent(inout) :: Out_tot_Ne
     real(8), dimension(:), allocatable, intent(inout) :: Out_tot_Nphot
     real(8), dimension(:), allocatable, intent(inout) :: Out_tot_E
@@ -776,7 +805,7 @@ subroutine Allocate_out_arrays(target_atoms, Out_Distr, Out_tot_Ne, Out_tot_Npho
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ee
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_nphot
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ephot
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ee_vs_E
+    real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ee_vs_E, Out_Eh_vs_E ! spectra of electrons and VB holes
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Elat
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_nh
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Eh
@@ -792,13 +821,14 @@ subroutine Allocate_out_arrays(target_atoms, Out_Distr, Out_tot_Ne, Out_tot_Npho
     real(8), dimension(:), allocatable, intent(inout) :: Out_diff_coeff
     
     
-    integer i, Nne1, Nne2, Nee1, Nee2, Nr
+    integer i, Nne1, Nne2, Nee1, Nee2, Nr, Nh
     
     Nne1 = size(Out_Distr%ne,1)
     Nne2 = size(Out_Distr%ne,2)
     Nr =  size(Out_Distr%R)
     Nee1 = size(Out_Distr%Ee,1)
     Nee2 = size(Out_Distr%Ee,2)
+    Nh = size(Mat_DOS%E)
         
     ! Allocate and set temporary arrays:
     allocate(Out_theta(1+Nee1,180))
@@ -837,8 +867,9 @@ subroutine Allocate_out_arrays(target_atoms, Out_Distr, Out_tot_Ne, Out_tot_Npho
     Out_Ee = 0.0d0
     allocate(Out_Ephot(Nee1, Nee2))
     Out_Ephot = 0.0d0
-    allocate(Out_Ee_vs_E(Nee1, Nee2))
+    allocate(Out_Ee_vs_E(Nee1, Nee2))   ! eletron spectrum
     Out_Ee_vs_E = 0.0d0
+    allocate(Out_Eh_vs_E(Nee1, Nh), source = 0.0d0)   ! VB holes spectrum
     allocate(Out_Elat(Nee1, Nee2))
     Out_Elat = 0.0d0
     allocate(Out_Eat_dens(Nee1, Nee2))
@@ -953,9 +984,10 @@ end subroutine Allocate_out_arrays_old
 
 
 
-subroutine Deallocate_out_arrays(Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, &
-                                 Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, Out_theta, Out_field_all, Out_Ne_Em, Out_E_Em, &
-                                 Out_Ee_vs_E_Em, Out_E_field)
+subroutine Deallocate_out_arrays(Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, &
+            Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, &
+            Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, Out_theta, Out_field_all, Out_Ne_Em, Out_E_Em, &
+            Out_Ee_vs_E_Em, Out_E_field)
     real(8), dimension(:), allocatable, intent(inout) :: Out_tot_Ne
     real(8), dimension(:), allocatable, intent(inout) :: Out_tot_Nphot
     real(8), dimension(:), allocatable, intent(inout) :: Out_tot_E
@@ -969,7 +1001,7 @@ subroutine Deallocate_out_arrays(Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, 
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ee
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_nphot
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ephot
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ee_vs_E
+    real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ee_vs_E, Out_Eh_vs_E ! electron and VB holes spectra
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Elat
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_nh
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Eh
@@ -993,6 +1025,7 @@ subroutine Deallocate_out_arrays(Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, 
     deallocate(Out_Ee)
     deallocate(Out_E_phot)
     deallocate(Out_Ee_vs_E)
+    deallocate(Out_Eh_vs_E)
     deallocate(Out_Elat)
     deallocate(Out_nh)
     deallocate(Out_Eh)

@@ -67,7 +67,8 @@ real(8), dimension(:,:), allocatable :: Out_ne
 real(8), dimension(:,:), allocatable :: Out_Ee
 real(8), dimension(:,:), allocatable :: Out_nphot
 real(8), dimension(:,:), allocatable :: Out_Ephot
-real(8), dimension(:,:), allocatable :: Out_Ee_vs_E
+real(8), dimension(:,:), allocatable :: Out_Ee_vs_E ! electron spectrum
+real(8), dimension(:,:), allocatable :: Out_Eh_vs_E ! valence hole spectrum
 real(8), dimension(:,:), allocatable :: Out_Elat, Out_Elat_heating, Out_Elat_cooling
 real(8), dimension(:,:), allocatable :: Out_Eat_dens  ! [eV/A^3] atom's energy
 real(8), dimension(:,:,:,:), allocatable :: Out_nh

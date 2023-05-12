@@ -1728,62 +1728,229 @@ end subroutine NRG_transfer_elastic_atomic
 
 
 
-subroutine NRG_transfer_elastic_DSF(DSF_DEMFP, Eel, EMFP, dE)
+
+subroutine NRG_transfer_elastic_DSF(Elastic_MFP, DSF_DEMFP, Eel, dE)
+   type(MFP_elastic), intent(in) :: Elastic_MFP    ! Total elastic mean free paths
+   type(Differential_MFP), dimension(:), intent(in) :: DSF_DEMFP  ! Differential EMFPs
+   real(8), intent(in) :: Eel               ! Incident electron (or hole) energy [eV]
+   real(8), intent(out) :: dE               ! Transferred energy in this collision
+   !------------------------
+   integer :: NumE, NumL, i, kk, j, i_MFP
+   real(8) :: L_need, RN, Value1, EMFP_tot, EMFP_absorb, EMFP_emit
+   real(8), dimension(:,:), allocatable :: dLdE
+   logical :: it_is_emission
+
+
+   ! 0) Get the index of the array according to the total energy of the particle:
+   call Find_in_array_monoton(DSF_DEMFP%E, Eel, NumE) ! module "Reading_files_and_parameters"
+   if (NumE > 1) then
+      NumE = NumE-1
+   endif
+   if ((Eel < DSF_DEMFP(NumE)%E) .or. (Eel > DSF_DEMFP(NumE+1)%E)) then
+      if (NumE > 1) print*, 'Problem in NRG_transfer_elastic_DSF: energy transfer above DSF limits', Eel, DSF_DEMFP(NumE)%E, DSF_DEMFP(NumE+1)%E
+   endif
+
+   ! To interpolate the data between two energy points:
+   allocate(dLdE(2,size(DSF_DEMFP(NumE)%dL)), source = 0.0d0)
+
+
+   ! 1) Compare absorption vs emission of energy into atomic system:
+   ! Find energy in the array:
+   call Find_in_array_monoton(Elastic_MFP%Total%E, Eel, i_MFP) ! module "Reading_files_and_parameters"
+   if (i_MFP > 1) then
+      i_MFP = i_MFP - 1
+   endif
+   !print*, Elastic_MFP%Total%E(i_MFP), Elastic_MFP%Absorb%L(i_MFP), Eel
+   !print*, Elastic_MFP%Total%E(i_MFP+1), Elastic_MFP%Absorb%L(i_MFP+1)
+
+   ! Interpolate MFPs:
+   EMFP_tot = linear_interpolation(Elastic_MFP%Total%L(i_MFP), Elastic_MFP%Total%L(i_MFP+1), &
+                                 Elastic_MFP%Total%E(i_MFP), Elastic_MFP%Total%E(i_MFP+1), Eel) ! below
+   EMFP_emit = linear_interpolation(Elastic_MFP%Emit%L(i_MFP), Elastic_MFP%Emit%L(i_MFP+1), &
+                                 Elastic_MFP%Total%E(i_MFP), Elastic_MFP%Total%E(i_MFP+1), Eel) ! below
+   EMFP_absorb = linear_interpolation(Elastic_MFP%Absorb%L(i_MFP), Elastic_MFP%Absorb%L(i_MFP+1), &
+                                 Elastic_MFP%Total%E(i_MFP), Elastic_MFP%Total%E(i_MFP+1), Eel) ! below
+
+   !write(*,'(f,f,es,es,es)') Eel, EMFP_tot/EMFP_emit, EMFP_tot, EMFP_emit, EMFP_absorb
+
+   ! Sample which process: emission vs absorption:
+   call random_number(RN)
+   if (RN < EMFP_tot/EMFP_emit) then
+      it_is_emission = .true.    ! emission
+   else
+      it_is_emission = .false.   ! absorption
+   endif
+!    print*, 'EMFP', RN, it_is_emission, EMFP_tot/EMFP_emit
+   !pause
+
+   ! 2) Get the transferred energy:
+
+   ! Set the interpolated values:
+   if (it_is_emission) then ! emission (dE>0)
+      if (NumE == size(DSF_DEMFP%E)) then
+         dLdE(1,:) = DSF_DEMFP(NumE)%dL_emit(:)
+         dLdE(2,:) = DSF_DEMFP(NumE)%dE(:)
+      else
+         Value1 = (Eel - DSF_DEMFP(NumE)%E)/(DSF_DEMFP(NumE+1)%E - DSF_DEMFP(NumE)%E)
+         dLdE(1,:) = DSF_DEMFP(NumE)%dL_emit(:) + (DSF_DEMFP(NumE+1)%dL_emit(:) - DSF_DEMFP(NumE)%dL_emit(:)) * Value1
+         dLdE(2,:) = DSF_DEMFP(NumE)%dE(:) + (DSF_DEMFP(NumE+1)%dE(:) - DSF_DEMFP(NumE)%dE(:)) * Value1
+      endif
+      ! Make sure interpolation didn't go wrong:
+      do i = 1, size(dLdE,2)
+         if (dLdE(1,i) < 0.0d0) print*, 'Trouble #1 in interpolation in NRG_transfer_elastic_DSF:', dLdE(1,i), DSF_DEMFP(NumE+1)%dL_emit(i), DSF_DEMFP(NumE)%dL_emit(i)
+      enddo
+   else ! absorption (dE<0)
+      if (NumE == size(DSF_DEMFP%E)) then
+         dLdE(1,:) = DSF_DEMFP(NumE)%dL_absorb(:)
+         dLdE(2,:) = DSF_DEMFP(NumE)%dE(:)
+      else
+         Value1 = (Eel - DSF_DEMFP(NumE)%E)/(DSF_DEMFP(NumE+1)%E - DSF_DEMFP(NumE)%E)
+         dLdE(1,:) = DSF_DEMFP(NumE)%dL_absorb(:) + (DSF_DEMFP(NumE+1)%dL_absorb(:) - DSF_DEMFP(NumE)%dL_absorb(:)) * Value1
+         dLdE(2,:) = DSF_DEMFP(NumE)%dE(:) + (DSF_DEMFP(NumE+1)%dE(:) - DSF_DEMFP(NumE)%dE(:)) * Value1
+      endif
+      ! Make sure interpolation didn't go wrong:
+      do i = 1, size(dLdE,2)
+         if (dLdE(1,i) < 0.0d0) print*, 'Trouble #2 in interpolation in NRG_transfer_elastic_DSF:', dLdE(1,i), DSF_DEMFP(NumE+1)%dL_absorb(i), DSF_DEMFP(NumE)%dL_absorb(i)
+      enddo
+   endif
+
+   ! Define the sampled MFP:
+   call random_number(RN)
+
+!   do j = 1, 100   ! Testing
+!       RN = dble(j)/100.0d0    ! Testing
+   if (it_is_emission) then ! emission (dE>0)
+      L_need = EMFP_emit/RN   ! [A] we need to reach
+   else
+      L_need = EMFP_absorb/RN   ! [A] we need to reach
+   endif
+
+   call Linear_approx_2x1d_DSF(dLdE(1,:), dLdE(2,:), L_need, dE) ! module "Reading_files_and_parameters"
+
+   if (dE .GT. 1.0d0) then ! Potentially unphysically large energy transfer
+      if (it_is_emission) then ! emission (dE>0)
+         print*, "Problem in NRG_transfer_elastic_DSF: unphyically large energy transfer (emission):"
+         print*, dE, Eel, EMFP_emit, L_need
+      else
+         print*, "Problem in NRG_transfer_elastic_DSF: unphyically large energy transfer (absorption):"
+         print*, dE, Eel, EMFP_absorb, L_need
+      endif
+   endif
+
+   !--------------
+!    ! Testing:
+!    if (it_is_emission) then ! emission (dE>0)
+!       kk = size(DSF_DEMFP(NumE)%dL_emit)
+!       i = 1
+!       do while (DSF_DEMFP(NumE)%dL_emit(i) >= L_need)
+!         if (i .EQ. kk) exit
+!         i = i+1
+!       enddo
+!       NumL = i
+!       write(*,'(a,f,f,f,f,f,f,f,f)') 'dE', DSF_DEMFP(NumE)%E, Eel, RN, L_need, EMFP_emit, DSF_DEMFP(NumE)%dL_emit(NumL), DSF_DEMFP(NumE)%dE(NumL)
+!    else
+!       kk = size(DSF_DEMFP(NumE)%dL_absorb)
+!       i = 1
+!       do while (DSF_DEMFP(NumE)%dL_absorb(i) >= L_need)
+!         if (i .EQ. kk) exit
+!         i = i+1
+!       enddo
+!       NumL = i
+!       write(*,'(a,f,f,f,f,f,f,f,f)') 'dE', DSF_DEMFP(NumE)%E, Eel, RN, L_need, EMFP_absorb, DSF_DEMFP(NumE)%dL_absorb(NumL), DSF_DEMFP(NumE)%dE(NumL)
+!    endif
+!  enddo  !testing
+  !dE = DSF_DEMFP(NumE)%dE(NumL)
+  deallocate(dLdE)
+!   pause 'NRG_transfer_elastic_DSF'
+endsubroutine NRG_transfer_elastic_DSF
+
+
+pure function linear_interpolation(y1, y2, x1, x2, x_exact) result (y_out)
+   real(8) y_out
+   real(8), intent(in) :: y1, y2, x1, x2, x_exact
+   y_out = y1 + (y2 - y1)/(x2 - x1)*(x_exact - x1)
+end function linear_interpolation
+
+
+subroutine NRG_transfer_elastic_DSF_OLD(DSF_DEMFP, Eel, EMFP, dE)
    type(Differential_MFP), dimension(:), intent(in) :: DSF_DEMFP
    real(8), intent(in) :: Eel               ! Incident electron energy [eV]
    real(8), intent(in) :: EMFP              ! Total EMFP of electron with energy Eel [A]
    real(8), intent(out) :: dE               ! Transferred energy in this collision
-   integer NumE, NumL, i, kk, j
-   real(8) L_need, RN, Value1
+   !------------------------
+   integer :: NumE, NumL, i, kk, j
+   real(8) :: L_need, RN, Value1
+   real(8), dimension(:,:), allocatable :: dLdE
 
 !    i=1
 !    do while (DSF_DEMFP(i)%E .LT. Eel)
 !       i = i + 1
 !    enddo
 !    NumE = i-1
+
+   ! Get the index of the array according to the total energy of the particle:
    call Find_in_array_monoton(DSF_DEMFP%E, Eel, NumE) ! module "Reading_files_and_parameters"
    NumE = NumE-1
-
    if ((Eel < DSF_DEMFP(NumE)%E) .or. (Eel > DSF_DEMFP(NumE+1)%E)) then
-      print*, 'Problem in NRG_transfer_elastic_DSF', Eel, DSF_DEMFP(NumE)%E, DSF_DEMFP(NumE+1)%E
+      print*, 'Problem in NRG_transfer_elastic_DSF: energy transfer above DSF limits', Eel, DSF_DEMFP(NumE)%E, DSF_DEMFP(NumE+1)%E
    endif
 
+   ! Interpolate the data between two energy points:
+   allocate(dLdE(2,size(DSF_DEMFP(NumE)%dL)), source = 0.0d0)
+   ! Set the interpolated values:
+   if (NumE == size(DSF_DEMFP%E)) then
+      dLdE(1,:) = DSF_DEMFP(NumE)%dL(:)
+      dLdE(2,:) = DSF_DEMFP(NumE)%dE(:)
+   else
+      Value1 = (Eel - DSF_DEMFP(NumE)%E)/(DSF_DEMFP(NumE+1)%E - DSF_DEMFP(NumE)%E)
+      dLdE(1,:) = DSF_DEMFP(NumE)%dL(:) + (DSF_DEMFP(NumE+1)%dL(:) - DSF_DEMFP(NumE)%dL(:)) * Value1
+
+      dLdE(2,:) = DSF_DEMFP(NumE)%dE(:) + (DSF_DEMFP(NumE+1)%dE(:) - DSF_DEMFP(NumE)%dE(:)) * Value1
+   endif
+   ! Make sure interpolation didn't go wrong:
+   do i = 1, size(dLdE,2)
+      if (dLdE(1,i) < 0.0d0) print*, 'Trouble #1 in interpolation in NRG_transfer_elastic_DSF:', dLdE(1,i), DSF_DEMFP(NumE+1)%dL(i), DSF_DEMFP(NumE)%dL(i)
+   enddo
+
+
+   ! Define the sampled MFP:
    call random_number(RN)
 
-!  do j = 1, 100   ! Testing
-!      RN = dble(j)/100.0d0    ! Testing
+  do j = 1, 100   ! Testing
+      RN = dble(j)/100.0d0    ! Testing
    L_need = EMFP/RN   ! [A] we need to reach
 
-   call Linear_approx_2x1d_DSF(DSF_DEMFP(NumE)%dL, DSF_DEMFP(NumE)%dE, L_need, dE) ! module "Reading_files_and_parameters"
+   !call Linear_approx_2x1d_DSF(DSF_DEMFP(NumE)%dL, DSF_DEMFP(NumE)%dE, L_need, dE) ! module "Reading_files_and_parameters"
+   call Linear_approx_2x1d_DSF(dLdE(1,:), dLdE(2,:), L_need, dE) ! module "Reading_files_and_parameters"
 
-   if (dE .GT. 1.0) then
-        print*, dE, Eel, EMFP, L_need
-        pause
+   if (dE .GT. 1.0d0) then ! maybe unphysically large energy transfer
+      print*, "Problem in NRG_transfer_elastic_DSF: unphyically large energy transfer", dE, Eel, EMFP, L_need
    endif
 
-!     kk = size(DSF_DEMFP(NumE)%dL)
-!     i = 1
-!     do while (DSF_DEMFP(NumE)%dL(i) >= L_need)
-!  !         print*, 'dL', i,  DSF_DEMFP(NumE)%dE(i), DSF_DEMFP(NumE)%dL(i), L_need
-!         if (i .EQ. kk) exit
-!         i = i+1
-!     enddo
-!     NumL = i
-!     if (NumL > 1) then
-!         Value1 = DSF_DEMFP(NumE)%dE(NumL-1)+(DSF_DEMFP(NumE)%dE(NumL)-DSF_DEMFP(NumE)%dE(NumL-1))/(DSF_DEMFP(NumE)%dL(NumL)-DSF_DEMFP(NumE)%dL(NumL-1))*(L_need - DSF_DEMFP(NumE)%dL(NumL-1))
-!     else
-!         Value1 = DSF_DEMFP(NumE)%dE(NumL)
-!     endif
+    kk = size(DSF_DEMFP(NumE)%dL)
+    i = 1
+    do while (DSF_DEMFP(NumE)%dL(i) >= L_need)
+ !         print*, 'dL', i,  DSF_DEMFP(NumE)%dE(i), DSF_DEMFP(NumE)%dL(i), L_need
+        if (i .EQ. kk) exit
+        i = i+1
+    enddo
+    NumL = i
+    if (NumL > 1) then
+        Value1 = DSF_DEMFP(NumE)%dE(NumL-1)+(DSF_DEMFP(NumE)%dE(NumL)-DSF_DEMFP(NumE)%dE(NumL-1))/(DSF_DEMFP(NumE)%dL(NumL)-DSF_DEMFP(NumE)%dL(NumL-1))*(L_need - DSF_DEMFP(NumE)%dL(NumL-1))
+    else
+        Value1 = DSF_DEMFP(NumE)%dE(NumL)
+    endif
 
 !    write(*,'(a,f,i,f)') ' 1 :', Eel, NumE, DSF_DEMFP(NumE)%E
 !    write(*,'(a,f,f)') ' 2 :', EMFP, RN
 !    write(*,'(a,f,f)') ' 3 :', L_need, dE
 !    write(*,'(a,f,f)') ' 4 :', DSF_DEMFP(NumE)%dL(NumL), DSF_DEMFP(NumE)%dE(NumL)
-!     write(*,'(a,f,f,f,f,f,f,f,f)') 'dE', DSF_DEMFP(NumE)%E, Eel, RN, L_need, EMFP, DSF_DEMFP(NumE)%dL(NumL), Value1, DSF_DEMFP(NumE)%dE(NumL)
-!  enddo  !testing
-!   dE = DSF_DEMFP(NumE)%dE(NumL)
-!      pause 'NRG_transfer_elastic_DSF'
-endsubroutine NRG_transfer_elastic_DSF
+   write(*,'(a,f,f,f,f,f,f,f,f)') 'dE', DSF_DEMFP(NumE)%E, Eel, RN, L_need, EMFP, DSF_DEMFP(NumE)%dL(NumL), Value1, DSF_DEMFP(NumE)%dE(NumL)
+ enddo  !testing
+  !dE = DSF_DEMFP(NumE)%dE(NumL)
+  deallocate(dLdE)
+  pause 'NRG_transfer_elastic_DSF'
+endsubroutine NRG_transfer_elastic_DSF_OLD
 
 
 !BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB

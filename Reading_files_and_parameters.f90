@@ -749,7 +749,7 @@ subroutine reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message
 
     type(Differential_MFP), dimension(:), allocatable :: Temp_DEMFP
     real(8), dimension(:), allocatable :: Temp_E
-    real(8) Sum_MFP, loc_EMFP, E, dE, Emin, Emax
+    real(8) Sum_MFP, loc_EMFP, E, dE, Emin, Emax, Sum_MFP_emit
     integer FN2, i, j, N, Reason, M, NEPo, NTEPo, k
     character(100) Error_descript
     logical file_opened, file_exist, file_exist2
@@ -790,10 +790,16 @@ subroutine reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message
     allocate(Temp_array(2,NTEPo))
     k = 0
     do i = 1, NEPo
-        allocate(DSF_DEMFP(i)%dE(NTEPo))
-        allocate(Temp_DEMFP(i)%dE(NTEPo))
-        allocate(DSF_DEMFP(i)%dL(NTEPo))
-        allocate(Temp_DEMFP(i)%dL(NTEPo))
+        ! Used variable:
+        allocate(DSF_DEMFP(i)%dE(NTEPo), source = 0.0d0)
+        allocate(DSF_DEMFP(i)%dL(NTEPo), source = 0.0d0)
+        allocate(DSF_DEMFP(i)%dL_absorb(NTEPo), source = 0.0d0)
+        allocate(DSF_DEMFP(i)%dL_emit(NTEPo), source = 0.0d0)
+        ! Temporary variable:
+        allocate(Temp_DEMFP(i)%dE(NTEPo), source = 0.0d0)
+        allocate(Temp_DEMFP(i)%dL(NTEPo), source = 0.0d0)
+        allocate(Temp_DEMFP(i)%dL_absorb(NTEPo), source = 0.0d0)
+        allocate(Temp_DEMFP(i)%dL_emit(NTEPo), source = 0.0d0)
 
         Temp_DEMFP(i)%E = Temp_E(1+NTEPo*(i-1))
 
@@ -801,6 +807,11 @@ subroutine reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message
             k = k+1
             Temp_DEMFP(i)%dE(j) = Temp_EMFP(1,k) ! [eV] energy
             Temp_DEMFP(i)%dL(j) = Temp_EMFP(2,k) ! [1/eV] DSF
+            if (Temp_DEMFP(i)%dE(j) >= 0.0d0) then ! emission
+               Temp_DEMFP(i)%dL_emit(j) = Temp_EMFP(2,k) ! [1/eV] DSF
+            else ! absorption
+               Temp_DEMFP(i)%dL_absorb(j) = Temp_EMFP(2,k) ! [1/eV] DSF
+            endif
         enddo
     enddo
     DSF_DEMFP(:)%E = Temp_DEMFP(:)%E
@@ -813,7 +824,8 @@ subroutine reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message
     enddo
 
     do i = 1, NEPo  ! fill all points in the array:
-        sum_MFP = 0.0d0
+        Sum_MFP = 0.0d0
+        Sum_MFP_emit = 0.0d0
 
         Temp_array(1,:) = DSF_DEMFP(i)%dE(:)
         Temp_array(2,:) = DSF_DEMFP(i)%dL(:)
@@ -839,6 +851,36 @@ subroutine reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message
             else
                 DSF_DEMFP(i)%dL(j) = 1.0d30
             endif
+
+            ! Absorbtion and emittion separately:
+            if (DSF_DEMFP(i)%dE(j) >= 0.0d0) then ! emission
+               Sum_MFP_emit = Sum_MFP_emit + Temp_DEMFP(i)%dL(j)*dE ! for separated integrated EMFP
+               if (abs(Sum_MFP_emit) > 1.0d-10) then
+                  DSF_DEMFP(i)%dL_emit(j) = 1.0d0/Sum_MFP_emit ! integrated MFP
+               else
+                  DSF_DEMFP(i)%dL_emit(j) = 1.0d30
+               endif
+               ! Absorption does not change:
+               if (j == 1) then
+                  DSF_DEMFP(i)%dL_absorb(j) = 1.0d30
+               else
+                  DSF_DEMFP(i)%dL_absorb(j) = DSF_DEMFP(i)%dL_absorb(j-1)
+               endif
+            else ! absorption
+               if (abs(Sum_MFP) > 1.0d-10) then
+                  DSF_DEMFP(i)%dL_absorb(j) = 1.0d0/Sum_MFP ! integrated MFP
+               else
+                  DSF_DEMFP(i)%dL_absorb(j) = 1.0d30
+               endif
+               ! Emission does not change:
+               if (j == 1) then
+                  DSF_DEMFP(i)%dL_emit(j) = 1.0d30
+               else
+                  DSF_DEMFP(i)%dL_emit(j) = DSF_DEMFP(i)%dL_emit(j-1)
+               endif
+            endif ! (DSF_DEMFP(i)%dE(j) >= 0.0d0)
+
+!             write(*,'(i6, f, f, es, es, es)'), j, DSF_DEMFP(i)%E, DSF_DEMFP(i)%dE(j), DSF_DEMFP(i)%dL(j), DSF_DEMFP(i)%dL_emit(j), DSF_DEMFP(i)%dL_absorb(j)
         enddo
     enddo
 
@@ -849,6 +891,7 @@ subroutine reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message
 
 2017 inquire(unit=FN2,opened=file_opened)    ! check if this file is opened
     if (file_opened) close(FN2)             ! and if it is, close it
+!     pause 'reading_DSF_cross_sections'
 end subroutine reading_DSF_cross_sections
 
 
@@ -1439,29 +1482,62 @@ subroutine Trapeziod_save(x,f,x0,xn,i_0,i_n,res)
 end subroutine
 
 
-subroutine Linear_approx_2x1d_DSF(Array, Array2, In_val, Value1, El1, El2)
-   REAL(8), dimension(:), INTENT(in) :: Array       ! Array correcp to In_val
+subroutine Linear_approx_2x1d_DSF(Array_dL, Array_dE, In_val, Value1)
+   REAL(8), dimension(:), INTENT(in) :: Array_dL ! Ls (for two particle energies on the grid)
+   REAL(8), dimension(:), INTENT(in) :: Array_dE ! dE (for two particle energies on the grid)
+   real(8), INTENT(in) :: In_val    ! Sampled dL
+   real(8), intent(out) :: Value1   ! interpolater output value
+   !----------------
+   integer :: Number, Nsiz
+
+   Nsiz = size(Array_dL)
+
+   ! The following subroutine works for monotoneusly increasing array,
+   ! where as Array passed is decreaseing, so use negative array to find the correct index:
+   call Find_in_array_monoton(-Array_dL, -In_val, Number)    ! find the closest value in the array to a given one
+
+   if (Number == 1) then
+      Value1 = Array_dE(Number)+(Array_dE(Number+1)-Array_dE(Number)) / &
+                    (Array_dL(Number+1)-Array_dL(Number))*(In_val - Array_dL(Number))
+   elseif ( abs(Array_dL(Number)-Array_dL(Number-1)) < 1.0d-9 ) then
+      Value1 = Array_dE(Number-1)
+   else
+      if (Array_dL(Number-1) > 1d20) then ! if it starts from infinity, approximate as 'infinity'
+         Value1 = Array_dE(Number-1)
+      else  ! if it's normal array, just interpolate:
+         Value1 = Array_dE(Number-1)+(Array_dE(Number)-Array_dE(Number-1)) / &
+                    (Array_dL(Number)-Array_dL(Number-1))*(In_val - Array_dL(Number-1))
+      endif
+   endif
+end subroutine Linear_approx_2x1d_DSF
+
+
+
+subroutine Linear_approx_2x1d_DSF_OLD(Array, Array2, In_val, Value1, El1, El2)
+   REAL(8), dimension(:), INTENT(in) :: Array       ! Array corresp to In_val
    REAL(8), dimension(:), INTENT(in) :: Array2      ! in this array make an ouput approximation
    real(8), INTENT(in) :: In_val    ! this is the value
    real(8), intent(in), optional :: El1, El2    ! where to start approximation from, if needed
    real(8), intent(out) :: Value1   ! output, approximated value
    real(8) el_one
-   integer Number, i, kk
+   integer Number, Number1, i, kk
 
    kk = size(array)
-!    i = 1
-!    do while (Array(i) .GT. In_val)
-!         if (i .EQ. kk) exit
-!         i = i+1
-!    enddo
-!    Number = i
-   !print*, Number
+!     i = 1
+!     do while (Array(i) .GT. In_val) ! testing
+!          if (i .EQ. kk) exit
+!          i = i+1
+!     enddo
+!     Number1 = i
+   !print*, Number1
 
    ! The following subroutine works for monotoneusly increasing array,
    ! where as Array passed is decreaseing, so use negative array to find the correct index:
    call Find_in_array_monoton(-Array, -In_val, Number)    ! find the closest value in the array to a given one
-   !print*, Number
-   !pause
+!     if (Number1 /= Number) then ! testing
+!         print*, 'Linear_approx_2x1d_DSF', Number1, Number
+!         pause
+!     endif
 
    if (Number .EQ. 1) then
        if (present(El1)) then  ! the starting points are known, use them:
@@ -1496,7 +1572,7 @@ subroutine Linear_approx_2x1d_DSF(Array, Array2, In_val, Value1, El1, El2)
 !        print*, array(Number), array2(Number)
 !        pause
 !   endif
-end subroutine Linear_approx_2x1d_DSF
+end subroutine Linear_approx_2x1d_DSF_OLD
 
 
 end module Reading_files_and_parameters

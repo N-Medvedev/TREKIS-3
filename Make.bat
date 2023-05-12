@@ -12,6 +12,13 @@ setlocal EnableDelayedExpansion
    IF "%1"=="" (
       SET arg1=NODEBUG
    )
+:: shorthand notations:
+   IF "%1"=="db" (
+      SET arg1=DEBUGOMP
+   )
+   IF "%1"=="DB" (
+      SET arg1=DEBUGOMP
+   )
 
    SET "Starline=************************************************************************************"
    echo %Starline%
