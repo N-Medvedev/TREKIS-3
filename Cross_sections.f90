@@ -1797,7 +1797,10 @@ subroutine NRG_transfer_elastic_DSF(Elastic_MFP, DSF_DEMFP, Eel, dE)
       endif
       ! Make sure interpolation didn't go wrong:
       do i = 1, size(dLdE,2)
-         if (dLdE(1,i) < 0.0d0) print*, 'Trouble #1 in interpolation in NRG_transfer_elastic_DSF:', dLdE(1,i), DSF_DEMFP(NumE+1)%dL_emit(i), DSF_DEMFP(NumE)%dL_emit(i)
+         if (dLdE(1,i) < 0.0d0) then
+            dLdE(1,i) = 0.0d0
+            !print*, 'Trouble #1 in interpolation in NRG_transfer_elastic_DSF:', dLdE(1,i), DSF_DEMFP(NumE+1)%dL_emit(i), DSF_DEMFP(NumE)%dL_emit(i)
+         endif
       enddo
    else ! absorption (dE<0)
       if (NumE == size(DSF_DEMFP%E)) then
@@ -1810,7 +1813,10 @@ subroutine NRG_transfer_elastic_DSF(Elastic_MFP, DSF_DEMFP, Eel, dE)
       endif
       ! Make sure interpolation didn't go wrong:
       do i = 1, size(dLdE,2)
-         if (dLdE(1,i) < 0.0d0) print*, 'Trouble #2 in interpolation in NRG_transfer_elastic_DSF:', dLdE(1,i), DSF_DEMFP(NumE+1)%dL_absorb(i), DSF_DEMFP(NumE)%dL_absorb(i)
+         if (dLdE(1,i) < 0.0d0) then
+            dLdE(1,i) = 0.0d0
+            !print*, 'Trouble #2 in interpolation in NRG_transfer_elastic_DSF:', i, dLdE(1,i), DSF_DEMFP(NumE+1)%dL_absorb(i), DSF_DEMFP(NumE)%dL_absorb(i)
+         endif
       enddo
    endif
 

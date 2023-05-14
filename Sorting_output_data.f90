@@ -27,7 +27,7 @@ subroutine TREKIS_title(FN)
    write(FN,'(a)') '*                                                      *'
    write(FN,'(a)') trim(adjustl(starline))
    write(FN,'(a)') 'Time-Resolved Electron Kinetics in SHI-Irradiated Solids'
-   write(FN,'(a)') 'Version: 3.0.8  (update 12.05.2023)     '
+   write(FN,'(a)') 'Version: 3.0.8  (update 14.05.2023)     '
    write(FN,'(a)') trim(adjustl(starline))
 end subroutine TREKIS_title
 
@@ -125,7 +125,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     
     
     write(ch1,'(f8.2)') SHI%E/1d6
-    write(ch2,'(f6.2)') Tim
+    write(ch2,'(f10.2)') Tim
     write(File_name,'(a,a,a,a,a,a,a,a)') trim(adjustl(Output_path)),trim(adjustl(NumPar%path_sep)),trim(adjustl(SHI%Name)),'_E_',trim(adjustl(ch1)),'_MeV_',trim(adjustl(ch2)),'_fs'
     File_name2 = File_name
     i = 0
@@ -167,7 +167,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     if (matter%El_eff_mass .EQ. 0) then
         write(FN1, '(a)') 'Effective mass of valence electrons is calculated from DOS.'
     else
-        write(FN1, '(a,f6.2,a)') 'Effective mass of valence electrons: ', Matter%El_eff_mass, ' [me]'
+        write(FN1, '(a,f10.2,a)') 'Effective mass of valence electrons: ', Matter%El_eff_mass, ' [me]'
     endif
     
     if(NumPar%Plasmon_Emax) then
@@ -257,7 +257,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
         t = 0.0d0
         do i = 1, N     ! timesteps
             t = time_grid(i)
-            write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+            write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
         enddo
         write(FN3, '(a)') ' '
         do i = 1, N_R   ! radii
@@ -281,7 +281,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
-        write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+        write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
     enddo
     write(FN3, '(a)') ' '
     do i = 1, 180
@@ -306,7 +306,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
-        write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+        write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
     enddo
     write(FN3, '(a)') ' '
     do i = 1, N_R   ! radii
@@ -409,7 +409,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
-        write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+        write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
     enddo
     write(FN3, '(a)') ' '
     do i = 1, N_R   ! radii
@@ -432,7 +432,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
-        write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+        write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
     enddo
     write(FN3, '(a)') ' '
     do i = 1, N_R   ! radii
@@ -456,7 +456,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
-        write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+        write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
     enddo
     write(FN3, '(a)') ' '
     do i = 1, N_R   ! radii
@@ -485,7 +485,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
         t = 0.0d0
         do i = 1, N     ! timesteps
             t = time_grid(i)
-            write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+            write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
         enddo
         write(FN3, '(a)') ' '
         do i = 1, N_R   ! radii
@@ -508,7 +508,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
         t = 0.0d0
         do i = 1, N     ! timesteps
             t = time_grid(i)
-            write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+            write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
         enddo
         write(FN3, '(a)') ' '
         do i = 1, N_R   ! radii
@@ -535,7 +535,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
-        write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+        write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
     enddo
     write(FN3, '(a)') ' '
     do i = 1, N_R   ! radii
@@ -559,7 +559,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
-        write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+        write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
     enddo
     write(FN3, '(a)') ' '
     do i = 1, N_R   ! radii
@@ -583,7 +583,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
-        write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+        write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
     enddo
     write(FN3, '(a)') ' '
     do i = 1, N_R   ! radii
@@ -608,7 +608,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
-        write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+        write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
     enddo
     write(FN3, '(a)') ' '
     do i = 1, N_R   ! radii
@@ -632,7 +632,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
-        write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+        write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
     enddo
     write(FN3, '(a)') ' '
     do i = 1, N_R   ! radii
@@ -663,7 +663,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
             t = 0.0d0
             do i = 1, N     ! timesteps
                 t = time_grid(i)
-                write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+                write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
             enddo
             write(FN3, '(a)') ' '
             do i = 1, N_R   ! radii
@@ -693,7 +693,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
                 t = 0.0d0
                 do i = 1, N     ! timesteps
                     t = time_grid(i)
-                    write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+                    write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
                 enddo
                 write(FN3, '(a)') ' '
                 do i = 1, N_R   ! radii
@@ -718,8 +718,8 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
                 t = 0.0d0
                 do i = 1, N     ! timesteps
                     t = time_grid(i)
-                    write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
-                    write(FN31, '(f6.2,a)', advance='no') t, '[fs]   '
+                    write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
+                    write(FN31, '(f10.2,a)', advance='no') t, '[fs]   '
                 enddo
                 write(FN3, '(a)') ' '
                 write(FN31, '(a)') ' '
@@ -757,7 +757,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
                 t = 0.0d0
                 do i = 1, N     ! timesteps
                     t = time_grid(i)
-                    write(FN3, '(f6.2,a)', advance='no') t, '[fs]   '
+                    write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
                 enddo
                 write(FN3, '(a)') ' '
                 do i = 1, N_R   ! radii

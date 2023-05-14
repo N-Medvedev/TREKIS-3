@@ -254,12 +254,12 @@ subroutine check_hole_parameters(Mat_DOS, Eel, dE, Ehole, All_electrons)
              Eloc = Mat_DOS%E(mhole)
              dE = dE + (Ehole-Eloc)
              
-             if (dE .LT. 1.0d-5) then       ! Check if lattice got negative energy
-                dE = 0.0d0                  ! Set to zero lattice energy transfer
-                Ehole = Eel                 ! Incident hole energy does not change
-             else                           !
+             !if (dE .LT. 1.0d-5) then       ! Check if lattice got negative energy (It is allowed in DSF formalism!)
+             !   dE = 0.0d0                  ! Set to zero lattice energy transfer
+             !   Ehole = Eel                 ! Incident hole energy does not change
+             !else                           !
                 Ehole = Eloc                ! Hole shifted to the energy level Eloc
-             endif
+             !endif
          endif   
     endif    
 end subroutine check_hole_parameters
@@ -708,6 +708,9 @@ subroutine Update_electron_angles_El(E, dE, theta, phi)
    REAL(8), INTENT(in) :: dE     	! Transferred electron energy [eV]
    REAL(8), INTENT(out) :: theta, phi ! scattering angle for this transferred energy
    real(8) RN
+   if ((E - dE) < 0.0d0) then
+    print*, 'Problem in Update_electron_angles_El:', E, dE
+   endif
    theta = ACOS((E - dE)/sqrt(E*(E-dE)))   ! electron theta angle
    if (isnan(theta)) then
 	call random_number(RN)
@@ -718,26 +721,38 @@ subroutine Update_electron_angles_El(E, dE, theta, phi)
    phi = 2.0d0*g_Pi*RN      ! Electron phi-angle
 end subroutine Update_electron_angles_El
 
-subroutine Update_particle_angles_lat(target_atoms, E, dE, theta, phi, Mass)    ! Angle of an incident particle after scattering on lattice atoms
+subroutine Update_particle_angles_lat_OLD(target_atoms, E, dE, theta, phi, Mass)    ! Angle of an incident particle after scattering on lattice atoms
    type(Atom), dimension(:), intent(in) :: target_atoms  ! define target atoms as objects, we don't know yet how many they are
    REAL(8), INTENT(in) :: E     	! Initial electron energy [eV]
    REAL(8), INTENT(in) :: dE     	! Transferred electron energy [eV]
    REAL(8), INTENT(out) :: theta, phi ! scattering angle for this transferred energy
    real(8), intent(in), optional :: Mass    ! Mass of incident particle. Should be present for hole.
-   real(8) RN, RN2, Mtarget, E11, arg
+   real(8) RN, RN2, Mtarget, E11, arg, M_eff
    
    !E11 = E-dE
    E11 = abs(E-dE)
    Mtarget = g_Mp*SUM(target_atoms(:)%Mass*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers))
    if (present(Mass)) then          ! Hole
-        arg = (E*(Mass*g_me - Mtarget)+E11*(Mass*g_me + Mtarget))/(2*Mass*g_me*sqrt(E*E11))
+    M_eff = Mass
+        !arg = (E*(Mass*g_me - Mtarget)+E11*(Mass*g_me + Mtarget))/(2*Mass*g_me*sqrt(E*E11))
    else                             ! Electron
-        arg = (E*(g_me - Mtarget)+E11*(g_me + Mtarget))/(2*g_me*sqrt(E*E11))
+    M_eff = 1.0d0
+        !arg = (E*(g_me - Mtarget)+E11*(g_me + Mtarget))/(2*g_me*sqrt(E*E11))
    endif
+   ! cos(theta):
+   if ( (abs(E)<1.0d-10) .or. (abs(E11)<1.0d-10) ) then
+    print*, 'Problem in Update_particle_angles_lat:', M_eff, E, dE
+   else ! normal
+    arg = (E*(M_eff*g_me - Mtarget)+E11*(M_eff*g_me + Mtarget))/(2.0d0*M_eff*g_me*sqrt(E*E11))
+   endif
+
    if (abs(arg) > 1.0d0) then
       theta = 0.0d0
+      !print*, 'Potential problem in Update_particle_angles_lat (avoided)', arg, M_eff, E, dE
    else
+      !print*, 'Normal Update_particle_angles_lat (1)', arg, M_eff, E, dE
       theta = acos(arg)
+      !print*, 'Normal Update_particle_angles_lat (2)', arg, M_eff, E, dE
    endif
 
    ! In case there is any problem:
@@ -748,7 +763,58 @@ subroutine Update_particle_angles_lat(target_atoms, E, dE, theta, phi, Mass)    
     
    call random_number(RN2)
    phi = 2.0d0*g_Pi*RN2      ! Electron phi-angle
+end subroutine Update_particle_angles_lat_OLD
+
+
+subroutine Update_particle_angles_lat(target_atoms, E, dE, theta, phi, Mass)    ! Angle of an incident particle after scattering on lattice atoms
+   type(Atom), dimension(:), intent(in) :: target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   REAL(8), INTENT(in) :: E     	! Initial electron energy [eV]
+   REAL(8), INTENT(in) :: dE     	! Transferred electron energy [eV]
+   REAL(8), INTENT(out) :: theta, phi ! scattering angle for this transferred energy
+   real(8), intent(in), optional :: Mass    ! Mass of incident particle. Should be present for hole.
+   real(8) RN, RN2, Mtarget, E11, arg, M_eff
+
+   Mtarget = g_Mp*SUM(target_atoms(:)%Mass*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! [kg]
+   if (present(Mass)) then  ! Hole
+    M_eff = Mass
+   else ! Electron
+    M_eff = 1.0d0
+   endif
+   ! COS(theta):
+   arg = cos_theta_from_W(E, dE, M_eff*g_me, Mtarget) ! below
+   theta = acos(arg)
+
+   call random_number(RN2)
+   phi = 2.0d0*g_Pi*RN2      ! Electron phi-angle
 end subroutine Update_particle_angles_lat
+
+
+function cos_theta_from_W(E, W, M_in, mt) result(mu) ! Relativistic version
+   real(8) mu   ! cos(theta) scattering angle, Eq.(A.23) in 2015-edition of [1]
+   real(8), intent(in) :: E, W  ! [eV] incident and transfered energy
+   real(8), intent(in) :: M_in, mt  ! [kg] masses of incoming and target particles
+   real(8) :: Erest_in, Erest_t, E2mc, EmW, W1, W2, theta, RN
+   Erest_in = rest_energy(M_in) ! module "Cross_section"
+   Erest_t = rest_energy(mt)    ! module "Cross_section"
+   E2mc = E + 2.0d0*Erest_in
+   EmW = E - W
+   W1 = E*E2mc - W*(E + Erest_in + Erest_t)
+   W2 = E*E2mc*EmW*(E2mc - W)
+
+   if (W2 > 0.0d0) then
+      mu = W1/sqrt(W2)
+   else
+      mu = 0.0d0
+   endif
+   ! Slow electrons scattering on phonons may not satisfy the conservation written for atoms:
+   if (abs(mu) > 1.0d0) then    ! sample uniformly
+      !print*, 'Trouble in cos_theta_from_W:', mu, E, W, M_in/g_me
+      call random_number (RN)
+      theta = g_Pi*RN
+      mu = cos(theta)
+   endif
+end function cos_theta_from_W
+
 
 subroutine Check_Angles_both(phi1, theta1) ! new phi1 and theta1 angles
    real(8), INTENT(inout) :: phi1, theta1
@@ -1208,7 +1274,12 @@ subroutine Next_free_path_1d(E, MFP_E_array, MFP_L_array, MFP) ! temp = MFP [A] 
     integer N_temmp, N_last ! number of element in the array closest to the one we are looking for
     call Find_in_array_monoton(MFP_E_array, E, N_temmp) ! find the closes value in the precalculated array of energy losses
     if (N_temmp .EQ. 1) then
-        MFP = 1.5d21    ! [A] infinity
+        !MFP = 1.4d21    ! [A] infinity
+        N_last = N_temmp
+        N_temmp = N_temmp + 1
+        !print*, 'BEFORE Next_free_path_1d', E
+        call Interpolate(1, MFP_E_array(N_last), MFP_E_array(N_temmp), MFP_L_array(N_last), MFP_L_array(N_temmp), E, MFP)
+        !print*, 'Next_free_path_1d', E, MFP
     else
         N_last = N_temmp-1  ! the last point
         if (MFP_L_array(N_last) .GE. 1.0d16) then
@@ -1227,7 +1298,12 @@ subroutine Next_free_path_2d(E, MFP_array, MFP) ! temp = MFP [A] for this array,
     integer N_temmp, N_last ! number of element in the array closest to the one we are looking for
     call Find_in_array_monoton(MFP_array, E, 1, N_temmp) ! find the closes value in the precalculated array of energy losses
     if (N_temmp .EQ. 1) then
-        MFP = 1.5d21    ! [A] infinity
+        !MFP = 1.5d21    ! [A] infinity
+        N_last = N_temmp
+        N_temmp = N_temmp + 1
+        !print*, 'BEFORE Next_free_path_2d', E
+        call Interpolate(1, MFP_array(1,N_last), MFP_array(1,N_temmp), MFP_array(2,N_last), MFP_array(2,N_temmp), E, MFP)
+        !print*, 'Next_free_path_2d', E, MFP
     else
         N_last = N_temmp-1  ! the last point
         if (MFP_array(2,N_last) .GE. 1.0d16) then
@@ -1712,15 +1788,18 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
             dE = dE/dble(SUM(target_atoms(:)%Pers))          ! [eV} Average dE over kinds of atoms
         endif
         
-        call Update_particle_angles_lat(target_atoms, Eel, dE, theta, phi)
-	    !call Update_electron_angles_el(Eel, dE, theta, phi)
-	
+        call Update_particle_angles_lat(target_atoms, Eel, dE, theta, phi) ! below
+! 	    print*, 'one:', Eel, dE
+!         call Update_particle_angles_lat_OLD(target_atoms, Eel, dE, theta, phi) ! below
+!         print*, 'two:', Eel, dE
+
         At_NRG = At_NRG + dE    ! [eV] lattice energy
 !         if (dE >= 0.0d0) then   ! lattice heating
 ! 	        lat_inc =  lat_inc + dE
-! 	    else   ! latice cooling
+!         else   ! latice cooling
 ! 	        lat_decr = lat_decr + dE
-! 	    endif
+!             print*, 'LAttice cooling by electron:', dE, Eel
+!         endif
         
         if (isnan(theta) .OR. isnan(phi)) then
             print*, 'ERROR in Electron_Monte_Carlo:'
@@ -1740,9 +1819,13 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
     call random_number(RN)
     MFP_tot = -log(RN)/(1.0d0/IMFP + 1.0d0/EMFP)    ! [A] sample total electron free path (inelastic + elastic)
     call New_Angles_both(phi0, theta0, theta, phi, phi1, theta1)    ! => phi1, theta1
-    ! new electron parameters:
+    ! Incident electron new parameters:
     call Particle_event(All_electrons(NOP), E=Eel-dE, t0=All_electrons(NOP)%tn, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1)
     call Get_time_of_next_event(All_electrons(NOP), MFP=MFP_tot)   ! => All_electrons(NOP)%tn is updated for next collision [fs]
+
+!     if (All_electrons(NOP)%E < 0.1) then ! Testing
+!         print*, 'Slow el:', All_electrons(NOP)%E, MFP_tot, All_electrons(NOP)%t0, All_electrons(NOP)%tn, IMFP, EMFP, dE
+!     endif
     
     call cut_off(Matter%cut_off, All_electrons=All_electrons(NOP)) ! compare electron energy with cut-off    
 
@@ -1955,9 +2038,12 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
                 dE = dE/dble(SUM(target_atoms(:)%Pers))          ! [eV} Average dE over kinds of atoms
             endif
 
-            call Update_particle_angles_lat(target_atoms, Eel, dE, htheta1, hphi1, All_holes(NOP)%Mass)
+            call Update_particle_angles_lat(target_atoms, Eel, dE, htheta1, hphi1, All_holes(NOP)%Mass) ! below
+!             print*, 'one:', Eel, dE
+!             call Update_particle_angles_lat_OLD(target_atoms, Eel, dE, htheta1, hphi1, All_holes(NOP)%Mass) ! below
+!             print*, 'two:', Eel, dE
             
-            call check_hole_parameters(Mat_DOS, Eel, dE, Ehole)
+            call check_hole_parameters(Mat_DOS, Eel, dE, Ehole) ! below
                                                                                    
             ! save this energy in the array of radial distributions of atomic energies:
             At_NRG = At_NRG + dE    ! [eV] lattice energy

@@ -71,7 +71,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    character(100)   Temp_char, temp_char1
    character(3) Name    ! for reading elements names
    character(30) Full_Name    ! for reading full elements names
-   character(100) command   ! to pass to cmd a command
+   character(100) command, temp_ch   ! to pass to cmd a command
    logical file_exist    ! to check where file to be open exists
    logical file_opened   ! to check if a file is still opened
 
@@ -314,7 +314,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    if (SHI%Zat .GT. 0) then
        write(*,'(a,a,a,a)') 'Performing calculations for ', trim(adjustl(SHI%Full_Name)), ' in ', trim(adjustl(Material_name))
        write(*,'(a,a,a,f9.2,a)') 'where ', trim(adjustl(SHI%Name)), '-ion has energy ', SHI%E/1d6, ' [MeV].'
-       write(*,'(a,f6.2,a)') 'The total time to be analyzed is ', Tim, ' [fs]'
+       write(*,'(a,f10.2,a)') 'The total time to be analyzed is ', Tim, ' [fs]'
        select case (NumPar%dt_flag)
         case (:0)
             write(*,'(a,f6.2,a)') 'with the timestep of ', dt, ' [fs], linear time-scale'
