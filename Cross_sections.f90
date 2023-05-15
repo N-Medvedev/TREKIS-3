@@ -1845,15 +1845,18 @@ subroutine NRG_transfer_elastic_DSF(Elastic_MFP, DSF_DEMFP, Eel, dE)
 
    call Linear_approx_2x1d_DSF(dLdE(1,:), dLdE(2,:), L_need, dE) ! module "Reading_files_and_parameters"
 
-   if (dE .GT. 1.0d0) then ! Potentially unphysically large energy transfer
+   if (abs(dE) .GT. 1.0d0) then ! Potentially unphysically large energy transfer
       if (it_is_emission) then ! emission (dE>0)
-         print*, "Problem in NRG_transfer_elastic_DSF: unphyically large energy transfer (emission):"
+         print*, "Potential problem in NRG_transfer_elastic_DSF: too large energy transfer (emission):"
          print*, dE, Eel, EMFP_emit, L_need
       else
-         print*, "Problem in NRG_transfer_elastic_DSF: unphyically large energy transfer (absorption):"
+         print*, "Potential problem in NRG_transfer_elastic_DSF: too large energy transfer (absorption):"
          print*, dE, Eel, EMFP_absorb, L_need
       endif
    endif
+
+   ! Ensuring physicality of the troubling situation of problem in interpolation:
+   if (dE > Eel) dE = Eel  ! cannot lose more energy than it has
 
    !--------------
 !    ! Testing:
@@ -1934,8 +1937,8 @@ subroutine NRG_transfer_elastic_DSF_OLD(DSF_DEMFP, Eel, EMFP, dE)
    ! Define the sampled MFP:
    call random_number(RN)
 
-  do j = 1, 100   ! Testing
-      RN = dble(j)/100.0d0    ! Testing
+!   do j = 1, 100   ! Testing
+!       RN = dble(j)/100.0d0    ! Testing
    L_need = EMFP/RN   ! [A] we need to reach
 
    !call Linear_approx_2x1d_DSF(DSF_DEMFP(NumE)%dL, DSF_DEMFP(NumE)%dE, L_need, dE) ! module "Reading_files_and_parameters"
@@ -1964,10 +1967,10 @@ subroutine NRG_transfer_elastic_DSF_OLD(DSF_DEMFP, Eel, EMFP, dE)
 !    write(*,'(a,f,f)') ' 3 :', L_need, dE
 !    write(*,'(a,f,f)') ' 4 :', DSF_DEMFP(NumE)%dL(NumL), DSF_DEMFP(NumE)%dE(NumL)
    write(*,'(a,f,f,f,f,f,f,f,f)') 'dE', DSF_DEMFP(NumE)%E, Eel, RN, L_need, EMFP, DSF_DEMFP(NumE)%dL(NumL), Value1, DSF_DEMFP(NumE)%dE(NumL)
- enddo  !testing
+!  enddo  !testing
   !dE = DSF_DEMFP(NumE)%dE(NumL)
   deallocate(dLdE)
-  pause 'NRG_transfer_elastic_DSF'
+!   pause 'NRG_transfer_elastic_DSF'
 endsubroutine NRG_transfer_elastic_DSF_OLD
 
 
