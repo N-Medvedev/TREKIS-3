@@ -6,9 +6,11 @@
 module Reading_files_and_parameters
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
-  use Dealing_with_EADL ! all subroutines dealing with EADL and EPDL97 are there
+  use Dealing_with_EADL, only : Decompose_compound, check_atomic_parameters, Find_element_name, define_PQN, Count_lines_in_file
   
   implicit none
+private  ! hides items not listed on public statement
+
 
 ! this interface finds by itself which of the two subroutine to use depending on the dimensions of the array passed:
 interface Find_in_array ! search cheaking one by one
@@ -36,9 +38,8 @@ interface Trapeziod
     module procedure Trapeziod_save
 end interface Trapeziod
 
-!private  ! hides items not listed on public statement 
-public :: Find_in_array, Find_in_array_monoton, Linear_approx
-public :: Integrate_function, Trapeziod
+public :: Find_in_array, Find_in_array_monoton, Linear_approx, get_file_stat, get_num_shells
+public :: Read_input_file, Linear_approx_2x1d_DSF, Find_VB_numbers, read_file_here, read_SHI_MFP
 
 contains
 

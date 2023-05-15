@@ -61,23 +61,22 @@ include 'Monte_Carlo.f90'               ! include Monte-Carlo subroutines
 
 PROGRAM Universal_MC_for_SHI
 !MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
-! Initiate modules:
-! module-name:              | file where it's stored:
-use Universal_Constants     ! Universal_Constants.f90
-use Objects                 ! Objects.f90
-use Variables               ! Variables.f90
-use Dealing_with_EADL       ! Dealing_with_EADL.f90
-use Gnuplotting_subs        ! Gnuplotting_subs.f90
-use Reading_files_and_parameters    ! Reading_files_and_parameters.f90
-use Sorting_output_data     ! Sorting_output_data.f90
-use Cross_sections          ! Cross_sections.f90
-use Analytical_IMFPs        ! Analytical_IMFPs.f90
-use Monte_Carlo             ! Monte_Carlo.f90
+! Initiate only modules used here:
+use Universal_Constants
+use Objects
+use Variables
+use Gnuplotting_subs, only: Gnuplot_ion, Gnuplot_electrons_MFP
+use Reading_files_and_parameters, only: Read_input_file, get_num_shells, Find_VB_numbers
+use Sorting_output_data, only: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, &
+                            Deallocate_out_arrays, parse_time
+use Cross_sections, only: SHI_TotIMFP, Equilibrium_charge_SHI
+use Analytical_IMFPs, only: Analytical_electron_dEdx, Analytical_ion_dEdx
+use Monte_Carlo, only : Monte_Carlo_modelling
 !MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
 implicit none
+
 !VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
-integer OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
-character(8) kind_of_particle
+integer OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS ! OMP-related variables must be declared here
 
 ! Print the program name:
 call TREKIS_title(6)   ! module "Sorting_output_data"

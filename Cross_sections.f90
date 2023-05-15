@@ -6,8 +6,11 @@
 MODULE Cross_sections
   use Universal_Constants               ! let it use universal constants
   use Objects                           ! since it uses derived types, it must know about them from module 'Objects'
-  use Reading_files_and_parameters      ! use some useful subroutines from this module
+  use Reading_files_and_parameters, only: Find_in_array_monoton, Linear_approx_2x1d_DSF
+  use Dealing_with_EADL, only: get_photon_cross_section_EPDL, NEXT_DESIGNATOR
 implicit none
+PRIVATE
+
 ! this interface finds by itself which of the two subroutine to use depending on the parameters passed:
 interface Electron_energy_transfer ! finds energy transfer in electron collision
     module procedure Electron_energy_transfer_inelastic
@@ -15,7 +18,8 @@ interface Electron_energy_transfer ! finds energy transfer in electron collision
 end interface Electron_energy_transfer
 
 !private  ! hides items not listed on public statement 
-public :: Electron_energy_transfer
+public :: Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, &
+         SHI_Total_IMFP, SHI_TotIMFP, SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF
 
 
 contains

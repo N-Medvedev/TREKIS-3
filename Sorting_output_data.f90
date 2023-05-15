@@ -6,8 +6,11 @@
 MODULE Sorting_output_data
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
-  use Reading_files_and_parameters
+  use Reading_files_and_parameters, only : Find_VB_numbers
 implicit none
+private  ! hides items not listed on public statement
+
+public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time
 
 contains
 

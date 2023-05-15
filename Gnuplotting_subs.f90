@@ -10,6 +10,7 @@ module Gnuplotting_subs
 !use ifport  ! library, allowing to operate with directories in intel fortran
 
 implicit none
+PRIVATE  ! hides items not listed on public statement
 
 ! It is using the following order of file names
 ! type(All_names), intent(out) :: File_names:
@@ -22,7 +23,7 @@ implicit none
 ! File_names%F(7) = Photon IMFP
 ! File_names%F(8) = Photon EMFP
 
-
+public :: Gnuplot_ion, Gnuplot_electrons_MFP
 
 
 contains

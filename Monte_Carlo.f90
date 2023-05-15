@@ -6,10 +6,12 @@
 MODULE Monte_Carlo
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
-  use Cross_sections    ! it's using cross-sections from that module
-  use Analytical_IMFPs  ! some convenient analytical expressions are there
-  use Reading_files_and_parameters  ! use some subroutines from the reading file module
+  use Cross_sections, only : Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, SHI_TotIMFP, &
+                            SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF
+  use Analytical_IMFPs, only : Interpolate
+  use Reading_files_and_parameters , only: Find_in_array_monoton, Find_in_array
 implicit none
+PRIVATE
 
 ! this interface finds by itself which of the two subroutine to use depending on the parameters passed:
 interface Update_electron_angles ! for updating electron angles
@@ -20,8 +22,8 @@ interface Next_free_path
     module procedure Next_free_path_1d
     module procedure Next_free_path_2d
 end interface Next_free_path
-!private  ! hides items not listed on public statement 
-public :: Update_electron_angles, Next_free_path
+
+public :: Monte_Carlo_modelling
 
 contains    ! the MC code itself is all here:
 

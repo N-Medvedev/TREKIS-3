@@ -8,7 +8,10 @@ use Universal_Constants   ! let it use universal constants
 use Objects   ! since it uses derived types, it must know about them from module 'Objects'
 
 implicit none
+PRIVATE  ! hides items not listed on public statement
 
+public :: Decompose_compound, check_atomic_parameters, get_photon_cross_section_EPDL, next_designator, Find_element_name, &
+         define_PQN, Count_lines_in_file
 
  contains
 

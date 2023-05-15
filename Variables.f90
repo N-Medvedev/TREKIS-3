@@ -8,6 +8,7 @@ use Objects                 ! Objects.f90
 
 implicit none
 
+!-----------------------------------------------
 ! Define variables used in the main program:
 ! All these types are defined in the module "Objects":
 type(Error_handling) Error_message	! error messages are dealed with as objects
@@ -34,6 +35,7 @@ type(Cylinder_distr) :: Out_Distr   ! OUTPUT radial distributions
 type(Differential_MFP), dimension(:), allocatable :: DSF_DEMFP, DSF_DEMFP_H
 type(Flag) :: NumPar ! numerical parameters and flags are here
     
+!-----------------------------------------------
 ! Those below are normal standard type variables:
 real(8) Tim ! [fs] total time
 real(8) dt  ! [fs] timestep
@@ -53,6 +55,9 @@ integer Num_th, my_id
 !For linux
 CHARACTER(len = 100) :: path
 
+character(8) kind_of_particle
+
+!-----------------------------------------------
 ! Since derived types do not work with openmp, we have to temporary decompose the 'Cylinder_distr' into arrays:
 real(8), dimension(:), allocatable :: Out_tot_Ne
 real(8), dimension(:), allocatable :: Out_tot_Nphot
@@ -84,6 +89,7 @@ real(8), dimension(:,:), allocatable :: Out_field_all ! [V/m] electrical fields 
 
 real(8), dimension(:), allocatable :: Out_diff_coeff
 
+!-----------------------------------------------
 contains
 
 subroutine get_path_separator(path_sep, Error_message, read_well)

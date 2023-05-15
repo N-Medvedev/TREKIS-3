@@ -5,10 +5,16 @@
 
 module Analytical_IMFPs
   use Universal_Constants   ! let it use universal constants
-  use Reading_files_and_parameters  ! use some convenient subroutines for reading files
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
-  use Cross_sections    ! use module with all cross-sections
+  use Reading_files_and_parameters, only : get_file_stat, Find_in_array_monoton, read_file_here, Linear_approx, read_SHI_MFP
+  use Cross_sections, only : Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, SHI_Total_IMFP
+  use Dealing_with_EADL, only : Count_lines_in_file
 implicit none
+PRIVATE
+
+
+public :: Analytical_electron_dEdx, Analytical_ion_dEdx, Interpolate
+
 
 
 contains
