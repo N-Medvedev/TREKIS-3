@@ -66,7 +66,7 @@ use Universal_Constants
 use Objects
 use Variables
 use Gnuplotting_subs, only: Gnuplot_ion, Gnuplot_electrons_MFP
-use Reading_files_and_parameters, only: Read_input_file, get_num_shells, Find_VB_numbers
+use Reading_files_and_parameters, only: Read_input_file, get_num_shells, Find_VB_numbers, print_time_step
 use Sorting_output_data, only: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, &
                             Deallocate_out_arrays, parse_time
 use Cross_sections, only: SHI_TotIMFP, Equilibrium_charge_SHI
@@ -104,6 +104,7 @@ if (SHI%Zat .LE. 0) goto  3012  ! skip ion:
 
 !AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 ! Write down the analytical dEdx of SHI, and IMFP of an electron, valence hole, photon:
+if (NumPar%verbose) call print_time_step('Starting SHI mean-free-paths calculations:', msec=.true.)
 call Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI, SHI_MFP, Error_message, read_well, NumPar, Matter, Mat_DOS, File_names)  ! precalculate SHI mean free path and energy loss
 if (.not. read_well) goto 2012  ! if we couldn't read the input files, there is nothing else to do, go to end
 if (allocated(File_names%F)) call Gnuplot_ion(NumPar%path_sep, File_names%F(1), Output_path_SHI, File_names%F(6), Nshtot+2)   ! From modlue "Gnuplotting_subs"
@@ -111,18 +112,21 @@ call Equilibrium_charge_SHI(SHI, Target_atoms)  ! get Barcas' equilibrium charge
 3012 continue ! if the ion skipped, go on from here:
 
 ! Electron MFPs:
+if (NumPar%verbose) call print_time_step('Starting electron mean-free-paths calculations:', msec=.true.)
 kind_of_particle = 'Electron'
 call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_el_MFPs, &
         Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names=File_names) ! from module Analytical_IMPS / openmp parallelization
 if (allocated(File_names%F)) call Gnuplot_electrons_MFP(NumPar%path_sep, File_names%F(1), Output_path, File_names%F(2), Nshtot+2)   ! From modlue "Gnuplotting_subs"
 
 ! Hole MFPs:
+if (NumPar%verbose) call print_time_step('Starting VB hole mean-free-paths calculations:', msec=.true.)
 kind_of_particle = 'Hole'
 call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_Hole_MFPs, & 
           Elastic_Hole_MFP, Error_message, read_well, DSF_DEMFP_H, Mat_DOS, NumPar, kind_of_particle, File_names) ! from module Analytical_IMPS / openmp parallelization
 
 ! Photon MFPs:
 if (NumPar%include_photons) then ! only if we include photons:
+    if (NumPar%verbose) call print_time_step('Starting photon mean-free-paths calculations:', msec=.true.)
     kind_of_particle = 'Photon'
     call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_Photon_MFPs, &
             Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names=File_names) ! from module Analytical_IMPS / openmp parallelization
@@ -132,6 +136,7 @@ endif
 
 ! if we couldn't read the input files, there is nothing else to do, go to the end; or if skip ion:
 if ((.not. read_well) .OR. (SHI%Zat .LE. 0)) goto 2012
+if (NumPar%verbose) call print_time_step('Calculating SHI mean free paths for given energy:', msec=.true.)
 do i = 1, size(Target_atoms)
     do j = 1, size(SHI_MFP(i)%ELMFP)
         call SHI_TotIMFP(SHI, Target_atoms, i, j, Sigma, dEdx, Matter, Mat_DOS, NumPar, diff_SHI_MFP)
@@ -152,6 +157,7 @@ endif
 
 
 !AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+if (NumPar%verbose) call print_time_step('Preparing output directory and files:', msec=.true.)
 ! Find the number of atom and shell which correspond to the valence band:
 call Find_VB_numbers(Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl)    ! module Reading_files_and_parameters
 ! Fill the array of cylindrical radii:
@@ -168,6 +174,7 @@ call Allocate_out_arrays(target_atoms, Out_Distr, Mat_DOS, Out_tot_Ne, Out_tot_N
 write(*,'(a)') ' '
 !write(*,'(a)') '--------------------------------------------------------'
 write(*,'(a)') trim(adjustl(dashline))
+if (NumPar%verbose) call print_time_step('Starting MC iterations:', msec=.true.)
 
 ! The subroutine for MC is stored in the module Monte_Carlo_modelling.
 ! The iteration in MC are largely independent, so they can be parallelized with openmp:
@@ -176,21 +183,22 @@ Nit = 0
 !$omp private (MC_stat, my_id)
 !$omp do schedule(dynamic) reduction( + : Nit, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_field_all, Out_E_field, Out_diff_coeff)
 do MC_stat = 1, NMC   ! MC iterations to be averaged
+    my_id = 1 + OMP_GET_THREAD_NUM() ! identify which thread it is
     ! Perform all the MC calculations within this subroutine:
-    call Monte_Carlo_modelling(SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
+    call Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
      Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, &
      Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, &
      Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
      Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
      Error_message, DSF_DEMFP, DSF_DEMFP_H, Out_field_all, Out_E_field, Out_diff_coeff)  ! module "Monte_carlo"
     Nit = Nit + 1   ! count the number of iteration to test parallelization
-    my_id = 1 + OMP_GET_THREAD_NUM() ! identify which thread it is
     call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
     write(*, 1008) 'Thread #', my_id, ' Iteration #', Nit, ' at ', c1(5), c1(6), c1(7)
 enddo
 !$omp end do
 !$omp end parallel
 
+if (NumPar%verbose) call print_time_step('Preparing MC output data:', msec=.true.)
 ! Average the distributions over the statistics:
 Out_tot_Ne = Out_tot_Ne/dble(NMC)
 Out_tot_Nphot = Out_tot_Nphot/dble(NMC)

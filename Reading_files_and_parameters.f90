@@ -39,7 +39,7 @@ interface Trapeziod
     module procedure Trapeziod_save
 end interface Trapeziod
 
-public :: Find_in_array, Find_in_array_monoton, Linear_approx, get_file_stat, get_num_shells
+public :: Find_in_array, Find_in_array_monoton, Linear_approx, get_file_stat, get_num_shells, print_time_step
 public :: Read_input_file, Linear_approx_2x1d_DSF, Find_VB_numbers, read_file_here, read_SHI_MFP
 
 contains
@@ -113,7 +113,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    character(100)   Temp_char, temp_char1
    character(3) Name    ! for reading elements names
    character(30) Full_Name    ! for reading full elements names
-   character(100) command, temp_ch   ! to pass to cmd a command
+   character(100) command, temp_ch, File_name_INPUT, text   ! to pass to cmd a command
    logical file_exist    ! to check where file to be open exists
    logical file_opened   ! to check if a file is still opened
 
@@ -128,15 +128,16 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    !----------------
    ! Reading the input file:
 
+   File_name_INPUT = 'INPUT_PARAMETERS.txt'
    FN = 200
-   inquire(file='INPUT_PARAMETERS.txt',exist=file_exist)     ! check if input file excists
+   inquire(file=trim(adjustl(File_name_INPUT)),exist=file_exist)     ! check if input file excists
    if (file_exist) then
-      open(unit = FN, FILE = 'INPUT_PARAMETERS.txt', status = 'old', readonly)   ! if yes, open it and read
+      open(unit = FN, FILE = trim(adjustl(File_name_INPUT)), status = 'old', readonly)   ! if yes, open it and read
    else ! if no, save error message about it:
       File_name = 'OUTPUT_Error_log.dat'
       open(unit = 100, FILE = trim(adjustl(File_name)))
       Error_message%File_Num = 100	! file number with error-log
-      Error_descript = 'File INPUT_PARAMETERS.txt is not found!'    ! description of an error
+      Error_descript = 'File '//trim(adjustl(File_name_INPUT))//' is not found!'    ! description of an error
       call Save_error_details(Error_message, 1, Error_descript) ! write it into the error-log file
       print*, trim(adjustl(Error_descript)) ! print it also on the sreen
       read_well = .false.   ! it didn't read well the input file...
@@ -283,6 +284,20 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       print*, 'Gnuplot scripts will be created, calling Gnuplot from'
       print*, trim(adjustl(File_names%F(1)))
    endif
+   !------------------------------------------------------
+   ! Read optional parameters:
+   NumPar%verbose = .false.   ! default: no extra printing
+   NumPar%very_verbose = .false. ! default: no extra printing
+   read_well = .true.   ! to start with
+   RDID: do while (read_well)
+      read(FN,*,IOSTAT=Reason) text
+      call read_file(Reason, i, read_well)
+      if (.not. read_well) exit RDID  ! end of file, stop reading
+
+      call interpret_additional_data_INPUT(FN, trim(adjustl(File_name_INPUT)), i, text, NumPar) ! below
+   enddo RDID
+
+
    
    !------------------------------------------------------
    ! Create an output folder:
@@ -362,6 +377,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
        call reading_DSF_cross_sections(DSF_file_h, DSF_DEMFP_H, NumPar, Error_message, read_well)
    else
       allocate(DSF_DEMFP(0))
+      allocate(DSF_DEMFP_H(0))
    endif
 
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -390,6 +406,56 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)             ! and if it is, close it
 end subroutine Read_input_file
+
+
+
+subroutine interpret_additional_data_INPUT(FN, File_name_INPUT, i, text, NumPar)
+   integer, intent(in) :: FN  ! file number
+   character(*), intent(in) :: File_name_INPUT  ! file name
+   integer, intent(in) :: i   ! number of line reading from
+   character(*), intent(in) :: text ! text read from the file
+   type(Flag), intent(inout) :: NumPar ! numerical parameters
+   !------------------------------------
+
+   select case (text)
+   case ('Verbose', 'verbose', 'VERBOSE')
+      NumPar%verbose = .true.
+      NumPar%very_verbose = .false.
+      print*, 'Verbose option is on, TREKIS will print a lot of extra stuff...'
+
+   case ('Very_verbose', 'very_verbose', 'VERY_VERBOSE', 'Very_Verbose', 'Very-verbose', 'very-verbose', 'VERY-VERBOSE', 'Very-Verbose')
+      NumPar%verbose = .true.
+      NumPar%very_verbose = .true.
+      print*, 'Very-verbose option is on, TREKIS will print A LOT of extra stuff...'
+
+   endselect
+end subroutine interpret_additional_data_INPUT
+
+
+
+subroutine print_time_step(text, num, msec)
+   CHARACTER(len=*) :: text   ! text to print out
+   real(8), intent(in), optional :: num   ! to print out this number
+   logical, intent(in), optional :: msec  ! print msec or not?
+   character(len=100) :: var
+   integer c1(8) ! time stamps
+   call date_and_time(values=c1) ! standard FORTRAN time and date
+   if (present(num) .and. present(msec)) then
+      write(var,'(f8.2)') num
+      write(*, 1002) trim(adjustl(text))//' '//trim(adjustl(var))//' at ', c1(5), c1(6), c1(7), c1(8), c1(3), c1(2), c1(1)
+   elseif (present(msec)) then
+      write(*, 1002) trim(adjustl(text))//' at ', c1(5), c1(6), c1(7), c1(8), c1(3), c1(2), c1(1)
+   elseif (present(num)) then
+      write(var,'(f8.2)') num
+      write(*, 1001) trim(adjustl(text))//' '//trim(adjustl(var))//' at ', c1(5), c1(6), c1(7), c1(3), c1(2), c1(1)
+   else
+      write(*, 1001) trim(adjustl(text))//' at ', c1(5), c1(6), c1(7), c1(3), c1(2), c1(1)
+   endif
+   ! Formats for printing:
+   1001 format (a, i2.2, ':', i2.2, ':', i2.2, ' on ', i2.2, '/', i2.2, '/', i4.4)
+   1002 format (a, i2.2, ':', i2.2, ':', i2.2, ':', i3.3, ' on ', i2.2, '/', i2.2, '/', i4.4)
+end subroutine print_time_step
+
 
 
 subroutine reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, Error_message, read_well)

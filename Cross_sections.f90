@@ -1618,13 +1618,21 @@ subroutine Diff_cross_section_phonon(Ele, hw, CDF_Phonon, Diff_IMFP, Mtarget, Ma
     integer i, n
     real(8), pointer :: Ee, dE
     real(8) dLs, qmin, qmax, hq, ddq, dq, Ime, dLs0, dL, hq0, dq_save
-    real(8) a, b, x, temp1, temp2
+    real(8) a, b, x, temp1, temp2, eps
     Ee => Ele        ! energy [eV]
     dE => hw         ! transferred energy [eV]
-    
-    qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) - sqrt((Ee - dE)))        ! min transferred momentum [kg*m/s]
-    qmax = pref * sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) + sqrt((Ee - dE))) ! max transferred momentum [kg*m/s]
-    
+
+    eps = 1.0d-12
+    if (abs(dE) < eps)  then
+      print*, 'Problem #1 in Diff_cross_section_phonon', Ee, dE, sqrt(Ee) - sqrt(Ee - dE)
+      qmin = 0.0d0
+    elseif ( dE > (Ee-eps) ) then
+      qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee))        ! min transferred momentum [kg*m/s]
+    else
+      qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) - sqrt(abs(Ee - dE)))        ! min transferred momentum [kg*m/s]
+    endif
+    qmax = pref * sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) + sqrt(abs(Ee - dE))) ! max transferred momentum [kg*m/s]
+
     dLs = 0.0d0  ! starting integration, mean free path per energy [A/eV]^(-1)
     hq = qmin    ! transient transferred momentum for integration [kg*m/s]
     n = 100

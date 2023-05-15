@@ -9,7 +9,8 @@ MODULE Monte_Carlo
   use Cross_sections, only : Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, SHI_TotIMFP, &
                             SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF
   use Analytical_IMFPs, only : Interpolate
-  use Reading_files_and_parameters , only: Find_in_array_monoton, Find_in_array
+  use Reading_files_and_parameters , only: Find_in_array_monoton, Find_in_array, print_time_step
+
 implicit none
 PRIVATE
 
@@ -28,13 +29,14 @@ public :: Monte_Carlo_modelling
 contains    ! the MC code itself is all here:
 
 
-subroutine Monte_Carlo_modelling(SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
+subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
             Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, &
             Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, &
             Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
             Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta1, &
             Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Error_message, DSF_DEMFP, DSF_DEMFP_H, Out_field_all, Out_E_field, &
             Out_diff_coeff)
+    integer, intent(in) :: my_id    ! thread number for OMP
     type(Ion), intent(in) :: SHI   ! declare SHI as an object with atributes "Ion"
     type(All_MFP), dimension(:), allocatable, intent(in) :: SHI_MFP         ! SHI mean free paths for all shells
     type(All_MFP), dimension(:), allocatable, intent(in) :: diff_SHI_MFP    ! SHI differential mean free paths for all shells
@@ -118,7 +120,12 @@ subroutine Monte_Carlo_modelling(SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowes
     integer Nat     ! total number of atoms
     integer Nat_cur, Nshl_cur
     integer Nel, N, i, j, k, N_temmp, mhole
-    character(200) :: Error_descript
+    character(200) :: Error_descript, text_line
+    character(10) :: text_ch, text_ch2
+
+    ! Textify the thread ID:
+    write(text_ch,'(i10)') my_id
+!     print*, my_id, trim(adjustl(text_ch))
 
     ! Eckart-type surface barrier parameters
     call barrier_parameters (Matter, Em_E1, Em_gamma)
@@ -163,41 +170,68 @@ subroutine Monte_Carlo_modelling(SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowes
     At_NRG = 0.0d0  ! [eV] lattice energy
     
     time_do:do while (tim_glob .LE. Tim-1e-6) ! time propagation
+
+        if (NumPar%verbose) then
+            text_line = 'Current time in thread #'//trim(adjustl(text_ch))//' in MC:'
+            call print_time_step(trim(adjustl(text_line)), tim_glob, msec=.true.)
+        endif
+
         i = i + 1
         tim_glob = min(time_grid(i),Tim) ! [fs]
         tttt = 1.0d0
         ! Propagate particles until next time-grid point:
         grid_do:do while (t_cur .LT. min(tim_glob,Tim))         ! propagate particles until the time grid point
-
-                select case (KOP)
-                case (1)    ! SHI
-                    call SHI_Monte_Carlo(SHI_MFP, SHI_path, SHI_loc, diff_SHI_MFP, Target_atoms, All_electrons, All_holes, Tot_Nel, &
-                        Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, El_IMFP, El_EMFP, &
-                        Hole_IMFP, Hole_EMFP, Matter, NumPar)
-                    ! Now if SHI is out of the layer, we let it go...
-                    if (SHI_loc%Z .GE. Matter%Layer) call Particle_event(SHI_loc, tn=1d16) ! SHI is out of the analyzed layer
-                case (2)    ! electron
-                    call Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, &
-                        CDF_Phonon, Matter, target_atoms, &
-                        Total_el_MFPs, Elastic_MFP, Tot_Nel, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, &
-                        Error_message, Em_electrons, &
-                        Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar)
-                case (3)    ! hole
-                    call Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, &
-                        Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
-                        Total_Hole_MFPs, Elastic_Hole_MFP, Tot_Nel, Tot_Nphot, NOP, &
-                        Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
-                        At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar)
-                case (4)    ! photon
-                    call Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, &
-                        Hole_IMFP, Hole_EMFP, Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
-                        Total_Photon_MFPs, Tot_Nel, Tot_Nphot, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
-                        t_cur, NumPar)
-                endselect
-                call Find_min_time_particle(SHI_loc, All_electrons, All_holes, All_photons, KOP, NOP, t_cur, NumPar) ! finds what particle collides next
+            select case (KOP)
+            case (1)    ! SHI
+                if (NumPar%very_verbose) then
+                    text_line = 'SHI      time in thread #'//trim(adjustl(text_ch))//' in MC:'
+                    call print_time_step(trim(adjustl(text_line)), t_cur, msec=.true.)
+                endif
+                call SHI_Monte_Carlo(SHI_MFP, SHI_path, SHI_loc, diff_SHI_MFP, Target_atoms, All_electrons, All_holes, Tot_Nel, &
+                    Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, El_IMFP, El_EMFP, &
+                    Hole_IMFP, Hole_EMFP, Matter, NumPar)
+                ! Now if SHI is out of the layer, we let it go...
+                if (SHI_loc%Z .GE. Matter%Layer) call Particle_event(SHI_loc, tn=1d16) ! SHI is out of the analyzed layer
+            case (2)    ! electron
+                if (NumPar%very_verbose) then
+                    text_line = 'Electron time in thread #'//trim(adjustl(text_ch))//' in MC:'
+                    call print_time_step(trim(adjustl(text_line)), t_cur, msec=.true.)
+                endif
+                call Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, &
+                    CDF_Phonon, Matter, target_atoms, &
+                    Total_el_MFPs, Elastic_MFP, Tot_Nel, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, &
+                    Error_message, Em_electrons, &
+                    Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar)
+            case (3)    ! hole
+                if (NumPar%very_verbose) then
+                    text_line = 'Hole     time in thread #'//trim(adjustl(text_ch))//' in MC:'
+                    call print_time_step(trim(adjustl(text_line)), t_cur, msec=.true.)
+                endif
+                call Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, &
+                    Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
+                    Total_Hole_MFPs, Elastic_Hole_MFP, Tot_Nel, Tot_Nphot, NOP, &
+                    Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
+                    At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar)
+            case (4)    ! photon
+                if (NumPar%very_verbose) then
+                    text_line = 'Photon   time in thread #'//trim(adjustl(text_ch))//' in MC:'
+                    call print_time_step(trim(adjustl(text_line)), t_cur, msec=.true.)
+                endif
+                call Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, &
+                    Hole_IMFP, Hole_EMFP, Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
+                    Total_Photon_MFPs, Tot_Nel, Tot_Nphot, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
+                    t_cur, NumPar)
+            endselect
+            ! finds what particle collides next:
+            call Find_min_time_particle(SHI_loc, All_electrons, All_holes, All_photons, KOP, NOP, t_cur, NumPar)
         enddo grid_do ! propagate particles until the time grid point     
         !dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
         ! Save distributions for this time-step:
+        if (NumPar%verbose) then
+            text_line = 'Getting statistics in thread #'//trim(adjustl(text_ch))//':'
+            call print_time_step(trim(adjustl(text_line)), tim_glob, msec=.true.)
+        endif
+
         call Calculated_statistics(Mat_DOS, Lowest_Ip_At, Lowest_Ip_Shl, i, tim_glob, Tot_Nel, Tot_Nphot,&
                 At_NRG, All_electrons, Em_electrons, &
                 All_holes, All_photons, Target_atoms, Out_R, Out_V, &
@@ -206,6 +240,10 @@ subroutine Monte_Carlo_modelling(SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowes
                 Out_theta, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Em_Nel, Matter, &
                 Out_field, Out_field_all, Tot_field, Out_E_field, Out_diff_coeff, NumPar)
         !dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+        if (NumPar%verbose) then
+            text_line = 'Defining next particle in thread #'//trim(adjustl(text_ch))//':'
+            call print_time_step(trim(adjustl(text_line)), tim_glob, msec=.true.)
+        endif
         call Find_min_time_particle(SHI_loc, All_electrons, All_holes, All_photons, KOP, NOP, t_cur, NumPar) ! finds what particle collides next
         
     enddo time_do ! time propagation
@@ -350,10 +388,22 @@ subroutine Get_time_of_next_event(Particle, RN, MFP, Target_atoms, KOA, Shl, Low
     select type(Particle)
     class is (Ion)
         call Get_velosity(Particle, V)
-        if (present(MFP)) Particle%tn = Particle%t0 + MFP/V*1d5   ! [fs]
+        if (present(MFP)) then
+            if (V > 1.0d-10) then   ! real velosity
+               Particle%tn = Particle%t0 + MFP/V*1d5   ! [fs]
+            else    ! zero velosity, immobile
+               Particle%tn = 1.0d25
+            endif
+        endif
     class is (Electron)
         call Get_velosity(Particle, V)
-        if (present(MFP)) Particle%tn = Particle%t0 + MFP/V*1d5   ! [fs]
+        if (present(MFP)) then
+            if (V > 1.0d-10) then   ! real velosity
+               Particle%tn = Particle%t0 + MFP/V*1d5   ! [fs]
+            else    ! zero velosity, immobile
+               Particle%tn = 1.0d25
+            endif
+        endif
     class is (Hole)
         if ((Particle%KOA .EQ. Lowest_Ip_At) .AND. (Particle%Shl .EQ. Lowest_Ip_Shl)) then   ! it's VB:
             call Get_velosity(Particle, V, Target_atoms)
@@ -369,7 +419,13 @@ subroutine Get_time_of_next_event(Particle, RN, MFP, Target_atoms, KOA, Shl, Low
         endif
     class is (Photon) 
         call Get_velosity(Particle, V)
-        if (present(MFP)) Particle%tn = Particle%t0 + MFP/V*1d5   ! [fs]
+        if (present(MFP)) then
+            if (V > 1.0d-10) then   ! real velosity
+               Particle%tn = Particle%t0 + MFP/V*1d5   ! [fs]
+            else    ! zero velosity, immobile
+               Particle%tn = 1.0d25
+            endif
+        endif
    end select
 end subroutine Get_time_of_next_event
 
