@@ -7,6 +7,7 @@ MODULE Sorting_output_data
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
   use Reading_files_and_parameters, only : Find_VB_numbers
+  use Variables, only: dashline, starline
 implicit none
 private  ! hides items not listed on public statement
 
@@ -17,8 +18,8 @@ contains
 
 subroutine TREKIS_title(FN)
    integer, intent(in) :: FN    ! file/screen number to print to
-   character(200) :: starline
-   starline =      '********************************************************'
+   !character(200) :: starline
+   !starline =      '********************************************************'
 
    write(FN,'(a)') trim(adjustl(starline))
    write(FN,'(a)') '*      _______   ___     _____   _   _   _    ___      *'
@@ -141,7 +142,8 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     enddo
     command='mkdir '//trim(adjustl(File_name2)) ! to create a folder use this command
     CALL system(command)  ! create the folder
-    write(*,'(a)') '--------------------------------'
+    !write(*,'(a)') '--------------------------------'
+    write(*,'(a)') trim(adjustl(dashline))
     write(*,'(a,a)') 'The outputs with MC results are storred in the folder:', trim(adjustl(File_name2))
     
     !========================================================
@@ -234,7 +236,8 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     as1=REAL(24*60*60*(c1(3)-ctim(3))+3600*(c1(5)-ctim(5))+60*(c1(6)-ctim(6))+(c1(7)-ctim(7))+(c1(8)-ctim(8))*0.001)	! sec
     call parse_time(as1,C_time) ! module "Sorting_output_data.f90"
     write(FN1, '(a,a)') 'Duration of calculation: ', trim(adjustl(C_time))
-    write(FN1, '(a)') '-------------------------------------------------------------'
+    !write(FN1, '(a)') '-------------------------------------------------------------'
+    write(FN1,'(a)') trim(adjustl(dashline))
     write(FN1, '(a)') 'The following atomic parameters of the target have been used:'
     do j = 1, size(Target_atoms)  ! read for each element its shells data:
       write(FN1, '(a)') trim(adjustl(Target_atoms(j)%Name))//'-atom:'

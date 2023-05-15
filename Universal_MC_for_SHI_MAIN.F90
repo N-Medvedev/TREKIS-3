@@ -93,7 +93,7 @@ write(*, 1005) ctim(5), ctim(6), ctim(7), ctim(3), ctim(2), ctim(1)
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! Reading input file:
 call Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, dt, Output_path, Output_path_SHI, Material_name, &
-                     NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names)  ! this subroutine is in the 'Reading_files_and_parameters' module
+        NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names)  ! module  'Reading_files_and_parameters'
 if (.not. read_well) goto 2012  ! if we couldn't read the input files, there is nothing else to do, go to end
 call get_num_shells(Target_atoms, Nshtot) ! from module 'Reading_files_and_parameters'
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
@@ -113,7 +113,7 @@ call Equilibrium_charge_SHI(SHI, Target_atoms)  ! get Barcas' equilibrium charge
 ! Electron MFPs:
 kind_of_particle = 'Electron'
 call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_el_MFPs, &
-              Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names=File_names) ! from module Analytical_IMPS / openmp parallelization
+        Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names=File_names) ! from module Analytical_IMPS / openmp parallelization
 if (allocated(File_names%F)) call Gnuplot_electrons_MFP(NumPar%path_sep, File_names%F(1), Output_path, File_names%F(2), Nshtot+2)   ! From modlue "Gnuplotting_subs"
 
 ! Hole MFPs:
@@ -130,7 +130,8 @@ else
    allocate(Total_Photon_MFPs(0))
 endif
 
-if ((.not. read_well) .OR. (SHI%Zat .LE. 0)) goto 2012  ! if we couldn't read the input files, there is nothing else to do, go to the end; or if skip ion:
+! if we couldn't read the input files, there is nothing else to do, go to the end; or if skip ion:
+if ((.not. read_well) .OR. (SHI%Zat .LE. 0)) goto 2012
 do i = 1, size(Target_atoms)
     do j = 1, size(SHI_MFP(i)%ELMFP)
         call SHI_TotIMFP(SHI, Target_atoms, i, j, Sigma, dEdx, Matter, Mat_DOS, NumPar, diff_SHI_MFP)
@@ -141,7 +142,8 @@ do i = 1, size(Target_atoms)
 enddo
 
 if ((NMC .LE. 0) .OR. (Tim .LE. 0.0d0)) then
-    write(*,'(a)') '----------------------------------------------------'
+    !write(*,'(a)') '----------------------------------------------------'
+    write(*,'(a)') trim(adjustl(dashline))
     write(*,'(a)') 'No Monte Carlo routine will be performed since' 
     write(*,'(a,i6)') 'Number of MC iterations = ', NMC
     write(*,'(a, ES16.7)') 'Time of MC analysis = ', Tim
@@ -164,7 +166,8 @@ call Allocate_out_arrays(target_atoms, Out_Distr, Mat_DOS, Out_tot_Ne, Out_tot_N
       Out_theta, Out_theta1, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_E_field, Out_diff_coeff) !Module 'Sorting_output_data.f90'
 
 write(*,'(a)') ' '
-write(*,'(a)') '--------------------------------------------------------'
+!write(*,'(a)') '--------------------------------------------------------'
+write(*,'(a)') trim(adjustl(dashline))
 
 ! The subroutine for MC is stored in the module Monte_Carlo_modelling.
 ! The iteration in MC are largely independent, so they can be parallelized with openmp:

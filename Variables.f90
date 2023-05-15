@@ -89,6 +89,10 @@ real(8), dimension(:,:), allocatable :: Out_field_all ! [V/m] electrical fields 
 
 real(8), dimension(:), allocatable :: Out_diff_coeff
 
+
+!-----------------------------------------------
+character(100), parameter :: dashline = '--------------------------------------------------------'
+character(100), parameter :: starline = '********************************************************'
 !-----------------------------------------------
 contains
 

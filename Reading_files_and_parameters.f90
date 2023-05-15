@@ -7,6 +7,7 @@ module Reading_files_and_parameters
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
   use Dealing_with_EADL, only : Decompose_compound, check_atomic_parameters, Find_element_name, define_PQN, Count_lines_in_file
+  use Variables, only: dashline
   
   implicit none
 private  ! hides items not listed on public statement
@@ -365,7 +366,8 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
 
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
    ! Printing out the parameters:
-   print*, '-------------------------------------------------------'
+   !print*, '-------------------------------------------------------'
+   write(*,'(a)') trim(adjustl(dashline))
    if (SHI%Zat .GT. 0) then
        write(*,'(a,a,a,a)') 'Performing calculations for ', trim(adjustl(SHI%Full_Name)), ' in ', trim(adjustl(Material_name))
        write(*,'(a,a,a,f9.2,a)') 'where ', trim(adjustl(SHI%Name)), '-ion has energy ', SHI%E/1d6, ' [MeV].'
@@ -379,7 +381,8 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    else
        write(*,'(a,a,a,a)') 'Performing calculations of the electron MFP in ', trim(adjustl(Material_name)), ' only.'
    endif
-   print*, '-------------------------------------------------------'
+   !print*, '-------------------------------------------------------'
+   write(*,'(a)') trim(adjustl(dashline))
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
    
 2013 if (.not. read_well) print*, 'Error in INPUT_PARAMETERS.txt file or inrut files. See log!!'
