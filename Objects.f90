@@ -121,6 +121,9 @@ type :: Flag
     real(8) :: Zout_min
     real(8) :: Zout_max
     real(8) :: Zout_dz
+    ! Flags for automatic recalcultion of MFPs:
+    logical :: redo_IMFP, redo_EMFP ! do we have to?
+    integer :: Last_mod_time_CDF, Last_mod_time_DSF ! Time when the CDF- and DSF-files were last modified
 end type Flag
 !==============================================
 

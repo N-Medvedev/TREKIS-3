@@ -39,7 +39,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     integer temp(1)
     real(8) Ele, IMFP_calc, dEdx, dEdx1, dEdx0, dE, Emin, Emax, L_tot, vel, Mass, InelMFP, ElasMFP, e_range
     real(8), dimension(:,:), allocatable :: Temp_MFP
-    integer Num_th, my_id, OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
+    integer Num_th, my_id, OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS, IMFP_last_modified
     integer i, j, k, Nat, Nshl, Reason, Va, Ord, Mnum, MFPnum
     character(100) Input_files, Input_elastic_file, File_el_range, File_hole_range
     character(100) temp_char, temp_char1, temp_ch
@@ -176,9 +176,19 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             File_el_range = trim(adjustl(Output_path))//'/OUTPUT_Electron_range_Free_'//trim(adjustl(temp_char))//'.dat'
           endif
         endif ! which name
+
+        ! IMFP files:
         FN = 201
         inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
-        if (file_exist) then    ! read from the file:
+
+        ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
+        if (file_exist) then
+            call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
+            !print*, 'IMFP file last modified on:', IMFP_last_modified
+            if (IMFP_last_modified < NumPar%Last_mod_time_CDF) NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
+        endif
+
+        if (file_exist .and. .not.NumPar%redo_IMFP) then    ! read from the file:
             write(*,'(a,a,a)') 'IMFPs of an electron in ', trim(adjustl(Material_name)), ' are already in the file:'
             write(*, '(a)') trim(adjustl(Input_files))
             write(*, '(a)') ' '
@@ -219,7 +229,15 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
            if (allocated(File_names%F)) File_names%F(7) = 'OUTPUT_Photon_IMFPs_CDF_'//trim(adjustl(temp_char))//'.dat' ! save for later use
         endif
         inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
-        if (file_exist) then    ! read from the file:
+
+        ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
+        if (file_exist) then
+            call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
+            print*, 'IMFP file last modified on:', IMFP_last_modified
+            if (IMFP_last_modified < NumPar%Last_mod_time_CDF) NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
+        endif
+
+        if (file_exist .and. .not.NumPar%redo_IMFP) then    ! read from the file:
             write(*,'(a,a,a)') 'IMFPs of a photon in ', trim(adjustl(Material_name)), ' are already in the file:'
             write(*, '(a)') trim(adjustl(Input_files))
             write(*, '(a)') ' '
@@ -238,7 +256,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
    dEdx1 = 0.0d0
    dEdx0 = 1.0d30
    do i = 1, N
-      if (.not. file_exist) then  ! if file didn't exist and we just created it:
+      if (.not. file_exist .or. NumPar%redo_IMFP) then  ! if file didn't exist and we just created it:
         write(FN,'(f)', advance='no') Total_el_MFPs(1)%ELMFP(1)%E(i)
         IMFP_calc = 0.0d0 ! to sum up for a total IMFP
       else
@@ -249,7 +267,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
       do j = 1, Nat
          Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
          do k = 1, Nshl
-            if (.not. file_exist) then  ! if file didn't exist and we just created it:
+            if (.not. file_exist .or. NumPar%redo_IMFP) then  ! if file didn't exist and we just created it:
                 write(FN,'(e)', advance='no') Total_el_MFPs(j)%ELMFP(k)%L(i)    ! write IMFP for all shells
                 IMFP_calc = IMFP_calc + 1.0d0/Total_el_MFPs(j)%ELMFP(k)%L(i)    ! sum them all up to get the total value
             else
@@ -263,7 +281,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
          enddo
       enddo
       temp_MFP(1,i) = Total_el_MFPs(1)%ELMFP(1)%E(i)
-      if (.not. file_exist) then  ! if file didn't exist and we just created it:
+      if (.not. file_exist .or. NumPar%redo_IMFP) then  ! if file didn't exist and we just created it:
         write(FN,'(e)') 1.0d0/IMFP_calc ! write total IMFP
         temp_MFP(2,i) = 1.0d0/IMFP_calc
         do_range = .true.  ! recalculate electron range only if dEdx is calculated
@@ -275,6 +293,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
       endif
    enddo
    flush(FN)
+   NumPar%redo_IMFP = .false. ! defualt it for the next kind of particle
 
    !######################### Now do the same for elastic mean free path of an electron and hole:
    kind_of_part2:if (kind_of_particle .EQ. 'Electron') then
@@ -286,8 +305,15 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Electron_DSF_EMFP_'//trim(adjustl(temp_char1))//'.dat' ! save for later use
             FN2 = 2032
             inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
+
+            ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
+            if (file_exist) then
+                call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
+                !print*, 'IMFP file last modified on:', IMFP_last_modified
+                if (IMFP_last_modified < NumPar%Last_mod_time_DSF) NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+            endif
             
-            if (file_exist) then    ! read from the file:
+            if (file_exist .and. .not.NumPar%redo_EMFP) then    ! read from the file:
                 write(*,'(a,a,a)') 'DSF EMFPs of an electron in ', trim(adjustl(Material_name)), ' are in the file:'
                 write(*, '(a)') trim(adjustl(Input_elastic_file))
                 write(*, '(a)') ' '
@@ -354,7 +380,15 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Electron_CDF_EMFPs_'//trim(adjustl(temp_char1))//'.dat' ! save for later use
                 FN2 = 203
                 inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
-                if (file_exist) then    ! read from the file:
+
+                ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
+                if (file_exist) then
+                    call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
+                    !print*, 'IMFP file last modified on:', IMFP_last_modified
+                    if (IMFP_last_modified < NumPar%Last_mod_time_CDF) NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                endif
+
+                if (file_exist .and. .not.NumPar%redo_EMFP) then    ! read from the file:
                     write(*,'(a,a,a)') 'Calculated with CDF EMFPs of an electron in ', trim(adjustl(Material_name)), ' are already in the file:'
                     write(*, '(a)') trim(adjustl(Input_elastic_file))
                     write(*, '(a)') ' '
@@ -379,7 +413,15 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Electron_Mott_EMFPs.dat' ! save for later use
             FN2 = 2031
             inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
-            if (file_exist) then    ! read from the file:
+
+            ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
+            if (file_exist) then
+                call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
+                !print*, 'IMFP file last modified on:', IMFP_last_modified
+                if (IMFP_last_modified < NumPar%Last_mod_time_CDF) NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+            endif
+
+            if (file_exist .and. .not.NumPar%redo_EMFP) then    ! read from the file:
                 write(*,'(a,a,a)') 'Mott EMFPs of an electron in ', trim(adjustl(Material_name)), ' are already in the file:'
                 write(*, '(a)') trim(adjustl(Input_elastic_file))
                 write(*, '(a)') ' '
@@ -471,7 +513,15 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Hole_Mott_EMFPs'//trim(adjustl(temp_char1))//'.dat' ! save for later use
             FN2 = 2043
             inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
-            if (file_exist) then    ! read from the file:
+
+            ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
+            if (file_exist) then
+                call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
+                !print*, 'IMFP file last modified on:', IMFP_last_modified
+                if (IMFP_last_modified < NumPar%Last_mod_time_CDF) NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+            endif
+
+            if (file_exist .and. .not.NumPar%redo_EMFP) then    ! read from the file:
                 write(*,'(a,a,a)') 'Mott EMFPs of a hole in ', trim(adjustl(Material_name)), ' are already in the file:'
                 write(*, '(a)') trim(adjustl(Input_elastic_file))
                 write(*, '(a)') ' '
@@ -501,7 +551,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         select case (NumPar%kind_of_EMFP)
         case (2)    ! DSF: resolved emission vs absorption
          do i = 1, Nelast
-           if (.not. file_exist) then  ! if file didn't exist and we just created it:
+           if (.not. file_exist .or. NumPar%redo_EMFP) then  ! if file didn't exist and we just created it:
              write(FN2,'(f,es,es,es)') Elastic_MFP%Total%E(i), Elastic_MFP%Total%L(i), Elastic_MFP%Emit%L(i), Elastic_MFP%Absorb%L(i)
            else
              read(FN2,*, IOSTAT=Reason) Elastic_MFP%Total%E(i), Elastic_MFP%Total%L(i), Elastic_MFP%Emit%L(i), Elastic_MFP%Absorb%L(i)
@@ -512,7 +562,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
          enddo
         case default ! no resolution of emission vs absorption
          do i = 1, Nelast
-           if (.not. file_exist) then  ! if file didn't exist and we just created it:
+           if (.not. file_exist .or. NumPar%redo_EMFP) then  ! if file didn't exist and we just created it:
              write(FN2,'(f,e)') Elastic_MFP%Total%E(i), Elastic_MFP%Total%L(i)
            else
              read(FN2,*, IOSTAT=Reason) Elastic_MFP%Total%E(i), Elastic_MFP%Total%L(i)
@@ -523,6 +573,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
          enddo
         end select
     endif
+    NumPar%redo_EMFP = .false. ! default it for the next kind of particles
     
     !rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
     ! And only in this case calculate the electron (or hole) range:
@@ -781,11 +832,11 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
     type(All_names), intent(inout) :: File_names
     type(Solid), intent(in) :: Matter
     type(Density_of_states), intent(in) :: Mat_DOS
-    type(Flag), intent(in) :: NumPar
+    type(Flag), intent(inout) :: NumPar
 
     real(8), dimension(:), allocatable :: dEdx_tot
     real(8) SHI_E, Emin, Emax, dE
-    integer N, Ord, Va
+    integer N, Ord, Va, IMFP_last_modified
     integer i, j, k, Nat, Nshl, FN, FN2, FN3
     character(100) Input_files, Input_files11, Input_files2, Input_files3, Path_name, command, charge_name, charge_kind
     logical file_exist, file_exist2
@@ -864,7 +915,15 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
     Input_files3 = trim(adjustl(Path_name))//'/OUTPUT_'//trim(adjustl(SHI%Name))//trim(adjustl(charge_name))//trim(adjustl(charge_kind))//'_Range.dat'
     if (allocated(File_names%F)) File_names%F(6) = 'OUTPUT_'//trim(adjustl(SHI%Name))//trim(adjustl(charge_name))//trim(adjustl(charge_kind))
     inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
+
+    ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
     if (file_exist) then
+        call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
+        !print*, 'IMFP file last modified on:', IMFP_last_modified
+        if (IMFP_last_modified < NumPar%Last_mod_time_CDF) NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
+    endif
+
+    if (file_exist .and. .not.NumPar%redo_IMFP) then
         write(*,'(a,a,a,a,a)') 'IMFP and dEdx of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' are already in the files:'
         write(*, '(a,a,a)') trim(adjustl(Input_files)), ' and ', trim(adjustl(Input_files2))
         write(*, '(a)') ' ' 
@@ -894,12 +953,13 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
         SHI%E = SHI_E ! restore the original value
     endif
     inquire(file=trim(adjustl(Input_files3)),exist=file_exist2)    ! check if file with Ranges excists
-    if (.not.file_exist2) then  ! if not, create it
+    if (.not.file_exist2 .or. NumPar%redo_IMFP) then  ! if not, create it
         write(*,'(a,a,a,a,a)') 'Ranges of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' will be storred in the file:'
         write(*, '(a)') trim(adjustl(Input_files3))
         write(*, '(a)') ' '
         call Get_ion_range(Input_files3,N,SHI_MFP,Target_atoms,dEdx_tot) ! calculate ion range out of its energy-loss function
     endif
+    NumPar%redo_IMFP = .false. ! default it for the next kind of particle
 end subroutine Analytical_ion_dEdx
 
 

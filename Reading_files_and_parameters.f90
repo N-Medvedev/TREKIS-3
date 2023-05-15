@@ -42,6 +42,46 @@ public :: Integrate_function, Trapeziod
 
 contains
 
+
+
+subroutine get_file_stat(File_name, device_ID, Inode_number, File_mode, Number_of_links, O_uid, O_gid, where_located, &
+                         File_size, Last_access_time, Last_modification_time, Last_status_change, blocks_allocated)
+! See description here: https://software.intel.com/en-us/node/526830
+   character(*), intent(in) :: File_name ! which file we are checking?
+   integer, intent(out), optional :: device_ID ! Device the file resides on
+   integer, intent(out), optional :: Inode_number ! File inode number
+   integer, intent(out), optional :: File_mode ! Access mode of the file
+   integer, intent(out), optional :: Number_of_links ! Number of hard links to the file
+   integer, intent(out), optional :: O_uid ! User ID of owner
+   integer, intent(out), optional :: O_gid ! Group ID of owner
+   integer, intent(out), optional :: where_located ! Raw device the file resides on
+   integer, intent(out), optional :: File_size ! Size of the file
+   integer, intent(out), optional :: Last_access_time ! Time when the file was last accessed (*)
+   integer, intent(out), optional :: Last_modification_time ! Time when the file was last modified(*)
+   integer, intent(out), optional :: Last_status_change ! Time of last file status change (*)
+   integer, intent(out), optional :: blocks_allocated ! Blocksize for file system I/O operations
+   !(*) Times are in the same format returned by the TIME function (number of seconds since 00:00:00 Greenwich mean time, January 1, 1970).
+   !=====================
+   INTEGER :: info_array(12)
+
+   ! Get the statistics on the file:
+   call STAT(trim(adjustl(File_name)), info_array) ! intrinsec fortran subroutine
+
+   if (present(device_ID)) device_ID = info_array(1)  ! Device the file resides on
+   if (present(Inode_number)) Inode_number = info_array(2) ! File inode number
+   if (present(File_mode)) File_mode = info_array(3) ! Access mode of the file
+   if (present(Number_of_links)) Number_of_links = info_array(4) ! Number of hard links to the file
+   if (present(O_uid)) O_uid = info_array(5) ! User ID of owner
+   if (present(O_gid)) O_gid = info_array(6) ! Group ID of owner
+   if (present(where_located)) where_located = info_array(7) ! Raw device the file resides on
+   if (present(File_size)) File_size = info_array(8) ! Size of the file
+   if (present(Last_access_time)) Last_access_time = info_array(9) ! Time when the file was last accessed (*)
+   if (present(Last_modification_time)) Last_modification_time = info_array(10) ! Time when the file was last modified(*)
+   if (present(Last_status_change)) Last_status_change = info_array(11) ! Time of last file status change (*)
+   if (present(blocks_allocated)) blocks_allocated = info_array(12) ! Blocksize for file system I/O operations
+end subroutine get_file_stat
+
+
 subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, dt, Output_path, Output_path_SHI, &
            Material_name, NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names)
    type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
@@ -74,6 +114,17 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    character(100) command, temp_ch   ! to pass to cmd a command
    logical file_exist    ! to check where file to be open exists
    logical file_opened   ! to check if a file is still opened
+
+   !----------------
+   ! Default to start with:
+   NumPar%redo_IMFP = .false. ! don't recalculate inelastic MFPs, if possible
+   NumPar%redo_EMFP = .false. ! don't recalculate elastic MFPs, if possible
+   NumPar%include_photons = .false. ! no photons by default (unless user includes them)
+   NumPar%plasmon_Emax = .false. ! do not include plasmon integration limit in inelastic CDF
+   NumPar%field_include = .false.   ! no fields (bc NOT READY!)
+
+   !----------------
+   ! Reading the input file:
 
    FN = 200
    inquire(file='INPUT_PARAMETERS.txt',exist=file_exist)     ! check if input file excists
@@ -300,9 +351,12 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
         enddo
    endif
    close(25)
-     
+
    if (NumPar%kind_of_EMFP .EQ. 2) then
        call reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message, read_well)
+       ! Find out when this file was last modified:
+       call get_file_stat(trim(adjustl(DSF_file)), Last_modification_time=NumPar%Last_mod_time_DSF) ! above
+       !print*, 'DSF file last modified on:', NumPar%Last_mod_time_DSF
        call reading_DSF_cross_sections(DSF_file_h, DSF_DEMFP_H, NumPar, Error_message, read_well)
    else
       allocate(DSF_DEMFP(0))
@@ -356,8 +410,13 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    inquire(file=trim(adjustl(Short_material_file)),exist=file_exist2)    ! check if the short input file exists
    if (file_exist) then
       open(unit = FN2, FILE = trim(adjustl(Material_file)), status = 'old', readonly)   ! yes, open full file and read
+      ! Find out when this file was last modified:
+      call get_file_stat(trim(adjustl(Material_file)), Last_modification_time=NumPar%Last_mod_time_CDF) ! above
+      !print*, 'CDF file last modified on:', NumPar%Last_mod_time_CDF
    else if (file_exist2) then ! if at least short version exists, the rest can be used within atomic approximation
       open(unit=FN2, FILE = trim(adjustl(Short_material_file)), status = 'old', readonly)   ! yes, open full file and read
+      ! Find out when this file was last modified:
+      call get_file_stat(trim(adjustl(Short_material_file)), Last_modification_time=NumPar%Last_mod_time_CDF) ! above
       call read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_message, read_well)
       goto 2014 ! short version is done, skip reading the long one below
    else ! if no, save error message about it:

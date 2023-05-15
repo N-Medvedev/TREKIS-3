@@ -1,7 +1,7 @@
 # TREKIS-3
  ## TREKIS : Time Resolved Electron Kinetics in SHI-irradiated Solids
  ### Monte-Carlo code modelling electronic kinetics after swift-heavy ion impact on matter
- ### Current version: 3.0.8 (update 12.05.2023)
+ ### Current version: 3.0.8 (update 15.05.2023)
  
  For all details and instruction, address the files
  !READ_ME_TREKIS_3.doc  or  !READ_ME_TREKIS_3.pdf
