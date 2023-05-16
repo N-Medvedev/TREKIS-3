@@ -291,7 +291,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    read_well = .true.   ! to start with
    RDID: do while (read_well)
       read(FN,*,IOSTAT=Reason) text
-      call read_file(Reason, i, read_well)
+      call read_file(Reason, i, read_well, no_end=.true.)   ! below
       if (.not. read_well) exit RDID  ! end of file, stop reading
 
       call interpret_additional_data_INPUT(FN, trim(adjustl(File_name_INPUT)), i, text, NumPar) ! below
@@ -305,9 +305,9 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    if (SHI%Zat .GT. 0) Output_path_SHI = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'OUTPUT_'//trim(adjustl(SHI%Name))//'_in_'//trim(adjustl(Material_name)) ! that should be a folder with output
    inquire(DIRECTORY=trim(adjustl(Output_path)),exist=file_exist)    ! check if input file excists
    if (file_exist) then
-      write(*,'(a,a,a)') 'Folder ', trim(adjustl(Output_path)), ' already exists, save output files into it'
+      write(*,'(a,a,a)') ' Folder ', trim(adjustl(Output_path)), ' already exists, save output files into it'
    else
-      write(*,'(a,a,a)') 'Folder ', trim(adjustl(Output_path)), ' was created, save output files into it'
+      write(*,'(a,a,a)') ' Folder ', trim(adjustl(Output_path)), ' was created, save output files into it'
       command='mkdir '//trim(adjustl(Output_path)) ! to create a folder use this command
       CALL system(command)  ! create the folder
    endif
@@ -1197,16 +1197,26 @@ subroutine get_num_shells(Target_atoms, Nshtot)
 end subroutine get_num_shells
 
 
-subroutine read_file(Reason, i, read_well)
+subroutine read_file(Reason, i, read_well, no_end)
    integer, intent(in) :: Reason    ! file number where to read from
    integer, intent(inout) :: i      ! line number
    logical, intent(inout) :: read_well  ! did we read ok?
+   logical, intent(in), optional :: no_end ! ignore end of file warning (ocationally useful)
+   !----------------------------
+   logical :: ignor_end
+
+   if (present(no_end)) then
+      ignor_end = no_end
+   else
+      ignor_end = .false.
+   endif
+
    i = i + 1    ! it's next line
    IF (Reason .GT. 0)  THEN ! ... something wrong ...
        write(*,'(a,i3,a)') 'Problem reading input file in line ', i, ', wrong type of variable'
        read_well = .false.
    ELSE IF (Reason .LT. 0) THEN ! ... end of file reached ...
-       write(*,'(a,i3,a)') 'Problem reading input file in line ', i, ', unexpected END of file'
+       if (.not.ignor_end) write(*,'(a,i3,a)') 'Problem reading input file in line ', i, ', unexpected END of file'
        read_well = .false.
    ELSE   ! normal reading
        read_well = .true.  ! it read well, nothing to report

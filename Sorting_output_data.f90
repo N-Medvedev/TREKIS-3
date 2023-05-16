@@ -233,7 +233,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     write(FN1, '(a,i5)') 'Number of MC iterations: ', NMC
     write(FN1, '(a,i5)') 'Number of threads used for openmp:', Num_th
     call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
-    as1=REAL(24*60*60*(c1(3)-ctim(3))+3600*(c1(5)-ctim(5))+60*(c1(6)-ctim(6))+(c1(7)-ctim(7))+(c1(8)-ctim(8))*0.001)	! sec
+    as1=dble(24*60*60*(c1(3)-ctim(3))+3600*(c1(5)-ctim(5))+60*(c1(6)-ctim(6))+(c1(7)-ctim(7))+(c1(8)-ctim(8))*0.001)	! sec
     call parse_time(as1,C_time) ! module "Sorting_output_data.f90"
     write(FN1, '(a,a)') 'Duration of calculation: ', trim(adjustl(C_time))
     !write(FN1, '(a)') '-------------------------------------------------------------'

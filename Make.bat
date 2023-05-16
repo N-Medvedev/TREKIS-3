@@ -36,7 +36,6 @@ setlocal EnableDelayedExpansion
 
       :: List compiler options
       SET "Compile_options=/F9999999999 /QxHost /QaxAVX  /fpp /Qopenmp /D OMP_inside /real-size:64 /debug:all /Od /check:all /traceback /gen-interfaces /warn:interfaces /check:bounds /fpe:0 /Qfp-stack-check /fp:precise /Qvec /standard-semantics"
-
       :: Set name of the executable:
       SET "Name_of_exe=TREKIS_DEBUG_OMP.exe"
     ) ELSE (
