@@ -99,7 +99,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
     real(8), dimension(:,:), allocatable :: Phot_IMFP    ! total IMFP for photons, to use in a subroutine, we need this shape of an array
     real(8), dimension(:), allocatable :: Out_field
     real(8) Tot_field
-    real(8) t_cur   ! current time of particle [fs]
+    real(8) t_cur, t_cur_save   ! current time of particle [fs]
     real(8) tim_glob ! global current time [fs]
     real(8) At_NRG  ! energy lost to the lattice [eV]
     real(8) RN, dEdx, MFP_tot, IMFP, EMFP, SHI_IMFP, SHI_dEdx, temp, dE, dE_cur, mh, HIMFP, HEMFP, Egap, Eloc, Ehole
@@ -167,6 +167,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
     call Get_time_of_next_event(SHI_loc, MFP=SHI_IMFP)  ! SHI_loc%tn is updated [fs]
     call Particle_event(SHI_loc, L=SHI_IMFP)  ! new mean free path [A]
     call Find_min_time_particle(SHI_loc, All_electrons, All_holes, All_photons, KOP, NOP, t_cur, NumPar) ! finds what particle collides next
+    t_cur_save = t_cur  ! to start with
     At_NRG = 0.0d0  ! [eV] lattice energy
     
     time_do:do while (tim_glob .LE. Tim-1e-6) ! time propagation
@@ -223,7 +224,14 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
                     t_cur, NumPar)
             endselect
             ! finds what particle collides next:
-            call Find_min_time_particle(SHI_loc, All_electrons, All_holes, All_photons, KOP, NOP, t_cur, NumPar)
+            call Find_min_time_particle(SHI_loc, All_electrons, All_holes, All_photons, KOP, NOP, t_cur, NumPar) ! below
+            ! Consistency check of time propagation:
+            if (t_cur < t_cur_save) then
+                print*, 'Time-propagation problem in MC: '
+                print*, t_cur_save, t_cur
+                print*, KOP, NOP
+            endif
+            t_cur_save = t_cur  ! save for the next step
         enddo grid_do ! propagate particles until the time grid point     
         !dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
         ! Save distributions for this time-step:
@@ -1810,7 +1818,8 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
         ! Get parameters of the created hole:
         
         call Update_holes_angles_SHI((dE-dE_cur), htheta, hphi)     !Random angles of hole
-        call Particle_event(All_holes(Tot_Nel), t0=All_electrons(NOP)%t0, X=X, Y=Y, Z=Z, KOA=Nat_cur, &
+        !call Particle_event(All_holes(Tot_Nel), t0=All_electrons(NOP)%t0, X=X, Y=Y, Z=Z, KOA=Nat_cur, &
+        call Particle_event(All_holes(Tot_Nel), t0=All_electrons(NOP)%tn, X=X, Y=Y, Z=Z, KOA=Nat_cur, &
                 Shl=Nshl_cur, theta=htheta, phi=hphi) ! new hole parameters
         call Hole_parameters(All_holes(Tot_Nel), Matter, Mat_DOS, Target_atoms, Hole_IMFP, Hole_EMFP, &
                 (dE-dE_cur), Lowest_Ip_At, Lowest_Ip_Shl)
@@ -1991,8 +2000,6 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
         Y = All_holes(NOP)%Y + L*sin(theta0)*cos(phi0)    ! [A] new Y coordinate
         Z = All_holes(NOP)%Z + L*cos(theta0)              ! [A] new Z coordinate
         
-        !inel_vs_el:if ((RN*(1.0d0/HIMFP + 1.0d0/HEMFP) .LT. 1.0d0/HIMFP) .AND. (HEMFP .LT. 1d15)) then  ! inelastic
-        !inel_vs_el:if (RN*(1.0d0/HIMFP + 1.0d0/HEMFP) .LT. 1.0d0/HIMFP) then  ! inelastic
         inel_vs_el:if ((RN*(1.0d0/HIMFP + 1.0d0/HEMFP) .LT. 1.0d0/HIMFP) .AND. (HIMFP .LT. 1d15)) then  ! inelastic
             ! Find which shell of which atom is being ionized:
             call Which_shell(Total_Hole_MFPs, Hole_IMFP, Eel, Nat_cur, Nshl_cur)   ! => Nat_cur, Nshl_cur
@@ -2007,11 +2014,11 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             call Electron_energy_transfer(Eel, Target_atoms, Nat_cur, Nshl_cur, HIMFP, dE, Matter, Mat_DOS, NumPar, kind_of_particle)
             ! => htheta, hphi of ionized electron, htheta1, hphi1 angles of incident hole:
             call Update_holes_angles_el(All_holes(NOP), Eel, dE, htheta, hphi, htheta1, hphi1)
-                                    
+
             ! New ionized electrons parameters:
             ! How much energy an electron recieves:
             call Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message)
-            
+
             call Next_free_path(dE_cur, El_IMFP, IMFP) ! => IMFP of electron [A]
             call Next_free_path(dE_cur, El_EMFP, EMFP) ! => EMFP of electron [A]
             call random_number(RN)
@@ -2020,8 +2027,10 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             call random_number(RN)
             phi2 = hphi
             call New_Angles_both(phi0, theta0, theta2, phi2, phi1, theta1)    ! => phi1, theta1. Angles measured from Z axis
+
             ! new electron parameters:
-            call Particle_event(All_electrons(Tot_Nel), E=dE_cur, t0=All_holes(NOP)%t0, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1)
+            !call Particle_event(All_electrons(Tot_Nel), E=dE_cur, t0=All_holes(NOP)%t0, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1)
+            call Particle_event(All_electrons(Tot_Nel), E=dE_cur, t0=All_holes(NOP)%tn, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1)
             ! => All_electrons(NOP)%tn is updated for next collision [fs]:
             call Get_time_of_next_event(All_electrons(Tot_Nel), MFP=MFP_tot)
             
@@ -2042,12 +2051,13 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             
             ! Get parameters of the created holes:
             call Update_holes_angles_SHI((dE-dE_cur), htheta, hphi)
-            call Particle_event(All_holes(Tot_Nel), t0=All_holes(NOP)%t0, X=X, Y=Y, Z=Z, &
+            !call Particle_event(All_holes(Tot_Nel), t0=All_holes(NOP)%t0, X=X, Y=Y, Z=Z, &
+            call Particle_event(All_holes(Tot_Nel), t0=All_holes(NOP)%tn, X=X, Y=Y, Z=Z, &
                 KOA=Nat_cur, Shl=Nshl_cur, theta=htheta, phi=hphi) ! new hole parameters
             call Hole_parameters(All_holes(Tot_Nel), Matter, Mat_DOS, Target_atoms, Hole_IMFP, Hole_EMFP, &
                 (dE-dE_cur), Lowest_Ip_At, Lowest_Ip_Shl)
             call cut_off(Matter%cut_off, All_holes=All_holes(Tot_Nel)) ! compare hole energy with cut-off and update it's time
-                       
+
             if ((All_holes(Tot_Nel)%Ehkin .LT. -1.0d-9) .OR. isnan(All_holes(Tot_Nel)%Ehkin)) then  ! Error, hole got negative energy!
                 ! description of an error:
                 write(Error_descript, '(a,i,a,e)') 'Hole-impact hole #', Tot_Nel, ' got negative energy ', All_holes(Tot_Nel)%Ehkin
@@ -2325,7 +2335,8 @@ subroutine Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El
     MFP_tot = -log(RN)/(1.0d0/IMFP + 1.0d0/EMFP)    ! [A] sample total electron free path (inelastic + elastic)
     call New_Angles_both(All_photons(NOP)%phi, All_photons(NOP)%theta, g_Pi/2.0d0, 0.0d0, phi1, theta1)    ! => phi1, theta1
     ! new electron parameters:
-    call Particle_event(All_electrons(Tot_Nel), E=dE_cur, t0=All_photons(NOP)%t0, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1)
+    !call Particle_event(All_electrons(Tot_Nel), E=dE_cur, t0=All_photons(NOP)%t0, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1)
+    call Particle_event(All_electrons(Tot_Nel), E=dE_cur, t0=All_photons(NOP)%tn, X=X, Y=Y, Z=Z, L=MFP_tot, theta=theta1, phi=phi1)
     call Get_time_of_next_event(All_electrons(Tot_Nel), MFP=MFP_tot)   ! => All_electrons(NOP)%tn is updated for next collision [fs]
     
     call cut_off(Matter%cut_off, All_electrons=All_electrons(Tot_Nel)) ! compare electron energy with cut-off    
@@ -2341,7 +2352,8 @@ subroutine Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El
     ! Get parameters of the created holes:
     call Update_holes_angles_SHI((Eel-dE_cur), htheta, hphi)
     ! new hole parameters:
-    call Particle_event(All_holes(Tot_Nel), t0=All_photons(NOP)%t0, X=X, Y=Y, Z=Z, KOA=Nat_cur, Shl=Nshl_cur, theta=htheta, phi=hphi)
+    !call Particle_event(All_holes(Tot_Nel), t0=All_photons(NOP)%t0, X=X, Y=Y, Z=Z, KOA=Nat_cur, Shl=Nshl_cur, theta=htheta, phi=hphi)
+    call Particle_event(All_holes(Tot_Nel), t0=All_photons(NOP)%tn, X=X, Y=Y, Z=Z, KOA=Nat_cur, Shl=Nshl_cur, theta=htheta, phi=hphi)
     call Hole_parameters(All_holes(Tot_Nel), Matter, Mat_DOS, Target_atoms, Hole_IMFP, Hole_EMFP, (Eel-dE_cur), Lowest_Ip_At, Lowest_Ip_Shl)
     call cut_off(Matter%cut_off, All_holes=All_holes(Tot_Nel)) ! compare hole energy with cut-off and update it's time
 
