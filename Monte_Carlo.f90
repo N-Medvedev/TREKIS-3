@@ -172,7 +172,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
     time_do:do while (tim_glob .LE. Tim-1e-6) ! time propagation
 
         if (NumPar%verbose) then
-            text_line = 'Current time in thread #'//trim(adjustl(text_ch))//' in MC:'
+            text_line = 'Current time in MC in thread #'//trim(adjustl(text_ch))//':'
             call print_time_step(trim(adjustl(text_line)), tim_glob, msec=.true.)
         endif
 
@@ -241,7 +241,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
                 Out_field, Out_field_all, Tot_field, Out_E_field, Out_diff_coeff, NumPar)
         !dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
         if (NumPar%verbose) then
-            text_line = 'Defining next particle in thread #'//trim(adjustl(text_ch))//':'
+            text_line = 'Defining particle  in thread #'//trim(adjustl(text_ch))//':'
             call print_time_step(trim(adjustl(text_line)), tim_glob, msec=.true.)
         endif
         call Find_min_time_particle(SHI_loc, All_electrons, All_holes, All_photons, KOP, NOP, t_cur, NumPar) ! finds what particle collides next

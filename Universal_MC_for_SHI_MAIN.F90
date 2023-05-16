@@ -83,11 +83,11 @@ call TREKIS_title(6)   ! module "Sorting_output_data"
 
 !TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 Error_message%Err = .false. ! no errors at the beginning, turn it into 'true' if any occurs
-call get_path_separator(Numpar%path_sep, Error_message, read_well)   ! module: Path_separator from Variables.f90
+call get_path_separator(Numpar%path_sep, Error_message, read_well)   ! module "Variables"
 
 call random_seed() ! standard FORTRAN seeding of random numbers
 call date_and_time(values=c1) ! standard FORTRAN time and date
- ctim=c1	
+ ctim=c1
 write(*, 1005) ctim(5), ctim(6), ctim(7), ctim(3), ctim(2), ctim(1)
 
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
@@ -180,7 +180,7 @@ if (NumPar%verbose) call print_time_step('Starting MC iterations:', msec=.true.)
 ! The iteration in MC are largely independent, so they can be parallelized with openmp:
 Nit = 0
 !$omp parallel &
-!$omp private (MC_stat, my_id)
+!$omp private (MC_stat, my_id, c1)
 !$omp do schedule(dynamic) reduction( + : Nit, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_field_all, Out_E_field, Out_diff_coeff)
 do MC_stat = 1, NMC   ! MC iterations to be averaged
     my_id = 1 + OMP_GET_THREAD_NUM() ! identify which thread it is
