@@ -239,7 +239,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
         if (file_exist) then
             call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
-            print*, 'IMFP file last modified on:', IMFP_last_modified
+            !print*, 'IMFP file last modified on:', IMFP_last_modified
             if (IMFP_last_modified < NumPar%Last_mod_time_CDF) NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
         endif
 
