@@ -1847,16 +1847,17 @@ subroutine NRG_transfer_elastic_DSF(Elastic_MFP, DSF_DEMFP, Eel, dE)
 
    if (abs(dE) .GT. 1.0d0) then ! Potentially unphysically large energy transfer
       if (it_is_emission) then ! emission (dE>0)
-         print*, "Potential problem in NRG_transfer_elastic_DSF: too large energy transfer (emission):"
+         write(*,'(a)') "Potential problem in NRG_transfer_elastic_DSF: too large energy transfer (emission):"
          print*, dE, Eel, EMFP_emit, L_need
+         ! Ensuring physicality of the troubling situation of problem in interpolation:
+         if (dE > Eel) dE = Eel  ! cannot lose more energy than it has
+         print*, 'Problem avoided, continue calculation'
       else
-         print*, "Potential problem in NRG_transfer_elastic_DSF: too large energy transfer (absorption):"
+         write(*,'(a)') "Potential problem in NRG_transfer_elastic_DSF: too large energy transfer (absorption):"
          print*, dE, Eel, EMFP_absorb, L_need
+         print*, 'Problem avoided, continue calculation'
       endif
    endif
-
-   ! Ensuring physicality of the troubling situation of problem in interpolation:
-   if (dE > Eel) dE = Eel  ! cannot lose more energy than it has
 
    !--------------
 !    ! Testing:
