@@ -66,7 +66,8 @@ use Universal_Constants
 use Objects
 use Variables
 use Gnuplotting_subs, only: Gnuplot_ion, Gnuplot_electrons_MFP
-use Reading_files_and_parameters, only: Read_input_file, get_num_shells, Find_VB_numbers, print_time_step
+use Reading_files_and_parameters, only: Read_input_file, get_num_shells, Find_VB_numbers, print_time_step, &
+                                    get_add_data
 use Sorting_output_data, only: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, &
                             Deallocate_out_arrays, parse_time
 use Cross_sections, only: SHI_TotIMFP, Equilibrium_charge_SHI
@@ -89,6 +90,10 @@ call random_seed() ! standard FORTRAN seeding of random numbers
 call date_and_time(values=c1) ! standard FORTRAN time and date
  ctim=c1
 write(*, 1005) ctim(5), ctim(6), ctim(7), ctim(3), ctim(2), ctim(1)
+
+!IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+! Get additional options provided by the user in the command line:
+call get_add_data(Numpar) ! module "Reading_files_and_parameters"
 
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! Reading input file:
@@ -169,7 +174,7 @@ call Radius_for_distributions(Target_atoms, Out_Distr, Out_V, Tim, dt, NumPar%dt
 ! Allocate arrays for MC iterations:
 call Allocate_out_arrays(target_atoms, Out_Distr, Mat_DOS, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, &
       Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, &
-      Out_theta, Out_theta1, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_E_field, Out_diff_coeff) !Module 'Sorting_output_data.f90'
+      Out_theta, Out_theta_h, Out_theta1, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_E_field, Out_diff_coeff) ! Module 'Sorting_output_data.f90'
 
 write(*,'(a)') ' '
 !write(*,'(a)') '--------------------------------------------------------'
@@ -181,7 +186,7 @@ if (NumPar%verbose) call print_time_step('Starting MC iterations:', msec=.true.)
 Nit = 0
 !$omp parallel &
 !$omp private (MC_stat, my_id, c1)
-!$omp do schedule(dynamic) reduction( + : Nit, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_field_all, Out_E_field, Out_diff_coeff)
+!$omp do schedule(dynamic) reduction( + : Nit, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_field_all, Out_E_field, Out_diff_coeff)
 do MC_stat = 1, NMC   ! MC iterations to be averaged
     my_id = 1 + OMP_GET_THREAD_NUM() ! identify which thread it is
     ! Perform all the MC calculations within this subroutine:
@@ -189,7 +194,7 @@ do MC_stat = 1, NMC   ! MC iterations to be averaged
      Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, &
      Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, &
      Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
-     Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
+     Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
      Error_message, DSF_DEMFP, DSF_DEMFP_H, Out_field_all, Out_E_field, Out_diff_coeff)  ! module "Monte_carlo"
     Nit = Nit + 1   ! count the number of iteration to test parallelization
     call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
@@ -216,6 +221,7 @@ Out_Ee_vs_E = Out_Ee_vs_E/dble(NMC) ! electron spectrum
 Out_Eh_vs_E = Out_Eh_vs_E/dble(NMC) ! VB holes spectrum
 Out_Elat = Out_Elat/dble(NMC)
 Out_theta = Out_theta/dble(NMC)
+Out_theta_h = Out_theta_h/dble(NMC)
 Out_field_all = Out_field_all/dble(NMC)
 Out_E_field = Out_E_field/dble(NMC)
 Out_Ne_Em = Out_Ne_Em/dble(NMC)
@@ -237,13 +243,13 @@ enddo   ! k
 call Save_output(Output_path_SHI, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, &
                 SHI, Out_R, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_nphot, Out_Ephot,&
                 Out_Ee_vs_E, Out_Eh_vs_E, Out_E_at, Out_E_h, Out_Eat_dens, Out_Distr, &
-                Out_Elat, Out_theta, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
+                Out_Elat, Out_theta, Out_theta_h, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
                 NumPar, Out_E_field, Out_diff_coeff) !Module 'Sorting_output_data.f90'
 
 ! clean up after using temporary arrays:
 call Deallocate_out_arrays(Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_R, Out_V, &
     Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, &
-    Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, Out_theta, Out_field_all, Out_Ne_Em, Out_E_Em, &
+    Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, Out_theta, Out_theta_h, Out_field_all, Out_Ne_Em, Out_E_Em, &
     Out_Ee_vs_E_Em, Out_E_field)       !Module 'Sorting_output_data.f90'
 !MCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMC
 

@@ -33,7 +33,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
             Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, &
             Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, &
             Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
-            Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta1, &
+            Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_theta1, &
             Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Error_message, DSF_DEMFP, DSF_DEMFP_H, Out_field_all, Out_E_field, &
             Out_diff_coeff)
     integer, intent(in) :: my_id    ! thread number for OMP
@@ -72,7 +72,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
     real(8), dimension(:), intent(inout) :: Out_E_phot ! total energy of photons in time [eV] vs [fs]
     real(8), dimension(:), intent(inout) :: Out_E_at   ! total energy of atoms in time [eV] vs [fs]
     real(8), dimension(:,:,:), intent(inout) :: Out_E_h    ! total energy of holes in each shell in time [eV] vs [fs]
-    real(8), dimension(:,:), intent(inout) :: Out_theta
+    real(8), dimension(:,:), intent(inout) :: Out_theta, Out_theta_h    ! angular distribution of velosities (el and VB holes)
     real(8), dimension(:), intent(inout) :: Out_theta1
     real(8), dimension(:,:), intent(inout) :: Out_field_all ! [V/m] electrical fields vs time vs R 
     real(8), dimension(:,:), intent(inout) :: Out_Ee_vs_E_Em    ! [1/eV] emitted electrons distribution in energy space vs time
@@ -245,7 +245,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
                 All_holes, All_photons, Target_atoms, Out_R, Out_V, &
                 Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_ne, Out_Ee, &
                 Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Eat_dens, Out_nh, Out_Eh, Out_Ehkin, &
-                Out_theta, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Em_Nel, Matter, &
+                Out_theta, Out_theta_h, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Em_Nel, Matter, &
                 Out_field, Out_field_all, Tot_field, Out_E_field, Out_diff_coeff, NumPar)
         !dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
         if (NumPar%verbose) then
@@ -472,7 +472,7 @@ subroutine Calculated_statistics(Mat_DOS, Lowest_Ip_At, Lowest_Ip_Shl, i, tim, T
         All_holes, All_photons, target_atoms, Out_R, Out_V, &
         Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, &
         Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Eat_dens, Out_nh, Out_Eh, Out_Ehkin, &
-        Out_theta, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Em_Nel, Matter, &
+        Out_theta, Out_theta_h, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Em_Nel, Matter, &
         Out_field, Out_field_all, Tot_field, Out_E_field, Out_diff_coeff, NumPar)
     type(Density_of_states), intent(in) :: Mat_DOS  ! material DOS
     integer, intent(in) :: Lowest_Ip_At, Lowest_Ip_Shl ! number of atom and of shell which correspond to the lowest ionization potential
@@ -504,7 +504,7 @@ subroutine Calculated_statistics(Mat_DOS, Lowest_Ip_At, Lowest_Ip_Shl, i, tim, T
     real(8), dimension(:,:,:,:), intent(inout) :: Out_nh    ! [1/cm^3] holes densities
     real(8), dimension(:,:,:,:), intent(inout) :: Out_Eh    ! [eV/A^3] holes enegies
     real(8), dimension(:,:,:,:), intent(inout) :: Out_Ehkin
-    real(8), dimension(:,:), intent(inout) :: Out_theta
+    real(8), dimension(:,:), intent(inout) :: Out_theta, Out_theta_h    ! angular distribution of velosities (el and holes)
     real(8), dimension(:), intent(inout) :: Out_theta1
     type(Solid), intent(in) :: Matter
     type(Flag), intent(in) :: NumPar
@@ -632,11 +632,11 @@ subroutine Calculated_statistics(Mat_DOS, Lowest_Ip_At, Lowest_Ip_Shl, i, tim, T
 
         xx = theta0/g_Pi*180.0d0 ! Electron angles array 1=phi, 2=theta
         if (isnan(xx)) then
-            print*, 'The problem is with angles in stst...', xx, All_electrons(k)%theta, All_electrons(k)%E, k
+            print*, 'Pproblem with electron angles in stat:', xx, All_electrons(k)%theta, All_electrons(k)%E, k
         endif
         if (All_electrons(k)%E .GT. 0.0d0) then ! exclude zero-energy electrons
             call Find_in_array_monoton(Out_theta1, xx, j) ! find where in the distribution array it is
-            Out_theta(i,j) = Out_theta(i,j) + 1.0d0/real(Tot_Nel)
+            Out_theta(i,j) = Out_theta(i,j) + 1.0d0/dble(Tot_Nel)
         endif
         
         ! DO the same for holes
@@ -649,6 +649,14 @@ subroutine Calculated_statistics(Mat_DOS, Lowest_Ip_At, Lowest_Ip_Shl, i, tim, T
             phi0 = All_holes(k)%phi       ! old angle
             Xh = All_holes(k)%X + L0*sin(theta0)*sin(phi0)    ! [A] new X coordinate
             Yh = All_holes(k)%Y + L0*sin(theta0)*cos(phi0)    ! [A] new Y coordinate
+
+            ! Angular distribution of VB hole velosity:
+            xx = theta0/g_Pi*180.0d0 ! hole angles array 1=phi, 2=theta
+            if (isnan(xx)) then
+                print*, 'Pproblem with hole angles in stat:', xx, All_holes(k)%theta, All_holes(k)%Ehkin, k
+            endif
+            call Find_in_array_monoton(Out_theta1, xx, j) ! find where in the distribution array it is
+            Out_theta_h(i,j) = Out_theta_h(i,j) + 1.0d0/dble(N_VB_h_tot)
         else
             Xh = All_holes(k)%X
             Yh = All_holes(k)%Y
@@ -670,7 +678,6 @@ subroutine Calculated_statistics(Mat_DOS, Lowest_Ip_At, Lowest_Ip_Shl, i, tim, T
         
         !Average hole diffusion coefficient over all VB holes
         if (All_holes(k)%Mass .LT. 1.0d3 ) then
-            !if ((All_Holes(k)%Ehkin .LT. 4.0d0) .AND. (All_holes(k)%L .LT. 1.0d3)) then
             if (All_holes(k)%L .LT. 1.0d3) then
                 N_VB_h = N_VB_h + 1
                 call Get_velosity(All_holes(k), V)

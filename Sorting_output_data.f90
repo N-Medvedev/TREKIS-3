@@ -31,7 +31,7 @@ subroutine TREKIS_title(FN)
    write(FN,'(a)') '*                                                      *'
    write(FN,'(a)') trim(adjustl(starline))
    write(FN,'(a)') 'Time-Resolved Electron Kinetics in SHI-Irradiated Solids'
-   write(FN,'(a)') 'Version: 3.0.8  (update 16.05.2023)     '
+   write(FN,'(a)') 'Version: 3.0.8  (update 17.05.2023)     '
    write(FN,'(a)') trim(adjustl(starline))
 end subroutine TREKIS_title
 
@@ -39,7 +39,7 @@ end subroutine TREKIS_title
 subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, &
                 SHI, Out_R, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_nphot, Out_Ephot, &
                 Out_Ee_vs_E, Out_Eh_vs_E, Out_E_at, Out_E_h, Out_Eat_dens, &
-                Out_Distr, Out_Elat, Out_theta, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, NumPar, &
+                Out_Distr, Out_Elat, Out_theta, Out_theta_h, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, NumPar, &
                 Out_E_field, Out_diff_coeff)
     character(100), intent(in) :: Output_path, Material_name
     integer, dimension(:), intent(in) :: ctim
@@ -62,7 +62,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     real(8), dimension(:,:,:), allocatable, intent(in) :: Out_E_h
     real(8), dimension(:,:), allocatable, intent(in) :: Out_Eat_dens
     real(8), dimension(:,:), allocatable, intent(in) :: Out_Elat
-    real(8), dimension(:,:), allocatable, intent(in) :: Out_theta
+    real(8), dimension(:,:), allocatable, intent(in) :: Out_theta, Out_theta_h
     real(8), dimension(:,:), allocatable, intent(in) :: Out_field_all
     real(8), dimension(:), allocatable, intent(in) :: Out_diff_coeff
     real(8), dimension(:), intent(in) :: Out_E_field
@@ -279,9 +279,9 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
         if (file_opened) close(FN3)             ! and if it is, close it
     endif
     
-    !Angular distribution of electrons:
+    !Angular distribution of velosities of electrons:
     FN3 = 500
-    File_name = trim(adjustl(File_name2))//'/Theta_distribution.txt'
+    File_name = trim(adjustl(File_name2))//'/Electrons_theta_distribution.txt'
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Angle[deg] '
     t = 0.0d0
@@ -291,7 +291,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     enddo
     write(FN3, '(a)') ' '
     do i = 1, 180
-        write(FN3, '(e)', advance='no') REAL(i)
+        write(FN3, '(e)', advance='no') dble(i)
         t = 0.0d0
         do k = 1, N ! time-steps
             t = time_grid(k)
@@ -301,6 +301,32 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     enddo
     inquire(unit=FN3,opened=file_opened)    ! check if this file is opened
     if (file_opened) close(FN3)             ! and if it is, close it
+
+
+
+    !Angular distribution of velosities of holes:
+    FN3 = 5001
+    File_name = trim(adjustl(File_name2))//'/VB_holes_theta_distribution.txt'
+    open(unit = FN3, FILE = trim(adjustl(File_name)))
+    write(FN3, '(a)', advance='no') 'Angle[deg] '
+    t = 0.0d0
+    do i = 1, N     ! timesteps
+        t = time_grid(i)
+        write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
+    enddo
+    write(FN3, '(a)') ' '
+    do i = 1, 180
+        write(FN3, '(e)', advance='no') dble(i)
+        t = 0.0d0
+        do k = 1, N ! time-steps
+            t = time_grid(k)
+            write(FN3, '(e)', advance='no') Out_theta_h(k,i)
+        enddo
+        write(FN3, '(a)') ' '
+    enddo
+    inquire(unit=FN3,opened=file_opened)    ! check if this file is opened
+    if (file_opened) close(FN3)             ! and if it is, close it
+
 
 
   !Emitted Electron distribution in energy space (vs E) vs time:
@@ -794,7 +820,7 @@ subroutine Allocate_out_arrays(target_atoms, Out_Distr, Mat_DOS, Out_tot_Ne, Out
             Out_E_e, Out_E_phot, Out_E_at, Out_E_h, &
             Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, &
             Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, &
-            Out_theta, Out_theta1, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_E_field, Out_diff_coeff)
+            Out_theta, Out_theta_h, Out_theta1, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_E_field, Out_diff_coeff)
     type(Atom), dimension(:), allocatable, intent(in) :: Target_atoms  ! target atoms as objects
     type(Cylinder_distr), intent(in) :: Out_Distr   ! OUTPUT radial distributions
     type(Density_of_states), intent(in) :: Mat_DOS   ! Material DOS for VB distribution
@@ -817,7 +843,7 @@ subroutine Allocate_out_arrays(target_atoms, Out_Distr, Mat_DOS, Out_tot_Ne, Out
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Eh
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Ehkin
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Eat_dens  ! [eV/A^3] atom's energy energy   
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_theta
+    real(8), dimension(:,:), allocatable, intent(inout) :: Out_theta, Out_theta_h ! el and holes angular velosity distr.
     real(8), dimension(:), allocatable, intent(inout) :: Out_theta1 
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_field_all
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ee_vs_E_Em
@@ -837,9 +863,9 @@ subroutine Allocate_out_arrays(target_atoms, Out_Distr, Mat_DOS, Out_tot_Ne, Out
     Nh = size(Mat_DOS%E)
         
     ! Allocate and set temporary arrays:
-    allocate(Out_theta(1+Nee1,180))
+    allocate(Out_theta(1+Nee1,180), source = 0.0d0)
+    allocate(Out_theta_h(1+Nee1,180), source = 0.0d0)
     allocate(Out_theta1(180))
-    Out_theta = 0.0d0
     do i = 1,180
         Out_theta1 (i) = i
     enddo
@@ -902,7 +928,7 @@ end subroutine Allocate_out_arrays
 
 subroutine Allocate_out_arrays_old(target_atoms, Out_Distr, Out_tot_Ne, Out_tot_E, Out_E_e, Out_E_at, Out_E_h, &
                          Out_R, Out_V, Out_ne, Out_Ee, Out_Ee_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, &
-                         Out_theta, Out_theta1, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_E_field)
+                         Out_theta, Out_theta_h, Out_theta1, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_E_field)
     type(Atom), dimension(:), allocatable, intent(in) :: Target_atoms  ! target atoms as objects
     type(Cylinder_distr), intent(in) :: Out_Distr   ! OUTPUT radial distributions
     real(8), dimension(:), allocatable, intent(inout) :: Out_tot_Ne
@@ -920,7 +946,7 @@ subroutine Allocate_out_arrays_old(target_atoms, Out_Distr, Out_tot_Ne, Out_tot_
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Eh
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Ehkin
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Eat_dens  ! [eV/A^3] atom's energy energy   
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_theta
+    real(8), dimension(:,:), allocatable, intent(inout) :: Out_theta, Out_theta_h   ! el and hole angular velosity distr.
     real(8), dimension(:), allocatable, intent(inout) :: Out_theta1 
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_field_all
     
@@ -939,6 +965,7 @@ subroutine Allocate_out_arrays_old(target_atoms, Out_Distr, Out_tot_Ne, Out_tot_
     
     ! Allocate and set temporary arrays:
     allocate(Out_theta(1+size(Out_Distr%Ee,1),180))
+    allocate(Out_theta_h(1+size(Out_Distr%Ee,1),180), source = 0.0d0)
     allocate(Out_theta1(180))
     Out_theta = 0.0d0
     do i = 1,180
@@ -992,64 +1019,21 @@ end subroutine Allocate_out_arrays_old
 
 subroutine Deallocate_out_arrays(Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, &
             Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, &
-            Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, Out_theta, Out_field_all, Out_Ne_Em, Out_E_Em, &
+            Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, Out_theta, Out_theta_h, Out_field_all, Out_Ne_Em, Out_E_Em, &
             Out_Ee_vs_E_Em, Out_E_field)
-    real(8), dimension(:), allocatable, intent(inout) :: Out_tot_Ne
-    real(8), dimension(:), allocatable, intent(inout) :: Out_tot_Nphot
-    real(8), dimension(:), allocatable, intent(inout) :: Out_tot_E
-    real(8), dimension(:), allocatable, intent(inout) :: Out_V
-    real(8), dimension(:), allocatable, intent(inout) :: Out_E_e
-    real(8), dimension(:), allocatable, intent(inout) :: Out_E_phot
-    real(8), dimension(:), allocatable, intent(inout) :: Out_E_at
+    real(8), dimension(:), allocatable, intent(inout) :: Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_V, Out_E_e, Out_E_phot, &
+            Out_E_at, Out_Ne_Em, Out_E_Em, Out_E_field, Out_R
+    real(8), dimension(:,:), allocatable, intent(inout) :: Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, &
+            Out_Elat, Out_Eat_dens, Out_theta, Out_theta_h, Out_field_all, Out_Ee_vs_E_Em
     real(8), dimension(:,:,:), allocatable, intent(inout) :: Out_E_h
-    real(8), dimension(:), allocatable, intent(inout) :: Out_R
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_ne
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ee
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_nphot
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ephot
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ee_vs_E, Out_Eh_vs_E ! electron and VB holes spectra
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_Elat
-    real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_nh
-    real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Eh
-    real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Ehkin
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_Eat_dens
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_theta
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_field_all
-    
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ee_vs_E_Em
-    real(8), dimension(:), allocatable, intent(inout) :: Out_Ne_Em
-    real(8), dimension(:), allocatable, intent(inout) :: Out_E_Em 
-    
-    real(8), dimension(:), allocatable, intent(inout) :: Out_E_field
-    
+    real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_nh, Out_Eh, Out_Ehkin
+
     ! Dellocate temporary arrays:
-    deallocate(Out_tot_Ne)
-    deallocate(Out_tot_Nphot)
-    deallocate(Out_tot_E)
-    deallocate(Out_R)
-    deallocate(Out_ne)
-    deallocate(Out_Ee)
-    deallocate(Out_E_phot)
-    deallocate(Out_Ee_vs_E)
-    deallocate(Out_Eh_vs_E)
-    deallocate(Out_Elat)
-    deallocate(Out_nh)
-    deallocate(Out_Eh)
-    deallocate(Out_Ehkin)
-    deallocate(Out_V)
-    deallocate(Out_E_e)
-    deallocate(Out_E_at)
-    deallocate(Out_E_h)
-    deallocate(Out_nphot)
-    deallocate(Out_Ephot)
-    deallocate(Out_Eat_dens)
-    deallocate(Out_theta)
-    deallocate(Out_field_all)
-    deallocate(Out_Ee_vs_E_Em)
-    deallocate(Out_Ne_Em)
-    deallocate(Out_E_Em)
-    deallocate(Out_E_Field)
+    deallocate(Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_R, Out_ne, Out_Ee, Out_E_phot, Out_Ee_vs_E, Out_Eh_vs_E, &
+    Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_V, Out_E_e, Out_E_at, Out_E_h, Out_nphot, Out_Ephot, Out_Eat_dens, &
+    Out_theta, Out_theta_h, Out_field_all, Out_Ee_vs_E_Em, Out_Ne_Em, Out_E_Em, Out_E_Field)
 end subroutine Deallocate_out_arrays
+
 
 subroutine Radius_for_distributions(Target_atoms, Out_Distr, Out_V, Tim, dt, dt_flag, L)
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects

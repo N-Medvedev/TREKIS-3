@@ -7,7 +7,7 @@ module Reading_files_and_parameters
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
   use Dealing_with_EADL, only : Decompose_compound, check_atomic_parameters, Find_element_name, define_PQN, Count_lines_in_file
-  use Variables, only: dashline
+  use Variables, only: dashline, starline
   
   implicit none
 private  ! hides items not listed on public statement
@@ -40,7 +40,7 @@ interface Trapeziod
 end interface Trapeziod
 
 public :: Find_in_array, Find_in_array_monoton, Linear_approx, get_file_stat, get_num_shells, print_time_step
-public :: Read_input_file, Linear_approx_2x1d_DSF, Find_VB_numbers, read_file_here, read_SHI_MFP
+public :: Read_input_file, Linear_approx_2x1d_DSF, Find_VB_numbers, read_file_here, read_SHI_MFP, get_add_data
 
 contains
 
@@ -286,15 +286,13 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    endif
    !------------------------------------------------------
    ! Read optional parameters:
-   NumPar%verbose = .false.   ! default: no extra printing
-   NumPar%very_verbose = .false. ! default: no extra printing
    read_well = .true.   ! to start with
    RDID: do while (read_well)
       read(FN,*,IOSTAT=Reason) text
       call read_file(Reason, i, read_well, no_end=.true.)   ! below
       if (.not. read_well) exit RDID  ! end of file, stop reading
 
-      call interpret_additional_data_INPUT(FN, trim(adjustl(File_name_INPUT)), i, text, NumPar) ! below
+      call interpret_additional_data_INPUT(text, NumPar) ! below
    enddo RDID
 
 
@@ -409,10 +407,7 @@ end subroutine Read_input_file
 
 
 
-subroutine interpret_additional_data_INPUT(FN, File_name_INPUT, i, text, NumPar)
-   integer, intent(in) :: FN  ! file number
-   character(*), intent(in) :: File_name_INPUT  ! file name
-   integer, intent(in) :: i   ! number of line reading from
+subroutine interpret_additional_data_INPUT(text, NumPar)
    character(*), intent(in) :: text ! text read from the file
    type(Flag), intent(inout) :: NumPar ! numerical parameters
    !------------------------------------
@@ -420,7 +415,6 @@ subroutine interpret_additional_data_INPUT(FN, File_name_INPUT, i, text, NumPar)
    select case (text)
    case ('Verbose', 'verbose', 'VERBOSE')
       NumPar%verbose = .true.
-      NumPar%very_verbose = .false.
       print*, 'Verbose option is on, TREKIS will print a lot of extra stuff...'
 
    case ('Very_verbose', 'very_verbose', 'VERY_VERBOSE', 'Very_Verbose', 'Very-verbose', 'very-verbose', 'VERY-VERBOSE', 'Very-Verbose')
@@ -428,8 +422,52 @@ subroutine interpret_additional_data_INPUT(FN, File_name_INPUT, i, text, NumPar)
       NumPar%very_verbose = .true.
       print*, 'Very-verbose option is on, TREKIS will print A LOT of extra stuff...'
 
+   case ('INFO', 'Info', 'info')
+      print*, trim(adjustl(starline))
+      print*, 'TREKIS-3 stands for: Time-Resolved Electron Kinteics in SHI-Irradiated Solids'
+      print*, 'For all details and instruction, address the files !READ_ME_TREKIS_3.doc or !READ_ME_TREKIS_3.pdf'
+      print*, 'DISCLAIMER'
+      print*, 'Although we endeavour to ensure that the code TREKIS-3 and results delivered are correct, no warranty is given as to its accuracy. We assume no responsibility for possible errors or omissions. We shall not be liable for any damage arising from the use of this code or its parts or any results produced with it, or from any action or decision taken as a result of using this code or any related material.', &
+         'This code is distributed as is for non-commercial peaceful purposes only, such as research and education. It is explicitly prohibited to use the code, its parts, its results or any related material for military-related and other than peaceful purposes. By using this code or its materials, you agree with these terms and conditions.'
+      print*, 'HOW TO CITE'
+      print*, 'The use of the code is at your own risk. Should you choose to use it, appropriate citations are mandatory:', &
+         ' 1) N. A. Medvedev, R. A. Rymzhanov, A. E. Volkov, J. Phys. D. Appl. Phys. 48 (2015) 355303', &
+         ' 2) R. A. Rymzhanov, N. A. Medvedev, A. E. Volkov, Nucl. Instrum. Methods B 388 (2016) 41', &
+         'Should you use this code to create initial conditions for further molecular dynamics simulations of atomic response to the electronic excitation by a swift heavy ion (e.g. with LAMMPS), the following citation is required:', &
+         ' 3) R. Rymzhanov, N. A. Medvedev, A. E. Volkov, J. Phys. D. Appl. Phys. 50 (2017) 475301', &
+         'In a publication, we recommend that at least the following parameters should be mentioned for reproducibility of the results: material, its structure, density, speed of sound, the used CDF coefficients, which processes were included (active) in the simulation, ion type, its energy, the model for SHI charge, number of MC iterations.'
+      print*, trim(adjustl(starline))
    endselect
 end subroutine interpret_additional_data_INPUT
+
+
+
+
+! Reads additional data from the command line passed along with the XTANT:
+subroutine get_add_data(NumPar)
+   type(Flag), intent(inout) :: NumPar ! numerical parameters
+   !---------------
+   character(1000) :: string
+   integer :: i_arg, count_args, N_arg
+
+   ! Default values (don't print a lot of stuff):
+   NumPar%verbose = .false.
+   NumPar%very_verbose = .false.
+
+   ! Count how many arguments the user provided:
+   N_arg = COMMAND_ARGUMENT_COUNT() ! Fortran intrinsic function
+
+   count_args = 0 ! to start with
+
+   ALLARG:do i_arg = 1, N_arg ! read all the arguments passed
+      ! Read the argument provided:
+      call GET_COMMAND_ARGUMENT(i_arg, string)  ! intrinsic
+
+      ! Act on the command passed:
+      call interpret_additional_data_INPUT(string, NumPar) ! above
+
+   enddo ALLARG
+end subroutine get_add_data
 
 
 

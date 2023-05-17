@@ -79,7 +79,7 @@ real(8), dimension(:,:), allocatable :: Out_Eat_dens  ! [eV/A^3] atom's energy
 real(8), dimension(:,:,:,:), allocatable :: Out_nh
 real(8), dimension(:,:,:,:), allocatable :: Out_Eh
 real(8), dimension(:,:,:,:), allocatable :: Out_Ehkin
-real(8), dimension(:,:), allocatable :: Out_theta
+real(8), dimension(:,:), allocatable :: Out_theta, Out_theta_h  ! velosity angular distribution for electrons and VB holes
 real(8), dimension(:), allocatable :: Out_theta1
 real(8), dimension(:,:), allocatable :: Out_Ee_vs_E_Em
 real(8), dimension(:), allocatable:: Out_Ne_Em
