@@ -1,7 +1,7 @@
 # TREKIS-3
  ## TREKIS : Time Resolved Electron Kinetics in SHI-irradiated Solids
  ### Monte-Carlo code modelling electronic kinetics after swift-heavy ion impact on matter
- ### Current version: 3.0.8 (update 17.05.2023)
+ ### Current version: 3.0.8 (update 17.06.2023)
  
  For all details and instruction, address the files
  !READ_ME_TREKIS_3.doc  or  !READ_ME_TREKIS_3.pdf
@@ -82,4 +82,4 @@ b)	Detailed description of the combination of MC-MD, proposed simple model for d
 [11]	N. Medvedev, A.E. Volkov, Nonthermal acceleration of atoms as a mechanism of fast lattice heating in ion tracks editors-pick
 Journal of Applied Physics 131 (2022) 225903. https://doi.org/10.1063/5.0095724
 
-[12]	N. Medvedev, F. Akhmetov, R.A. Rymzhanov, R. Voronkov, A.E. Volkov, Modeling time-resolved kinetics in solids induced by extreme electronic excitation, Adv. Theory Simul. 2200091 (2022). https://doi.org/10.1002/adts.202200091
+[12]	N. Medvedev, F. Akhmetov, R.A. Rymzhanov, R. Voronkov, A.E. Volkov, Modeling time-resolved kinetics in solids induced by extreme electronic excitation, Adv. Theory Simul. 5, 2200091 (2022). https://doi.org/10.1002/adts.202200091
