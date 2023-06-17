@@ -7,7 +7,7 @@ MODULE Universal_Constants
  implicit none
 
 real(8) :: g_Pi, g_e, g_re, g_me, g_lc, g_cvel, g_Mp, g_h, g_kb, g_e0, g_mu0, g_Ry, g_a0, g_v0, g_Na, g_alpha, g_G   ! universal constants 
-real(8) :: g_me_eV, g_me_MeV
+real(8) :: g_me_eV, g_me_MeV, g_r0
 
 complex :: g_CI
 
@@ -30,6 +30,7 @@ parameter (g_a0 = 0.5291772085936d0)      ! Bohr radius           [A]
 parameter (g_v0 = dsqrt(2.0d0*g_Ry*g_e/g_me))    ! Bohr velosity         [m/s]
 parameter (g_alpha = g_e*g_e/(g_h*g_cvel*4.0d0*g_Pi*g_e0))    ! Fine structure constant
 parameter (g_G = 6.67384d-11)             ! Newtonian constant of gravitation [m3/kg/s^2]
+parameter (g_r0		= g_alpha*g_alpha*g_a0)	! classical electron radius [A]
 
 parameter (g_me_MeV	= 0.51099906d0)		! Electron mass	[MeV]
 parameter (g_me_eV	= g_me_MeV*1.0d6)	! Electron mass in [eV]; or mc^2

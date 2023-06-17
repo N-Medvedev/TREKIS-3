@@ -7,7 +7,7 @@ MODULE Monte_Carlo
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
   use Cross_sections, only : Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, SHI_TotIMFP, &
-                            SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF
+                            SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF, NRG_transfer_elastic_atomic_OLD
   use Analytical_IMFPs, only : Interpolate
   use Reading_files_and_parameters , only: Find_in_array_monoton, Find_in_array, print_time_step
 
@@ -1854,7 +1854,11 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
         else                                    ! Atomic cross-sections of Mott 
             dE = 0.0d0                          ! [eV] transferred energy
             do ii = 1, size(Target_atoms)        ! for all atomic spicies:
-               call NRG_transfer_elastic_atomic(Target_atoms, ii, Eel, dE_loc)
+               !call NRG_transfer_elastic_atomic_OLD(Target_atoms, ii, Eel, dE_loc)
+               !print*, 'NRG_transfer_elastic_atomic_OLD:', dE_loc
+               call NRG_transfer_elastic_atomic(Target_atoms(ii)%Mass*g_Mp, dble(Target_atoms(ii)%Zat), Eel, dE_loc)
+               !print*, 'NRG_transfer_elastic_atomic NEW:', dE_loc
+
                !dE = dE + dE_loc                 ! [eV] sum of transferred energies during collision witn all kind of atoms
                dE = dE + dE_loc*Target_atoms(ii)%Pers ! [eV] sum of transferred energies during collision witn all kind of atoms
             enddo
@@ -2105,7 +2109,9 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             else                                    ! Atomic cross-sections of Mott
                 dE = 0.0d0                          ! [eV] transferred energy
                 do ii = 1, size(Target_atoms)        ! for all atomic spicies:
-                    call NRG_transfer_elastic_atomic(Target_atoms, ii, Eel, dE_loc, M_eff = All_holes(NOP)%Mass)
+                    !call NRG_transfer_elastic_atomic_OLD(Target_atoms, ii, Eel, dE_loc, M_eff = All_holes(NOP)%Mass) ! OLD
+                    call NRG_transfer_elastic_atomic(Target_atoms(ii)%Mass*g_Mp, dble(Target_atoms(ii)%Zat), Eel, &
+                                                    dE_loc, M_eff = All_holes(NOP)%Mass)
                     !dE = dE + dE_loc                 ! [eV] sum of transferred energies during collision witn all kind of atoms
                     dE = dE + dE_loc*Target_atoms(ii)%Pers ! [eV] sum of transferred energies during collision witn all kind of atoms
                 enddo

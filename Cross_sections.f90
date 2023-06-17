@@ -11,6 +11,8 @@ MODULE Cross_sections
 implicit none
 PRIVATE
 
+real(8), parameter :: m_two_third = 2.0d0/3.0d0
+
 ! this interface finds by itself which of the two subroutine to use depending on the parameters passed:
 interface Electron_energy_transfer ! finds energy transfer in electron collision
     module procedure Electron_energy_transfer_inelastic
@@ -19,7 +21,7 @@ end interface Electron_energy_transfer
 
 !private  ! hides items not listed on public statement 
 public :: Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, &
-         SHI_Total_IMFP, SHI_TotIMFP, SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF
+         SHI_Total_IMFP, SHI_TotIMFP, SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF, NRG_transfer_elastic_atomic_OLD
 
 
 contains
@@ -1707,7 +1709,107 @@ subroutine Atomic_elastic_sigma(Target_atoms, KOA, Ee, sigma_el) ! total cross-s
 end subroutine Atomic_elastic_sigma
 
 
-subroutine NRG_transfer_elastic_atomic(Target_atoms, KOA, Ee, dE, M_eff) ! total cross-section of elastic scattering on an atom:
+subroutine NRG_transfer_elastic_atomic(Mat, Zat, Ee, dE, M_eff) ! energy transfer in an elastic scattering on an atom:
+   real(8), intent(in) :: Mat   ! mass of an atom of the media [kg]
+   real(8), intent(in) :: Zat   ! atomic number of an atom of the media
+   real(8), intent(in) :: Ee    ! [eV] incident electron energy
+   real(8), intent(out) :: dE   ! [eV] transferred energy
+   real(8), intent(in), optional :: M_eff ! effective mass coefficient (for valence hole)
+   !---------------
+   real(8) :: theta, M_effective
+
+   if (present(M_eff)) then
+      M_effective = M_eff
+   else
+      M_effective = 1.0d0
+   endif
+
+   ! Sample polar angle according to the differential cross section
+   call  get_electron_elastic_polar_angle(Ee, Zat, theta) ! below
+
+   ! Change electron energy accordingly:
+   dE = transfered_E_from_theta(Ee, theta, g_me*M_effective, Mat) ! below
+end subroutine NRG_transfer_elastic_atomic
+
+
+function transfered_E_from_theta(Ekin, theta, M_in, mt) result(dE)
+   real(8) dE   ! [eV]  according to Eq.(A.25) in 2015-edition of [1]
+   real(8), intent(in) :: Ekin  ! [eV] kinetic energy of the incident particle
+   real(8), intent(in) :: theta ! scattering angle
+   real(8), intent(in) :: M_in, mt  ! incoming particle and target particle masses
+   real(8) :: cos_theta, cos_theta2, sin_theta2, mc2, Mct2, Emc, E2mc, W1, W2, EmcMc
+   mc2 = rest_energy(M_in)	! mc^2 [eV],  module "Relativity"
+   Mct2 = rest_energy(mt)	! Mc^2 [eV],  module "Relativity"
+   cos_theta = cos(theta)
+   cos_theta2 = cos_theta*cos_theta
+   sin_theta2 = 1.0d0 - cos_theta2
+   Emc = Ekin + mc2
+   E2mc = Ekin + 2.0d0*mc2
+   EmcMc = Emc + Mct2
+   W1 = Emc*sin_theta2 + Mct2 - cos_theta * sqrt( Mct2*Mct2 - mc2*mc2*sin_theta2 )
+   W2 = Ekin*E2mc / ( EmcMc*EmcMc - Ekin*E2mc*cos_theta2 )
+   dE = W1*W2
+end function transfered_E_from_theta
+
+
+subroutine get_electron_elastic_polar_angle(Ekin, Zat, theta)
+   real(8), intent(in) :: Ekin  ! [eV] photon energy
+   real(8), intent(in) :: Zat   ! element number
+   real(8), intent(out) :: theta   ! polar angle of photoelectron emission
+   real(8) :: RN
+   ! Sample the angle:
+   call random_number(RN)
+   ! The scattering angle is:
+   theta = Mott_sample_mu(Ekin, Zat, RN)  ! below
+end subroutine get_electron_elastic_polar_angle
+
+
+! Solution of diff.Mott's cross section:
+pure function Mott_sample_mu(Ee, Z, RN, mass) result(theta)
+   real(8) theta	! deflection angle
+   real(8), intent(in) :: Ee	! [eV] electron kinetic energy
+   real(8), intent(in) :: Z	! Ion atomic number
+   real(8), intent(in) :: RN    ! random number [0,1]
+   real(8), intent(in), optional :: mass    ! in units of [me]
+   real(8) :: nu, beta, v, beta2, me, mu
+   if (present(mass)) then
+      me = mass*g_me
+   else
+      me = g_me
+   endif
+   v = velosity_from_kinetic_energy(Ee, me)    ! [m/s] above
+   if (v < 1.0d-6) then ! immobile particle does not scatter
+      theta = 0.0d0
+   else
+      beta = beta_factor(v)   ! below
+      beta2 = beta*beta
+      nu = screening_parameter(beta, Z, Ee, me)   ! below
+      mu = (RN*(2.0d0*nu + 1.0d0) - nu) / (RN + nu)
+      theta = ACOS(mu)
+   endif
+end function Mott_sample_mu
+
+
+pure function screening_parameter(beta, Z, Ee, me) result(nu)
+   real(8) nu	! screening parameter ! [4] Page 160, Eq. (7.8)
+   real(8), intent(in) :: beta	! relativistic beta
+   real(8), intent(in) :: Z	! atomic number
+   real(8), intent(in) :: Ee	! [eV] electron kinetic energy
+   real(8), intent(in), optional :: me  ! [kg] mass of the particle
+   real(8) :: beta2, tau, Erest
+   beta2 = beta*beta
+   if (present(me)) then
+      Erest = rest_energy(me)	! module "Relativity"
+   else
+      Erest = rest_energy(g_me)	! module "Relativity"
+   endif
+   tau = Ee / Erest
+   nu = 1.7d-5*Z**m_two_third*(1.0d0 - beta2)/beta2 * ( 1.13d0 + 3.76d0 * g_alpha*g_alpha/beta2 * Z*Z * sqrt(tau/(1.0d0 + tau)) )
+end function screening_parameter
+
+
+
+subroutine NRG_transfer_elastic_atomic_OLD(Target_atoms, KOA, Ee, dE, M_eff) ! total cross-section of elastic scattering on an atom:
    type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all the target atoms parameters
    integer, intent(in) :: KOA   ! kind of atom
    real(8), intent(in) :: Ee    ! [eV] incident electron energy
@@ -1736,7 +1838,7 @@ subroutine NRG_transfer_elastic_atomic(Target_atoms, KOA, Ee, dE, M_eff) ! total
    pc = 1.7d-5*(Zat**(2.0d0/3.0d0))*(1.0d0-2.0d0*Ee/(mec2e))/(2.0d0*Ee/(mec2e))
    nc = pc*(1.13d0 + 3.76d0*(Zat137*Zat137)/(2.0d0*Ee/mec2e)*sqrt(Ee/(Ee+mec2e)))
    dE = 4.0d0*Ee*M_effective*g_me*Mat/(Masses*Masses)*(nc*(1.0d0-x)/(nc+x))
-end subroutine NRG_transfer_elastic_atomic 
+end subroutine NRG_transfer_elastic_atomic_OLD
 
 
 
