@@ -1,6 +1,6 @@
 ![TREKIS_logo_small](https://github.com/N-Medvedev/TREKIS-3/assets/104917286/e3c4a63a-5b85-497b-93f2-f9a8f17e9bb7)
 
- ## TREKIS : Time Resolved Electron Kinetics in SHI-irradiated Solids
+ ## TREKIS : <ins>T</ins>ime <ins>R</ins>esolved <ins>E</ins>lectron <ins>K</ins>inetics in SHI <ins>I</ins>rradiated <ins>S</ins>olids
  ### Monte-Carlo code modelling electronic kinetics after swift-heavy ion impact on matter
  ### Current version: 3.0.8 (update 17.06.2023)
  
