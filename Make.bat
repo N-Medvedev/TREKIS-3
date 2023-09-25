@@ -19,6 +19,12 @@ setlocal EnableDelayedExpansion
    IF "%1"=="DB" (
       SET arg1=DEBUGOMP
    )
+   IF "%1"=="fast" (
+      SET arg1=FAST
+   )
+   IF "%1"=="slow" (
+      SET arg1=FAST
+   )
 
    SET "Starline=************************************************************************************"
    echo %Starline%
@@ -39,18 +45,33 @@ setlocal EnableDelayedExpansion
       :: Set name of the executable:
       SET "Name_of_exe=TREKIS_DEBUG_OMP.exe"
     ) ELSE (
-      echo %Starline%
-      echo Compiling for release, OpenMP and optimizations are included
-      echo Started at: %date% %time%
-      echo %Starline%
+      IF /I %arg1%==FAST (
+            echo %Starline%
+            echo Compiling with FAST option, OpenMP, no optimizations, no debug
+            echo Started at: %date% %time%
+            echo %Starline%
 
-      :: List compiler options
-      SET "Compile_options=  /Qopenmp /D OMP_inside /O3 /fpp /Qvec /Qipo /real-size:64 /standard-semantics /F9999999999 "
+            :: List compiler options
+            SET "Compile_options=/F9999999999 /fpp /Qopenmp /D OMP_inside /Qmkl=parallel /real-size:64 /Od /fpe:0 /fp:precise /Qvec /standard-semantics"
 
-      :: Set name of the executable:
-      SET "Name_of_exe=TREKIS.exe"
+            :: Set name of the executable:
+            SET "Name_of_exe=TREKIS_OMP.exe"
 
-      del *.pdb
+            del *.pdb
+      ) ELSE (
+         echo %Starline%
+         echo Compiling for release, OpenMP and optimizations are included
+         echo Started at: %date% %time%
+         echo %Starline%
+
+         :: List compiler options
+         SET "Compile_options=  /Qopenmp /D OMP_inside /O3 /fpp /Qvec /Qipo /real-size:64 /standard-semantics /F9999999999 "
+
+         :: Set name of the executable:
+         SET "Name_of_exe=TREKIS.exe"
+
+         del *.pdb
+      )
     )
 
 :: Compile modules

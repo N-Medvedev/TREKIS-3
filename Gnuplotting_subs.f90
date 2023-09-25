@@ -84,6 +84,203 @@ subroutine Gnuplot_execute(Folder, File_name, n)
 end subroutine Gnuplot_execute
 
 
+
+subroutine write_gnuplot_script_header_new(FN, ind, LW, x_tics, labl, xlabl, ylabl, Out_file, path_sep, setkey, fontsize)
+   integer, intent(in) :: FN, ind
+   real(8), intent(in) :: LW, x_tics
+   character(1), intent(in) :: path_sep ! path separator defines which system it is
+   character(*), intent(in) :: labl, xlabl, ylabl, Out_file
+   integer, intent(in), optional :: setkey, fontsize
+   integer :: font_size
+
+   if (present(fontsize)) then   ! user-set font size
+      font_size = fontsize
+   else  ! default font size
+      font_size = 14
+   endif
+
+   if (present(setkey)) then
+      if (path_sep .EQ. '\') then	! if it is Windows
+         call write_gnuplot_script_header_windows_new(FN, ind, LW, x_tics, labl, xlabl, ylabl, Out_file, setkey, font_size)
+      else ! it is linux
+         call write_gnuplot_script_header_linux_new(FN, ind, LW, x_tics, labl, xlabl, ylabl, Out_file, setkey, font_size)
+      endif
+   else
+      if (path_sep .EQ. '\') then	! if it is Windows
+         call write_gnuplot_script_header_windows_new(FN, ind, LW, x_tics, labl, xlabl, ylabl, Out_file, font_size)
+      else ! it is linux
+         call write_gnuplot_script_header_linux_new(FN, ind, LW, x_tics, labl, xlabl, ylabl, Out_file, font_size)
+      endif
+   endif
+end subroutine write_gnuplot_script_header_new
+
+
+subroutine write_gnuplot_script_header_linux_new(FN, ind, LW, x_tics, labl, xlabl, ylabl, Out_file, setkey, font_size)
+   integer, intent(in) :: FN, ind
+   real(8), intent(in) :: LW, x_tics
+   integer, intent(in), optional :: setkey, font_size
+   character(*), intent(in) :: labl, xlabl, ylabl, Out_file
+   character(20) :: temp, temp2
+
+   if (present(font_size)) then
+      write(temp2,'(i0)') font_size
+   else
+      write(temp2,'(i0)') 14
+   endif
+
+   select case (ind)
+   case(1:) ! any file format
+      write(FN, '(a)') '#!/bin/bash'
+      write(FN, '(a)') ''
+      write(FN, '(a)') 'NAME='//trim(adjustl(Out_file))
+   end select
+   write(FN, '(a,f3.1)') 'LW=', LW
+   write(FN, '(a)') 'LABL="'//trim(adjustl(labl))//'"'
+   write(temp, '(f12.2)') x_tics
+   write(FN, '(a)') 'TICSIZ='//trim(adjustl(temp))
+   write(FN, '(a)') 'echo " '
+   select case (ind)
+      case (1)  ! eps
+         write(FN, '(a)') 'set terminal postscript enhanced \"Helvetica\" 16 color '
+         write(FN, '(a)') 'set output \"$NAME\"'
+      case (2)  ! jpeg
+         write(FN, '(a)') 'set terminal jpeg font \"arial,'//trim(adjustl(temp2))//'\" '
+         write(FN, '(a)') 'set output \"$NAME\"'
+      case (3)  ! gif
+         write(FN, '(a)') 'set terminal gif font \"arial,'//trim(adjustl(temp2))//'\" '
+         write(FN, '(a)') 'set output \"$NAME\"'
+      case (4)  ! png
+         !write(FN, '(a)') 'set terminal png font \"arial,14\" '
+         write(FN, '(a)') 'set terminal pngcairo dashed font \"arial,'//trim(adjustl(temp2))//'\" '
+         write(FN, '(a)') 'set output \"$NAME\"'
+      case (5)  ! pdf
+         write(FN, '(a)') 'set terminal pdf color font \"arial,'//trim(adjustl(temp2))//'\" '
+         write(FN, '(a)') 'set output \"$NAME\"'
+      case (6)  ! animated gif
+         write(FN, '(a)') 'set terminal gif animate delay 10 font \"arial,'//trim(adjustl(temp2))//'\" '
+         write(FN, '(a)') 'set output \"$NAME\"'
+      case (0)
+         write(FN, '(a)') 'set terminal x11 persist'
+         write(FN, '(a)') 'unset label'
+   endselect
+!    write(FN, '(a)') 'set xlabel \"'//trim(adjustl(xlabl))//' \"        font \"Helvetica,20\" '
+!    write(FN, '(a)') 'set ylabel \"'//trim(adjustl(ylabl))//' \"      font \"Helvetica,20\" '
+   write(FN, '(a)') 'set xlabel \"'//trim(adjustl(xlabl))//'\" font \"arial,18\" '
+   write(FN, '(a)') 'set ylabel \"'//trim(adjustl(ylabl))//'\" font \"arial,18\" '
+
+   !write(FN, '(a)') 'set label \"$LABL\" at 150,-8 font \"Helvetica,22\" '
+   if (present(setkey)) then
+      select case(setkey)
+      case (1)
+         write(FN, '(a)') 'set key right bottom '
+      case (2)
+         write(FN, '(a)') 'set key left top '
+      case (3)
+         write(FN, '(a)') 'set key left bottom '
+      case (4)
+         write(FN, '(a)') 'unset key '
+      case default
+         write(FN, '(a)') 'set key right top '
+      endselect
+   else
+      write(FN, '(a)') 'set key right top '
+   endif
+   write(FN, '(a)') 'set xtics \"$TICSIZ\" '
+end subroutine write_gnuplot_script_header_linux_new
+
+
+
+subroutine write_gnuplot_script_header_windows_new(FN, ind, LW, x_tics, labl, xlabl, ylabl, Out_file, setkey, font_size)
+   integer, intent(in) :: FN, ind
+   real(8), intent(in) :: LW, x_tics
+   integer, intent(in), optional :: setkey, font_size
+   character(*), intent(in) :: labl, xlabl, ylabl, Out_file
+   character(20) :: temp, temp2
+
+
+   if (present(font_size)) then
+      write(temp2,'(i0)') font_size
+   else
+      write(temp2,'(i0)') 14
+   endif
+
+
+   select case (ind)
+   case(1:)	! eps
+      write(FN, '(a,a,a)') '@echo off & call gnuplot.exe -e "echo=', "'#';", 'set macros" "%~f0" & goto :eof'
+   end select
+   write(FN, '(a,f3.1)') 'LW=', LW
+
+    select case (ind)
+      case (1)  ! eps
+         write(FN, '(a)') 'set terminal postscript enhanced "Helvetica,'//trim(adjustl(temp2))//'" color '
+         write(FN, '(a)') 'set output "'//trim(adjustl(Out_file))//'"'
+      case (2)  ! gpeg
+         write(FN, '(a)') 'set terminal jpeg large font "arial,'//trim(adjustl(temp2))//'" '
+         write(FN, '(a)') 'set output "'//trim(adjustl(Out_file))//'"'
+      case (3)  ! gif
+         write(FN, '(a)') 'set terminal gif large font "arial,'//trim(adjustl(temp2))//'" '
+         write(FN, '(a)') 'set output "'//trim(adjustl(Out_file))//'"'
+      case (4)  ! png
+         !write(FN, '(a)') 'set terminal png font "arial,14" '
+         write(FN, '(a)') 'set terminal pngcairo dashed font "arial,'//trim(adjustl(temp2))//'" '
+         write(FN, '(a)') 'set output "'//trim(adjustl(Out_file))//'"'
+      case (5)  ! pdf
+         write(FN, '(a)') 'set terminal pdf color font "arial,'//trim(adjustl(temp2))//'" '
+         write(FN, '(a)') 'set output "'//trim(adjustl(Out_file))//'"'
+      case (6)  ! animated gif
+         write(FN, '(a)') 'set terminal gif animate delay 10 font "arial,'//trim(adjustl(temp2))//'" '
+         write(FN, '(a)') 'set output "'//trim(adjustl(Out_file))//'"'
+      case (0)
+         write(FN, '(a)') 'set terminal x11 persist'
+         write(FN, '(a)') 'unset label'
+   endselect
+   write(FN, '(a)') 'set xlabel "'//trim(adjustl(xlabl))//'" font "arial,18"'
+   write(FN, '(a)') 'set ylabel "'//trim(adjustl(ylabl))//'" font "arial,18"'
+
+   !write(FN, '(a)') 'set label \"$LABL\" at 150,-8 font \"Helvetica,22\" '
+   if (present(setkey)) then
+      select case(setkey)
+      case (1)
+         write(FN, '(a)') 'set key right bottom '
+      case (2)
+         write(FN, '(a)') 'set key left top '
+      case (3)
+         write(FN, '(a)') 'set key left bottom '
+      case (4)
+         write(FN, '(a)') 'unset key '
+      case default
+         write(FN, '(a)') 'set key right top '
+      endselect
+   else
+      write(FN, '(a)') 'set key right top '
+   endif
+   !write(FN, '(a,f6.2)') 'set xtics ', x_tics
+   write(temp, '(f12.2)') x_tics
+   write(FN, '(a,a)') 'set xtics ', trim(adjustl(temp))
+end subroutine write_gnuplot_script_header_windows_new
+
+
+subroutine write_gnuplot_script_ending_new(FN, File_name, path_sep)
+   integer, intent(in) :: FN
+   character(*), intent(in) :: File_name
+   character(1), intent(in) :: path_sep ! path separator defines which system it is
+
+   if (path_sep .EQ. '\') then	! if it is Windows
+      ! no need to add anything here
+   else ! it is linux
+      write(FN, '(a)') 'reset'
+      write(FN, '(a)') '" | gnuplot '
+      call system('chmod +x '//trim(adjustl(File_name))) ! make the output-script executable
+   endif
+end subroutine write_gnuplot_script_ending_new
+
+
+
+
+
+!------------------------------------
+! Old subroutines:
 subroutine Gnuplot_header(FN, Gnuplot_path, Fig_name, x_scale, y_scale, x_label, y_label, set_key, G_short)
    integer, intent(in) :: FN    ! file number, which to write into
    character(*), intent(in) :: Gnuplot_path ! e.g. C:\Program Files (x86)\gnuplot\bin

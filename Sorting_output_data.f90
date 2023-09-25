@@ -6,21 +6,18 @@
 MODULE Sorting_output_data
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
-  use Reading_files_and_parameters, only : Find_VB_numbers
+  use Reading_files_and_parameters, only : Find_VB_numbers, print_time_step
   use Variables, only: dashline, starline
 implicit none
 private  ! hides items not listed on public statement
 
-public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time
+public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time, print_parameters
 
 contains
 
 
 subroutine TREKIS_title(FN)
    integer, intent(in) :: FN    ! file/screen number to print to
-   !character(200) :: starline
-   !starline =      '********************************************************'
-
    write(FN,'(a)') trim(adjustl(starline))
    write(FN,'(a)') '*      _______   ____    _____   _   _   _    ___      *'
    write(FN,'(a)') '*     |__   __| |  _ \  |  ___| | | / / | |  / __|     *'
@@ -31,9 +28,228 @@ subroutine TREKIS_title(FN)
    write(FN,'(a)') '*                                                      *'
    write(FN,'(a)') trim(adjustl(starline))
    write(FN,'(a)') 'Time-Resolved Electron Kinetics in SHI-Irradiated Solids'
-   write(FN,'(a)') 'Version: 3.0.8  (update 17.06.2023)     '
+   write(FN,'(a)') 'Version: 3.0.8  (update 25.09.2023)     '
    write(FN,'(a)') trim(adjustl(starline))
 end subroutine TREKIS_title
+
+
+subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, NumPar, Tim, dt, NMC, Num_th, &
+            print_title, print_atomic)
+    integer, intent(in) :: print_to ! file number to print to
+    class(Ion), intent (in) :: SHI  ! all about SHI
+    character(*), intent(in) :: Material_name   ! path for the output files
+    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+    type(Solid), intent(in) :: Matter   ! all material parameters
+    type(Flag), intent(in) :: NumPar
+    real(8), intent(in) :: Tim !  [fs] total duration of the analysis
+    real(8), intent(in) :: dt  !  [fs] timestep
+    integer, intent(in) :: NMC ! number of MC iterations
+    integer, intent(in) :: Num_th   ! number of threads for parralel calculations with openmp
+    logical, intent(in) :: print_title, print_atomic  ! yes or no
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    integer :: j, k
+    character(100) :: ch_temp, ch_temp2
+
+    ! print title:
+    if (print_title) then
+        call TREKIS_title(print_to)    ! see above
+    else
+        write(print_to,'(a)') trim(adjustl(starline))
+    endif
+
+    ! Printing out the parameters:
+    if (SHI%Zat .GT. 0) then
+        ! Ion parameters:
+        write(print_to,'(a,a,a,a)') ' Performing calculations for ', trim(adjustl(SHI%Full_Name)), ' in ', trim(adjustl(Material_name))
+
+        write(ch_temp, '(i4)') SHI%Zat
+        write(ch_temp2, '(f12.3)') SHI%Mass
+        write(print_to,'(a)') ' Ion '//trim(adjustl(SHI%Name))//' (Element #'//trim(adjustl(ch_temp))// &
+                ', Mass '//trim(adjustl(ch_temp2))//')'
+
+        write(ch_temp, '(f9.2)') SHI%E/1d6
+        write(print_to,'(a)') ' With energy ' // trim(adjustl(ch_temp)) // ' [MeV]'
+    else ! no ion included
+        write(print_to,'(a,a,a)') ' Performing calculations of the electron MFP in ', trim(adjustl(Material_name)), ' only.'
+    endif
+    write(print_to,'(a)') trim(adjustl(dashline))
+
+    ! Material:
+    write(print_to, '(a,a,a)') ' Material: ', trim(adjustl(Material_name)), ' ('//trim(adjustl(Matter%Target_name))//')'
+    write(ch_temp, '(f12.3)') Matter%Dens
+    write(ch_temp2, '(e16.7)') Matter%At_dens
+    write(print_to, '(a)') ' Material density: '// trim(adjustl(ch_temp))//' [g/cm^3] or '//trim(adjustl(ch_temp2))//' [1/cm^3]'
+
+    write(ch_temp, '(f12.3)') Matter%Layer
+    write(print_to, '(a)') ' Thickness of the analysed layer: '//trim(adjustl(ch_temp))//' [A]'
+    write(ch_temp, '(f12.3)') Matter%temp
+    write(print_to, '(a)') ' Temperature of the target: '//trim(adjustl(ch_temp))//' [K]'
+
+    if (matter%El_eff_mass .EQ. 0) then
+        write(print_to, '(a)') ' Effective mass of valence electrons is calculated from DOS.'
+    else
+        if (abs(Matter%El_eff_mass) < 1e6) then
+            write(ch_temp, '(f10.2)') Matter%El_eff_mass
+        else
+            write(ch_temp, '(e16.7)') Matter%El_eff_mass
+        endif
+        write(print_to, '(a,f10.2,a)') ' Effective mass of valence electrons: '//trim(adjustl(ch_temp))//' [me]'
+    endif
+
+    if (Matter%hole_mass .GT. 0) then
+        if (abs(Matter%hole_mass) < 1e6) then
+            write(ch_temp, '(f10.2)') Matter%hole_mass
+        else
+            write(ch_temp, '(e16.7)') Matter%hole_mass
+        endif
+        write(print_to, '(a)') ' Effective mass of valence holes: '//trim(adjustl(ch_temp))//' [me]'
+    else
+        write(print_to, '(a)') ' Effective mass of valence holes is calculated from DOS'
+    endif
+
+    write(print_to,'(a)') trim(adjustl(dashline))
+    ! Parameters:
+    if (SHI%Zat .GT. 0) then ! dynamical calculations
+        write(ch_temp, '(f12.3)') Tim
+        write(print_to,'(a)') ' Total time to be analysed: ' // trim(adjustl(ch_temp)) // ' [fs]'
+        select case (NumPar%dt_flag)
+        case (:0)
+            write(ch_temp, '(f12.3)') dt
+            write(print_to,'(a)') ' with the timestep of ' // trim(adjustl(ch_temp)) // ' [fs], linear time-scale'
+        case (1:)
+            write(print_to,'(a)') ' starting with 0.01 [fs] increasing by ' // trim(adjustl(ch_temp)) // ' in logarithmic time-scale'
+        endselect
+    endif
+
+
+    write(print_to,'(a)') trim(adjustl(dashline))
+    ! Numerical parameters:
+
+    SELECT CASE (SHI%Kind_ion) ! 0=Point-like charge; 1=Brandt-Kitagawa
+    CASE (1)
+        ch_temp2 = 'Brandt-Kitagawa'
+    CASE DEFAULT
+        ch_temp2 = 'point-like charge'
+    END SELECT
+    if (SHI%Kind_Zeff .EQ. 4) then
+        write(ch_temp, '(f7.3)') SHI%fixed_Zeff
+        write(print_to, '(a)') ' Ion fixed charge '//trim(adjustl(ch_temp))//' [e] is used'// &
+                                ' with '//trim(adjustl(ch_temp))//' model for SHI.'
+    else
+        SELECT CASE (SHI%Kind_Zeff) ! 0=Barkas; 1=Bohr; 2=Nikolaev-Dmitriev; 3=Schiwietz-Grande;
+        CASE (1)
+            ch_temp = 'Bohr'
+        CASE (2)
+            ch_temp = 'Nikolaev-Dmitriev'
+        CASE (3)
+            ch_temp = 'Schiwietz-Grande'
+        CASE (4)
+            ch_temp = 'fixed'
+        CASE DEFAULT
+            ch_temp = 'Barkas'
+        END SELECT
+        write(print_to, '(a)') ' Ion equilibrium charge is used with '//trim(adjustl(ch_temp))//' formula, ' &
+                //trim(adjustl(ch_temp2))//' model for SHI.'
+    endif
+
+    ! Cross-sections:
+    if (maxval(target_atoms(1)%KOCS(:)) .EQ. 1) then
+        if (NumPar%kind_of_DR .EQ. 3) then
+            write(ch_temp, '(a)') 'dispersion relation from Ritchie and Howie'
+        else if (NumPar%kind_of_DR .EQ. 2) then
+            write(ch_temp, '(a)') 'plasmon-pole dispersion relation of scattering centers'
+        else if (NumPar%kind_of_DR .EQ. 4) then
+            write(ch_temp, '(a)') 'Delta-function CDF'
+        else
+            write(ch_temp, '(a)') 'free electron dispersion relation of scattering centers'
+        endif
+    else ! BEB cross sections = 2
+        write(ch_temp, '(a)') 'BEB atomic cross sections'
+    endif
+    write(print_to, '(a)') ' Inelastic scattering calculated with '//trim(adjustl(ch_temp))
+
+    if(NumPar%Plasmon_Emax) then
+        write(print_to, '(a)') ' Plasmon maximal energy is used as upper integration limit during cross-section calculation'
+    endif
+
+    if (NumPar%kind_of_EMFP .EQ. 2) then
+        write(ch_temp, '(a)') 'calculated with DSF cross-sections'
+    else if (NumPar%kind_of_EMFP .EQ. 1) then
+        write(ch_temp, '(a)') 'calculated with CDF phonon peaks'
+    else if (NumPar%kind_of_EMFP .EQ. 0) then
+        write(ch_temp, '(a)') 'calculated with Mott atomic cross-sections'
+    else
+        write(ch_temp, '(a)') 'is excluded'
+    endif
+    write(print_to, '(a)') ' Elastic scattering '//trim(adjustl(ch_temp))
+
+    if (Matter%cut_off > 0.0d0) then
+        write(ch_temp, '(f12.3)') Matter%cut_off
+        write(print_to,'(a)') ' Energy cut-off used is '//trim(adjustl(ch_temp))
+    else
+        write(print_to,'(a)') ' No energy cut-off is used'
+    endif
+
+
+    if (Matter%work_function .GT. 0) then
+        write(ch_temp, '(f12.3)') Matter%work_function
+        write(print_to, '(a)') ' Electron emission included. Work function = ' //trim(adjustl(ch_temp)) // ' [eV]'
+        write(ch_temp, '(f12.3)') Matter%bar_length
+        write(ch_temp2, '(f12.3)') Matter%bar_height
+        write(print_to, '(a)') ' Potential barrier length = '//trim(adjustl(ch_temp)) // ' [A]' // &
+                ' Barrier height = '//trim(adjustl(ch_temp2)) //' [eV]'
+    else
+        write(print_to, '(a)') ' Electron emission is excluded'
+    endif
+
+    if (NumPar%include_photons) then
+        write(print_to, '(a)') ' Radiative decays of deep-shell holes and photon transport are included'
+    else
+        write(print_to, '(a)') ' Radiative decays of deep-shell holes and photon transport are excluded'
+    endif
+
+
+    if (NumPar%field_include .GT. 0.9) then
+        write(print_to, '(a)') ' Transient electric fields are included'
+    else
+        write(print_to, '(a)') ' Transient electric fields are excluded'
+    endif
+
+    write(ch_temp, '(i5)') NMC
+    write(print_to, '(a)') ' Number of MC iterations: '//trim(adjustl(ch_temp))
+    write(ch_temp, '(i5)') Num_th
+    write(print_to, '(a)') ' Number of threads used for openmp '//trim(adjustl(ch_temp))
+
+    if (NumPar%verbose) then
+        if (NumPar%very_verbose) then
+            write(print_to,'(a)') ' Very-verbose option is on, TREKIS will print A LOT of extra stuff...'
+        else
+            write(print_to,'(a)') ' Verbose option is on, TREKIS will print a lot of extra stuff...'
+        endif
+    endif
+
+    ! Atomic parameters:
+    if (print_atomic) then
+        write(print_to,'(a)') trim(adjustl(dashline))
+        write(print_to, '(a)') ' The following atomic parameters of the target are used:'
+        do j = 1, size(Target_atoms)  ! for each element, its shells data:
+            write(print_to, '(a)') trim(adjustl(Target_atoms(j)%Name))//' atom:'
+            write(print_to, '(a)') ' Shell  Quantum_n  Ne    Ip[eV]  Ekin[eV]  t(Auger)[fs]  t(Rad)[fs]'
+            do k = 1, Target_atoms(j)%N_shl ! all the data for each shell:
+                if ((j .EQ. 1) .AND. (k .EQ. Target_atoms(j)%N_shl)) then
+                write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2)') Target_atoms(j)%Shell_name(k), '   ', Target_atoms(j)%Nel(k), Target_atoms(j)%Ip(k), Target_atoms(j)%Ek(k), Target_atoms(j)%Auger(k), Target_atoms(j)%Radiat(k)
+                else
+                write(print_to,'(a,i3,f8.2,f9.2,f9.2,es12.2,es12.2)') Target_atoms(j)%Shell_name(k), Target_atoms(j)%PQN(k), Target_atoms(j)%Nel(k), Target_atoms(j)%Ip(k), Target_atoms(j)%Ek(k), Target_atoms(j)%Auger(k), Target_atoms(j)%Radiat(k)
+                endif
+            enddo
+        enddo
+    endif
+
+    write(print_to,'(a)') trim(adjustl(dashline))
+
+    call print_time_step(' Printed', msec=.true., print_to=print_to) ! module "Reading_files_and_parameters"
+    write(print_to,'(a)') trim(adjustl(starline))
+end subroutine print_parameters
 
 
 subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, &
@@ -151,105 +367,18 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     FN1 = 299
     File_name = trim(adjustl(File_name2))//'/!Parameters.txt'
     open(unit = FN1, FILE = trim(adjustl(File_name)))
-    call TREKIS_title(FN1)  ! above
-    write(FN1, '(a,a,a)') 'Material: ', trim(adjustl(Material_name)), ' ('//trim(adjustl(Matter%Target_name))//')'
-    write(FN1, '(a,f10.2,a,e16.7,a)') 'Material density: ', Matter%Dens, ' [g/cm^3] or ', Matter%At_dens, ' [1/cm^3]'
-    if (Matter%hole_mass .GT. 0) then
-        write(FN1, '(a,e16.7,a)') 'Effective mass of valence holes: ', Matter%hole_mass, ' [me]'
-    else
-        write(FN1, '(a)') 'Effective mass of valence holes is calculated from DOS'
-    endif    
-    if (NumPar%kind_of_EMFP .EQ. 2) then
-        write(FN1, '(a)') 'DSF cross-sections were used for electron-atom elastic collisions'
-    else if (NumPar%kind_of_EMFP .EQ. 1) then
-        write(FN1, '(a)') 'Cross-sections calculated from CDF phonon peaks were used for electron-atom elastic collisions'
-    else if (NumPar%kind_of_EMFP .EQ. 0) then
-        write(FN1, '(a)') 'Mott atomic cross-sections were used for electron-atom elastic collisions'
-    else
-        write(FN1, '(a)') 'Elastic scatterings are disabled'
-    endif
-    
-    if (matter%El_eff_mass .EQ. 0) then
-        write(FN1, '(a)') 'Effective mass of valence electrons is calculated from DOS.'
-    else
-        write(FN1, '(a,f10.2,a)') 'Effective mass of valence electrons: ', Matter%El_eff_mass, ' [me]'
-    endif
-    
-    if(NumPar%Plasmon_Emax) then
-        write(FN1, '(a)') 'Plasmon maximal energy is used as upper integration limit during cross-section calculation'
-    endif
-    
-    if (maxval(target_atoms(1)%KOCS(:)) .EQ. 1) then ! to make better later...
-        if (NumPar%kind_of_DR .EQ. 3) then
-            write(FN1, '(a)') 'Electron inelastic mean free paths were calculated using dispersion relation from Ritchie and Howie (Phil. Mag. 36 (1977) 463).'
-        else if (NumPar%kind_of_DR .EQ. 2) then
-            write(FN1, '(a)') 'Electron inelastic mean free paths were calculated using plasmon-pole dispersion relation of scattering centers.'
-        else if (NumPar%kind_of_DR .EQ. 4) then
-            write(FN1, '(a)') 'Electron inelastic mean free paths were calculated using Delta-function CDF.'
-        else
-            write(FN1, '(a)') 'Electron inelastic mean free paths were calculated with free electron dispersion relation of scattering centers.'
-        endif
-    else ! BEB cross sections = 2
-        write(FN1, '(a)') 'Electron inelastic mean free paths were calculated using BEB atomic cross sections.'
-    endif
-        
-    if (NumPar%field_include .GT. 0.9) then
-        write(FN1, '(a)') 'Produced electric fields are included in the modelling'
-    else
-        write(FN1, '(a)') 'Produced electric fields are NOT included in the modelling'
-    endif
-    if (Matter%work_function .GT. 0) then
-        write(FN1, '(a, f10.2, a)') 'Electron emission is calculated with parameters: Work function = ', Matter%work_function, ' [eV]'
-        write(FN1, '(a, f10.2, a, a, f10.2, a)') 'Potential barrier length =  ', Matter%bar_length, ' [A]', 'Barrier height = ', Matter%bar_height, ' [eV]'
-    else
-        write(FN1, '(a)') 'Electron emission is NOT included in the modelling'
-    endif
-    if (NumPar%include_photons) then
-        write(FN1, '(a)') 'Radiative decays of deep-shell holes are included'
-    else
-        write(FN1, '(a)') 'Radiative decays of deep-shell holes are NOT included, only Auger decays are permitted'
-    endif
-    write(FN1, '(a,a,a)') 'Ion: ', trim(adjustl(SHI%Name)), ' ('//trim(adjustl(SHI%Full_Name))//')'
-    write(FN1, '(a,f10.2,a)') 'Ion energy: ', SHI%E/1d6, ' [MeV]'
-    
-    if (SHI%Kind_Zeff .EQ. 4) then
-        write(FN1, '(a,f6.3,a)') 'Ion fixed charge: ', SHI%fixed_Zeff, ' [electron charge] is used'
-        write(FN1, '(a,a,a)') 'with ', trim(adjustl(charge_kind)), ' model for SHI.'
-    else    
-        write(FN1, '(a,f6.3,a)') 'Ion equilibrium charge: ', SHI%Zeff, ' [electron charge]'
-        write(FN1, '(a,a,a,a,a)') 'calculated using ', trim(adjustl(charge_name)), ' formula with ', trim(adjustl(charge_kind)), ' model for SHI.'
-    endif
-    write(FN1, '(a,f9.3,a)') 'Ion mass: ', SHI%Mass, ' [proton mass]'
+
+    call print_parameters(FN1, SHI, Material_name, Target_atoms, Matter, NumPar, Tim, dt, NMC, Num_th, .true., .true.) ! see above
+
+    write(FN1, '(a,f6.3,a)') 'Ion equilibrium charge: ', SHI%Zeff, ' [electron charge]'
     write(FN1, '(a,f9.2,a)') 'MC calculated energy loss: ', Out_tot_E(N)/Matter%Layer, ' [eV/A]'
-    select case (NumPar%dt_flag)
-        case (:0)
-            write(FN1, '(a,f7.2,a,f7.3,a)') 'Calculated up to: ', Tim, ' [fs] with time step of ', dt, ' [fs]'
-        case (1:)
-            write(FN1, '(a,f7.2,a,f7.3,a)') 'Calculated from 0.01 [fs] up to: ', Tim, ' increasing by ', dt, ' in logarithm scale'
-       endselect
-    write(FN1, '(a,f9.2,a)') 'Electron cut-off energy: ', Matter%cut_off, ' [eV]'
-    write(FN1, '(a,f9.2,a)') 'Thickness of the analyzed layer: ', Matter%Layer, ' [A]'
-    write(FN1, '(a,f9.2,a)') 'Temperature of the target: ', Matter%temp, ' [K]'
-    write(FN1, '(a,i5)') 'Number of MC iterations: ', NMC
-    write(FN1, '(a,i5)') 'Number of threads used for openmp:', Num_th
+
     call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
     as1=dble(24*60*60*(c1(3)-ctim(3))+3600*(c1(5)-ctim(5))+60*(c1(6)-ctim(6))+(c1(7)-ctim(7))+(c1(8)-ctim(8))*0.001)	! sec
     call parse_time(as1,C_time) ! module "Sorting_output_data.f90"
     write(FN1, '(a,a)') 'Duration of calculation: ', trim(adjustl(C_time))
-    !write(FN1, '(a)') '-------------------------------------------------------------'
     write(FN1,'(a)') trim(adjustl(dashline))
-    write(FN1, '(a)') 'The following atomic parameters of the target have been used:'
-    do j = 1, size(Target_atoms)  ! read for each element its shells data:
-      write(FN1, '(a)') trim(adjustl(Target_atoms(j)%Name))//'-atom:'
-      write(FN1, '(a)') 'Shell  Quantum_n  Ne    Ip[eV]  Ekin[eV]    t(Auger)[fs]    t(Radiative)[fs]'
-      do k = 1, Target_atoms(j)%N_shl ! read all the data for each shell:
-         if ((j .EQ. 1) .AND. (k .EQ. Target_atoms(j)%N_shl)) then
-            write(FN1,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2)') Target_atoms(j)%Shell_name(k), '    ', Target_atoms(j)%Nel(k), Target_atoms(j)%Ip(k), Target_atoms(j)%Ek(k), Target_atoms(j)%Auger(k), Target_atoms(j)%Radiat(k)
-         else
-            write(FN1,'(a,i3,f8.2,f9.2,f9.2,es12.2,es12.2)') Target_atoms(j)%Shell_name(k), Target_atoms(j)%PQN(k), Target_atoms(j)%Nel(k), Target_atoms(j)%Ip(k), Target_atoms(j)%Ek(k), Target_atoms(j)%Auger(k), Target_atoms(j)%Radiat(k)
-         endif
-      enddo
-    enddo
+
     inquire(unit=FN1,opened=file_opened)    ! check if this file is opened
     if (file_opened) close(FN1)             ! and if it is, close it
 

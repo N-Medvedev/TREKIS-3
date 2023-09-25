@@ -9,6 +9,10 @@ module Reading_files_and_parameters
   use Dealing_with_EADL, only : Decompose_compound, check_atomic_parameters, Find_element_name, define_PQN, Count_lines_in_file
   use Variables, only: dashline, starline
   
+  ! Open_MP related modules from external libraries:
+  !USE IFLPORT, only : system
+  USE OMP_LIB, only : omp_get_max_threads
+
   implicit none
 private  ! hides items not listed on public statement
 
@@ -270,6 +274,10 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    READ(FN,*,IOSTAT=Reason) Num_th  ! number of threads for parallel openmp calculations
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2013
+
+   if (Num_th < 1) then ! use default: maximum number of available threads
+      Num_th = omp_get_max_threads() ! number of processors available by default
+   endif
    
    ! This option is not ready, so it is excluded from release:
 !    READ(FN,'(a)',IOSTAT=Reason) Temp_char  ! path to Gnuplot installed
@@ -378,26 +386,6 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       allocate(DSF_DEMFP_H(0))
    endif
 
-   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-   ! Printing out the parameters:
-   !print*, '-------------------------------------------------------'
-   write(*,'(a)') trim(adjustl(dashline))
-   if (SHI%Zat .GT. 0) then
-       write(*,'(a,a,a,a)') 'Performing calculations for ', trim(adjustl(SHI%Full_Name)), ' in ', trim(adjustl(Material_name))
-       write(*,'(a,a,a,f9.2,a)') 'where ', trim(adjustl(SHI%Name)), '-ion has energy ', SHI%E/1d6, ' [MeV].'
-       write(*,'(a,f10.2,a)') 'The total time to be analyzed is ', Tim, ' [fs]'
-       select case (NumPar%dt_flag)
-        case (:0)
-            write(*,'(a,f6.2,a)') 'with the timestep of ', dt, ' [fs], linear time-scale'
-        case (1:)
-            write(*,'(a,f6.2,a)') 'starting with 0.01 [fs] increasing by ', dt, ' in logarithmic time-scale'
-       endselect
-   else
-       write(*,'(a,a,a,a)') 'Performing calculations of the electron MFP in ', trim(adjustl(Material_name)), ' only.'
-   endif
-   !print*, '-------------------------------------------------------'
-   write(*,'(a)') trim(adjustl(dashline))
-   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
    
 2013 if (.not. read_well) print*, 'Error in INPUT_PARAMETERS.txt file or inrut files. See log!!'
 2015 continue   ! if we must skip to the end for some reason
@@ -471,23 +459,31 @@ end subroutine get_add_data
 
 
 
-subroutine print_time_step(text, num, msec)
+subroutine print_time_step(text, num, msec, print_to)
    CHARACTER(len=*) :: text   ! text to print out
    real(8), intent(in), optional :: num   ! to print out this number
    logical, intent(in), optional :: msec  ! print msec or not?
+   integer, intent(in), optional :: print_to ! file number to print to
    character(len=100) :: var
-   integer c1(8) ! time stamps
+   integer :: FN, c1(8) ! time stamps
+
+   if (present(print_to)) then   ! file number
+      FN = print_to
+   else  ! screen
+      FN = 6
+   endif
+
    call date_and_time(values=c1) ! standard FORTRAN time and date
    if (present(num) .and. present(msec)) then
       write(var,'(f8.2)') num
-      write(*, 1002) trim(adjustl(text))//' '//trim(adjustl(var))//' at ', c1(5), c1(6), c1(7), c1(8), c1(3), c1(2), c1(1)
+      write(FN, 1002) trim(adjustl(text))//' '//trim(adjustl(var))//' at ', c1(5), c1(6), c1(7), c1(8), c1(3), c1(2), c1(1)
    elseif (present(msec)) then
-      write(*, 1002) trim(adjustl(text))//' at ', c1(5), c1(6), c1(7), c1(8), c1(3), c1(2), c1(1)
+      write(FN, 1002) trim(adjustl(text))//' at ', c1(5), c1(6), c1(7), c1(8), c1(3), c1(2), c1(1)
    elseif (present(num)) then
       write(var,'(f8.2)') num
-      write(*, 1001) trim(adjustl(text))//' '//trim(adjustl(var))//' at ', c1(5), c1(6), c1(7), c1(3), c1(2), c1(1)
+      write(FN, 1001) trim(adjustl(text))//' '//trim(adjustl(var))//' at ', c1(5), c1(6), c1(7), c1(3), c1(2), c1(1)
    else
-      write(*, 1001) trim(adjustl(text))//' at ', c1(5), c1(6), c1(7), c1(3), c1(2), c1(1)
+      write(FN, 1001) trim(adjustl(text))//' at ', c1(5), c1(6), c1(7), c1(3), c1(2), c1(1)
    endif
    ! Formats for printing:
    1001 format (a, i2.2, ':', i2.2, ':', i2.2, ' on ', i2.2, '/', i2.2, '/', i4.4)

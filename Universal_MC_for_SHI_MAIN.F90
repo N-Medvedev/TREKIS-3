@@ -69,7 +69,7 @@ use Gnuplotting_subs, only: Gnuplot_ion, Gnuplot_electrons_MFP
 use Reading_files_and_parameters, only: Read_input_file, get_num_shells, Find_VB_numbers, print_time_step, &
                                     get_add_data
 use Sorting_output_data, only: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, &
-                            Deallocate_out_arrays, parse_time
+                            Deallocate_out_arrays, parse_time, print_parameters
 use Cross_sections, only: SHI_TotIMFP, Equilibrium_charge_SHI
 use Analytical_IMFPs, only: Analytical_electron_dEdx, Analytical_ion_dEdx
 use Monte_Carlo, only : Monte_Carlo_modelling
@@ -105,7 +105,11 @@ call get_num_shells(Target_atoms, Nshtot) ! from module 'Reading_files_and_param
 call OMP_SET_DYNAMIC(0) 	        ! standard openmp subroutine
 call OMP_SET_NUM_THREADS(Num_th)    ! start using threads with openmp: Num_th is the number of threads, defined in the input file
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
-if (SHI%Zat .LE. 0) goto  3012  ! skip ion:
+! Print parameters on screen:
+call print_parameters(6, SHI, Material_name, Target_atoms, Matter, NumPar, &
+                        Tim, dt, NMC, Num_th, .false., .true.)   ! module "Sorting_output_data"
+
+if (SHI%Zat .LE. 0) goto  3012  ! if ion is to be skipped, skip ion:
 
 !AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 ! Write down the analytical dEdx of SHI, and IMFP of an electron, valence hole, photon:
