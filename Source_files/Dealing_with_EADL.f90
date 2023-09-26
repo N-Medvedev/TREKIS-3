@@ -518,7 +518,11 @@ subroutine READ_EADL_TYPE_FILE_real(FN, File_name, Z_needed, I_needed, Array1, c
                   endif
                   if (READ1 .EQ. imax) exit
                enddo
-               Array1(cur_shl) = (READ3/real(icont))*1d6
+               if (icont > 0) then
+                  Array1(cur_shl) = (READ3/real(icont))*1d6
+               else
+                  Array1(cur_shl) = 0.0d0
+               endif
             else
                Array1(cur_shl) = READ2*1d6
             endif

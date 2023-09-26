@@ -709,7 +709,11 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 Mass = Matter%Hole_Mass
             endif
             L_tot = 1.0d0/(1.0d0/ElasMFP + 1.0d0/InelMFP)               ! total MFP [A]
-            Vel = sqrt(2*Mat_DOS%E(i)*g_e/(Mass*g_me))*1.0d10       ! Velosity [A/s]
+            if (Mass > 1.0d-10) then
+                Vel = sqrt(2*Mat_DOS%E(i)*g_e/(Mass*g_me))*1.0d10       ! Velosity [A/s]
+            else
+                Vel = 0.0d0       ! Velosity [A/s]
+            endif
             write(333, '(e,e,e,e,e)') Mat_DOS%E(i), Mass, Mat_DOS%DOS(i), 1.0d0/3.0d0*L_tot*vel/1.0d16, L_tot
         enddo
         close(333)

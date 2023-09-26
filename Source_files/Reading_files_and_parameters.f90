@@ -535,12 +535,14 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    
    i = 0
    READ(FN2,'(a100)',IOSTAT=Reason) Matter%Target_name ! first line is the full material name
+   Matter%Chem = ''  ! to start with
    
    READ(FN2,*,IOSTAT=Reason) N   ! number of elements in this compound
    IF (Reason .GT. 0)  THEN ! if it's a formula:
       backspace(FN2) ! read this line again:
       temp = ''   ! to restart
       READ(FN2,*,IOSTAT=Reason) temp   ! chemical formula of this compound
+      Matter%Chem = trim(adjustl(temp))   ! save chemical formula of the materials
       call read_file(Reason, i, read_well) ! reports if everything read well
       if (.not. read_well) goto 2014
       call Decompose_compound(temp, Numpar%path_sep, Target_atoms, read_well) ! from module "Dealing_with_EADL"
@@ -562,6 +564,13 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
         Target_atoms(j)%Name = Name  ! name of the element
         Target_atoms(j)%Full_Name = Full_Name  ! full name of the element
         Target_atoms(j)%Mass = M  ! mass of the element in the proton-mass units
+        ! Construct chemical formula:
+        if ( abs(Target_atoms(j)%Pers-1.0d0) > 1.0d-6 ) then
+         write(temp,'(f10.2)') Target_atoms(j)%Pers
+        else
+         temp = ''
+        endif
+        Matter%Chem = trim(adjustl(Matter%Chem))//trim(adjustl(Target_atoms(j)%Name))//trim(adjustl(temp))
       enddo
    endif
 
@@ -591,6 +600,7 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    SP_CDF:if (.not. read_well) then ! check if there is a CDF
       write(*,'(a)') ' No CDF parameters found in the file '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
       NumPar%kind_of_CDF = 1  ! single-pole CDF
+      NumPar%kind_of_CDF_ph = 1 ! use single-pole approximation ofr phonon CDf
 
       ! Read the atomic parameters from EPICS-database:
       call check_atomic_parameters(NumPar, Target_atoms, Error_message=Error_message, read_well=read_well) ! from module 'Dealing_with_EADL'

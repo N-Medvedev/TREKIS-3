@@ -51,10 +51,10 @@ include 'Variables.f90'                 ! include global variables used in the p
 include 'Dealing_with_EADL.f90'         ! include EADL and EPDL97 database subs
 include 'Gnuplotting_subs.f90'          ! subroutines to create gnuplot scripts
 include 'Reading_files_and_parameters.f90'  ! include module for reading and managing input files
-include 'Sorting_output_data.f90'       ! include Sorting output subroutines
 include 'Cross_sections.f90'            ! include Cross sections subroutines
 include 'Analytical_IMFPs.f90'          ! include analytical calculations of IMFPs and dEdx
 include 'Monte_Carlo.f90'               ! include Monte-Carlo subroutines
+include 'Sorting_output_data.f90'       ! include Sorting output subroutines
 ! These files MUST be provided together with the MAIN code,
 ! as they contain parts of it with various subroutines.
 !CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
@@ -110,7 +110,7 @@ call OMP_SET_DYNAMIC(0) 	        ! standard openmp subroutine
 call OMP_SET_NUM_THREADS(Num_th)    ! start using threads with openmp: Num_th is the number of threads, defined in the input file
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! Print parameters on screen:
-call print_parameters(6, SHI, Material_name, Target_atoms, Matter, NumPar, &
+call print_parameters(6, SHI, Material_name, Target_atoms, Matter, NumPar, CDF_Phonon, &
                         Tim, dt, NMC, Num_th, .false., .true.)   ! module "Sorting_output_data"
 
 if (SHI%Zat .LE. 0) goto  3012  ! if ion is to be skipped, skip ion:
@@ -248,7 +248,7 @@ enddo   ! k
 
 !OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
 2011    continue
-call Save_output(Output_path_SHI, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, &
+call Save_output(Output_path_SHI, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, CDF_Phonon, &
                 SHI, Out_R, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_nphot, Out_Ephot,&
                 Out_Ee_vs_E, Out_Eh_vs_E, Out_E_at, Out_E_h, Out_Eat_dens, Out_Distr, &
                 Out_Elat, Out_theta, Out_theta_h, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
