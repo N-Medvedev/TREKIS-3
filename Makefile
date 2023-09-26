@@ -1,16 +1,40 @@
-# !***************************************************************
-# ! This file is part of TREKIS-3
-# !***************************************************************
-# Simple compilation:
+# The makefile calles for another makefile within Source_files directory
+# which compiles and makes an executable TREKIS.x
+# This file was written by N.Medvedev 
+# in 2023
+#----------------------------------------------------- 
 
-default:
-	@echo "Compiling TREKIS-3 code"
-	
-	ifort -qopenmp -O5 -fpp -ipo -real-size 64 -standard-semantics Universal_MC_for_SHI_MAIN.F90 -o TREKIS.x
-	
-	@echo "Executable: TREKIS.x"
+# To pass variables into the next make-file:
+export
 
+# Call makefile within the Source_files directory:
+subsystem:
+	cd Source_files && $(MAKE)
+
+# Copy created executable into the parent directory:
+	scp -r Source_files/TREKIS.x TREKIS.x
+
+# Delete executable from the Source_files directory:
+	rm -r Source_files/TREKIS.x
+
+# Clean all compiled files:
 clean:
-	rm -f *.o
-	rm -f *.mod
-	rm -f TREKIS.x
+	rm -f Source_files/*.o
+	rm -f Source_files/*.mod
+	rm -f Source_files/*.obj
+
+	rm -f *.x
+
+# Clean all results:
+cleanresults:
+	rm -f OUTPUT_*
+
+# Clean all compiled files and the results:
+veryclean:
+	rm -f Source_files/*.o
+	rm -f Source_files/*.mod
+	rm -f Source_files/*.obj
+	rm -f Source_files/*.x
+
+	rm -f *.x
+	rm -f OUTPUT_*

@@ -5,6 +5,9 @@
 @echo off
 setlocal EnableDelayedExpansion
 
+:: Go into the directory with source files:
+cd Source_files
+
 :: read argument from user
    SET arg1=%1
 
@@ -90,6 +93,14 @@ setlocal EnableDelayedExpansion
    echo The program %Name_of_exe% was created at %date% %time%
    echo %Starline%
 
-
 :: Remove files that are no longer needed
-del *.obj *.mod
+   del *.obj *.mod
+
+:: Go back into the parent directory from the source files:
+cd ..\
+
+:: Copy exe file from the source directory into the parent directory:
+xcopy source_files\%Name_of_exe% %Name_of_exe%* /Y /Q
+
+:: Delete the exe file from the soure directory:
+del source_files\%Name_of_exe%
