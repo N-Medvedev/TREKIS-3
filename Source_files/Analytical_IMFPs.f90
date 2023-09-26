@@ -37,9 +37,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     type(Flag), intent(inout) :: NumPar    
     character(8), intent(in) :: kind_of_particle    
         
-    integer :: FN      ! file number where to save the output
-    integer :: FN2     ! file number where to save the output
-    integer :: FN3, FN4     ! file numbers where to save the output
+    integer :: FN, FN1, FN2, FN3, FN4     ! file numbers where to save the output
     integer :: N ! = 300       ! how many points for IMFP
     integer :: Nelast ! = 318  ! how many point for EMFP
     integer temp(1)
@@ -47,8 +45,8 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     real(8), dimension(:,:), allocatable :: Temp_MFP
     integer Num_th, my_id, OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS, IMFP_last_modified
     integer i, j, k, Nat, Nshl, Reason, Va, Ord, Mnum, MFPnum
-    character(100) Input_files, Input_elastic_file, File_el_range, File_hole_range
-    character(100) temp_char, temp_char1, temp_ch
+    character(200) Input_files, Input_elastic_file, File_el_range, File_hole_range
+    character(200) temp_char, temp_char1, temp_ch, File_name
     !character(3) KCS
     character(10) KCS
     logical file_exist, file_opened, file_opened2, do_range
@@ -408,6 +406,8 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 !pause 'DSF Test electron'
            endif
          case (1) ! Calculate or read CDF elastic mean free path
+
+            !print*, 'Phonon CDF:', allocated(CDF_Phonon%A)
             if (allocated(CDF_Phonon%A)) then
                 KCS = ''
                 select case (NumPar%kind_of_CDF_ph)
@@ -718,6 +718,29 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         enddo
         close(333)
     endif
+
+
+    ! Printout CDF file if requested or for sp-approximation:
+    if ((kind_of_particle .EQ. 'Electron') .and. &
+        ( (NumPar%kind_of_CDF == 1) .or. (NumPar%print_CDF) ) ) then
+        FN1 = 3121
+        if (NumPar%kind_of_CDF == 1) then
+            KCS = '_spCDF'
+        else
+            KCS = '_CDF'
+        endif
+
+        File_name = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Matter%Target_name)) &
+                    //trim(adjustl(KCS))//'.cdf'
+        open(unit = FN1, FILE = trim(adjustl(File_name)))
+
+        call write_CDF_file(FN1, Matter%Target_name, Matter%Chem, Matter%Dens, Matter%E_F, &
+                            Matter%Egap, Matter%Vsound, Target_atoms, CDF_Phonon) ! below
+
+        inquire(unit=FN1,opened=file_opened)    ! check if this file is opened
+        if (file_opened) close(FN1)             ! and if it is, close it
+    endif
+
     
 2015    continue
    if (.not. read_well) print*, trim(adjustl(Input_files))
@@ -728,6 +751,70 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
       if (file_opened) close(FN2) 
    endif
 end subroutine Analytical_electron_dEdx
+
+
+
+
+subroutine write_CDF_file(FN, Material, Chem, dens, Efermi, Egap, c_sound, Atoms, CDF_Phonon)
+   integer, intent(in) :: FN  ! file to write CDF data into
+   character(*), intent(in) :: Material   ! material name
+   character(*), intent(in) :: Chem       ! chemical formula
+   real(8), intent(in) :: dens   ! density of the target [g/cm^3]
+   real(8), intent(in) :: Efermi, Egap ! [eV] fermi energy; bandgap [ev]
+   real(8), intent(in) :: c_sound  ! speed of sound [m/s]
+   type(Atom), dimension(:), intent(in) :: Atoms !Target_atoms
+   type(CDF), intent(in) :: CDF_Phonon   ! CDF parameters for phonon to be read from a file
+   !-------------------------
+   integer :: N_KOA, i, j, k
+   character(200) :: line_to_write
+
+   N_KOA = size(Atoms)  ! kinds of atoms
+
+   write(FN,'(a)') trim(adjustl(Material)) ! material name
+   write(FN,'(a)') trim(adjustl(Chem))     ! chemical formula
+   write(line_to_write,'(f15.6, f15.6, f15.6, f15.6, a)') dens, c_sound, Efermi, Egap, &
+                        '   ! density [g/cm^3], speed of sound [m/s], Fermi level [eV], bandgap [eV]'
+   write(FN,'(a)') trim(adjustl(line_to_write))
+
+   AT_NUM:do i = 1, N_KOA ! for each kind of atoms:
+      write(line_to_write,'(i4,a)') Atoms(i)%N_shl, '   ! number of shells in element: '//trim(adjustl(Atoms(i)%Name))
+      write(FN,'(a)') trim(adjustl(line_to_write))
+
+      if (allocated(Atoms(i)%Ritchi)) then
+         SH_NUM:do j = 1, Atoms(i)%N_shl  ! for all shells
+            write(line_to_write,'(i3, i4, f15.6, f15.6, es15.6E3, a)') size(Atoms(i)%Ritchi(j)%E0), Atoms(i)%Shl_num(j), &
+               Atoms(i)%Ip(j), Atoms(i)%Nel(j), Atoms(i)%Auger(j), &
+               '  ! Oscillators, designator:'//trim(adjustl(Atoms(i)%Shell_name(j)))//', Ip [eV], Ne, Auger [fs]'
+            write(FN,'(a)') trim(adjustl(line_to_write))
+
+            CDF_NUM:do k = 1, size(Atoms(i)%Ritchi(j)%A)  ! for all CDF-functions for this shell
+               write(line_to_write,'(f15.6, f15.6, f15.6, a)') Atoms(i)%Ritchi(j)%E0(k), Atoms(i)%Ritchi(j)%A(k), &
+               Atoms(i)%Ritchi(j)%Gamma(k), '   ! E0, A, G'
+               write(FN,'(a)') trim(adjustl(line_to_write))
+            enddo CDF_NUM
+         enddo SH_NUM
+
+         ! Phononic part, if used:
+         if (allocated(CDF_Phonon%A)) then
+            write(line_to_write,'(i4,a)') size(CDF_Phonon%A), '   ! number of phonon peaks'
+            write(FN,'(a)') trim(adjustl(line_to_write))
+            do k = 1, size(CDF_Phonon%A)
+                write(line_to_write,'(f15.6, f15.6, f15.6, a)') CDF_Phonon%E0(k), CDF_Phonon%A(k), &
+                CDF_Phonon%Gamma(k), '   ! E0, A, G'
+                write(FN,'(a)') trim(adjustl(line_to_write))
+            enddo
+        endif
+
+      else
+         write(FN,'(a)') '************************************************'
+         write(FN,'(a)') 'The Ritchie-Howie CDF-coefficients are undefined, cannot print them out!'
+         write(FN,'(a)') 'Probably, the cdf-file was not specified or specified incorrectly in INPUT.txt'
+      endif
+   enddo AT_NUM
+end subroutine write_CDF_file
+
+
+
 
 
 subroutine All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP, NumPar, Mat_DOS, kind_of_particle, dont_do)

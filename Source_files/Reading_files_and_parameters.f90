@@ -129,6 +129,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    NumPar%include_photons = .false. ! no photons by default (unless user includes them)
    NumPar%plasmon_Emax = .false. ! do not include plasmon integration limit in inelastic CDF
    NumPar%field_include = .false.   ! no fields (bc NOT READY!)
+   NumPar%print_CDF = .false. ! don't print CDF file out
 
    !----------------
    ! Reading the input file:
@@ -403,6 +404,10 @@ subroutine interpret_additional_data_INPUT(text, NumPar)
    !------------------------------------
 
    select case (text)
+   case ('print_CDF', 'Print_CDF', 'print_cdf', 'PRINT_CDF')
+      NumPar%print_CDF = .true.
+      print*, 'File with CDF parametres will be printed out'
+
    case ('Verbose', 'verbose', 'VERBOSE')
       NumPar%verbose = .true.
       print*, 'Verbose option is on, TREKIS will print a lot of extra stuff...'
@@ -753,11 +758,10 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
 
    ! Check if phonon CDF requires single-pole approximation:
    if (NumPar%kind_of_CDF_ph == 1) then   ! allocate phonon CDF
-      if (.not. allocated(CDF_Phonon%A)) allocate(CDF_Phonon%A(1))
-      if (.not. allocated(CDF_Phonon%E0)) allocate(CDF_Phonon%E0(1))
-      if (.not. allocated(CDF_Phonon%Gamma)) allocate(CDF_Phonon%Gamma(1))
+      if (.not. allocated(CDF_Phonon%A)) allocate(CDF_Phonon%A(1), source = 0.0d0)
+      if (.not. allocated(CDF_Phonon%E0)) allocate(CDF_Phonon%E0(1), source = 0.0d0)
+      if (.not. allocated(CDF_Phonon%Gamma)) allocate(CDF_Phonon%Gamma(1), source = 0.0d0)
    endif
-
 
 2014 continue   ! if we must skip to the end for some reason
    if (.not. read_well) print*, trim(adjustl(Material_file))

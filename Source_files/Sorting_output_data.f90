@@ -35,55 +35,6 @@ end subroutine TREKIS_title
 
 
 
-
-subroutine write_CDF_file(FN, Material, Chem, dens, Efermi, Egap, c_sound, Atoms)
-   integer, intent(in) :: FN  ! file to write CDF data into
-   character(*), intent(in) :: Material   ! material name
-   character(*), intent(in) :: Chem       ! chemical formula
-   real(8), intent(in) :: dens   ! density of the target [g/cm^3]
-   real(8), intent(in) :: Efermi, Egap ! [eV] fermi energy; bandgap [ev]
-   real(8), intent(in) :: c_sound  ! speed of sound [m/s]
-   type(Atom), dimension(:), intent(in) :: Atoms !Target_atoms
-   !-------------------------
-   integer :: N_KOA, i, j, k
-   character(200) :: line_to_write
-
-   N_KOA = size(Atoms)  ! kinds of atoms
-
-   write(FN,'(a)') trim(adjustl(Material)) ! material name
-   write(FN,'(a)') trim(adjustl(Chem))     ! chemical formula
-   write(line_to_write,'(f15.6, f15.6, f15.6, f15.6, a)') dens, c_sound, Efermi, Egap, &
-                        '   ! density [g/cm^3], speed of sound [m/s], Fermi level [eV], bandgap [eV]'
-   write(FN,'(a)') trim(adjustl(line_to_write))
-
-   AT_NUM:do i = 1, N_KOA ! for each kind of atoms:
-      write(line_to_write,'(i4,a)') Atoms(i)%N_shl, '   ! number of shells in element: '//trim(adjustl(Atoms(i)%Name))
-      write(FN,'(a)') trim(adjustl(line_to_write))
-
-      if (allocated(Atoms(i)%Ritchi)) then
-         SH_NUM:do j = 1, Atoms(i)%N_shl  ! for all shells
-            write(line_to_write,'(i3, i4, f15.6, f15.6, es15.6E3, a)') size(Atoms(i)%Ritchi), Atoms(i)%Shl_num(j), &
-               Atoms(i)%Ip(j), Atoms(i)%Nel(j), Atoms(i)%Auger(j), &
-               '  ! Oscillators, designator:'//trim(adjustl(Atoms(i)%Shell_name(j)))//', Ip [eV], Ne, Auger [fs]'
-            write(FN,'(a)') trim(adjustl(line_to_write))
-
-            CDF_NUM:do k = 1, size(Atoms(i)%Ritchi(j)%A)  ! for all CDF-functions for this shell
-               write(line_to_write,'(f15.6, f15.6, f15.6, a)') Atoms(i)%Ritchi(j)%E0(k), Atoms(i)%Ritchi(j)%A(k), Atoms(i)%Ritchi(j)%Gamma(k),&
-                                                                  '   ! E0, A, G'
-               write(FN,'(a)') trim(adjustl(line_to_write))
-            enddo CDF_NUM
-         enddo SH_NUM
-      else
-         write(FN,'(a)') '************************************************'
-         write(FN,'(a)') 'The Ritchie-Howie CDF-coefficients are undefined, cannot print them out!'
-         write(FN,'(a)') 'Probably, the cdf-file was not specified or specified incorrectly in INPUT.txt'
-      endif
-   enddo AT_NUM
-end subroutine write_CDF_file
-
-
-
-
 subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, NumPar, CDF_Phonon, Tim, dt, NMC, Num_th, &
             print_title, print_atomic)
     integer, intent(in) :: print_to ! file number to print to
@@ -325,10 +276,11 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
         ! Phonons:
         N_at_mol = SUM(Target_atoms(:)%Pers)   ! number of atoms in a molecule
         Mean_Mass = SUM(Target_atoms(:)%Pers * Target_atoms(:)%Mass)*g_Mp / N_at_mol  ! average atomic mass
-        Omega = w_plasma( 1d6*Matter%At_dens/N_at_mol, Mass=Mean_Mass )  ! below
+        Omega = w_plasma( 1d6*Matter%At_dens/N_at_mol, Mass=Mean_Mass )  ! module "Cross_sections"
         call sumrules(CDF_Phonon%A, CDF_Phonon%E0, CDF_Phonon%Gamma, ksum, fsum, 1.0d-8, Omega) ! module "Cross_sections"
         write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2,f9.2)') 'Phonons', &
                         '       ', N_at_mol, 0.0d0, 0.0d0, 0.0d0, 0.0d0, ksum, fsum
+        !print*, 'print_parameters', CDF_Phonon%A(1), CDF_Phonon%E0(1), CDF_Phonon%Gamma(1), ksum, fsum, Mean_Mass, N_at_mol, Omega, Matter%At_dens
     endif
 
     write(print_to,'(a)') trim(adjustl(dashline))
@@ -469,20 +421,6 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
 
     inquire(unit=FN1,opened=file_opened)    ! check if this file is opened
     if (file_opened) close(FN1)             ! and if it is, close it
-
-
-    ! Printout CDF file for sp-approximation:
-    if (NumPar%kind_of_CDF == 1) then  ! single-pole CDF
-        FN1 = 3121
-        File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Matter%Target_name))//'_spCDF.cdf'
-        open(unit = FN1, FILE = trim(adjustl(File_name)))
-
-        call write_CDF_file(FN1, Matter%Target_name, Matter%Chem, Matter%Dens, Matter%E_F, Matter%Egap, Matter%Vsound, Target_atoms) ! above
-
-        inquire(unit=FN1,opened=file_opened)    ! check if this file is opened
-        if (file_opened) close(FN1)             ! and if it is, close it
-    endif
-
 
     ! Electron field vs radius:
     if (NumPar%field_include .GT. 0.9) then

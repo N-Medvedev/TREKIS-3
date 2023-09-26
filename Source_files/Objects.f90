@@ -130,6 +130,7 @@ type :: Flag
     integer :: Last_mod_time_CDF, Last_mod_time_DSF ! Time when the CDF- and DSF-files were last modified
     ! Printout for testing:
     logical :: verbose, very_verbose
+    logical :: print_CDF
 end type Flag
 !==============================================
 

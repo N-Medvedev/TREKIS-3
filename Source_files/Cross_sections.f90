@@ -112,10 +112,10 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
          ! Einstein energy [eV]:
          E_eistein = Einstein_energy(E_debye) ! below
 
-         ! Set it at Einstein frequency:
-         CDF_Phonon%E0(1) = E_eistein   ! [eV]
-         ! Gamma set equal to 0.1*E0 (empirical approximation):
-         CDF_Phonon%Gamma(1) = CDF_Phonon%E0(1) * 0.1d0
+         ! Set it at 2 x Einstein frequency (empirical coeff):
+         CDF_Phonon%E0(1) = 2.0d0 * E_eistein   ! [eV]
+         ! Gamma set equal to (empirical approximation):
+         CDF_Phonon%Gamma(1) = CDF_Phonon%E0(1) * 0.5d0
          ! A is set via normalization (sum rule):
          CDF_Phonon%A(1) = 1.0d0   ! just to get sum rule to renormalize below
 
@@ -1137,7 +1137,9 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     L_need = L_tot/RN   ! [A] we need to reach
     
     qdebay = (6.0d0*g_Pi*g_Pi*(Matter%At_Dens*1e6))**(0.33333333d0)   ! maximum energy of phonons analyzed [1/m], debay energy
-    Edebay = 2.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy // 2 is artificial...
+    !Edebay = 2.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy // 2 is artificial...
+    Edebay = 3.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy // 3 is artificial...
+
     Ee => Ele   ! just to use this name later
     Emin = 0.1d-8    !Target_atoms(Nat)%Ip(Nshl)   ! [eV] ionization potential of the shell is minimum possible transferred energy
 
