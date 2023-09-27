@@ -129,6 +129,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    NumPar%include_photons = .false. ! no photons by default (unless user includes them)
    NumPar%plasmon_Emax = .false. ! do not include plasmon integration limit in inelastic CDF
    NumPar%field_include = .false.   ! no fields (bc NOT READY!)
+   NumPar%print_CDF = .false. ! don't print CDF file out
 
    !----------------
    ! Reading the input file:
@@ -363,7 +364,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
 
    call reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_message, read_well)    ! read material DOS
    if (.not. read_well) goto 2015
-         
+
    open(25, file = trim(adjustl(Output_path))//'/'//'OUTPUT_'//trim(adjustl(Material_name))//'_DOS_analysis.dat')
    write(25, *) 'E[eV]   k[1/m]   DOS[a.u.]    Int_DOS[a.u.]   Eff_mass[me]'
    if (Target_atoms(1)%Ip(size(Target_atoms(1)%Ip)) .LT. 0.2d0) then      ! Metal: Use DOS from bottom of CB to calculate dispersion relation
@@ -403,6 +404,10 @@ subroutine interpret_additional_data_INPUT(text, NumPar)
    !------------------------------------
 
    select case (text)
+   case ('print_CDF', 'Print_CDF', 'print_cdf', 'PRINT_CDF')
+      NumPar%print_CDF = .true.
+      print*, 'File with CDF parametres will be printed out'
+
    case ('Verbose', 'verbose', 'VERBOSE')
       NumPar%verbose = .true.
       print*, 'Verbose option is on, TREKIS will print a lot of extra stuff...'
@@ -535,12 +540,14 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    
    i = 0
    READ(FN2,'(a100)',IOSTAT=Reason) Matter%Target_name ! first line is the full material name
+   Matter%Chem = ''  ! to start with
    
    READ(FN2,*,IOSTAT=Reason) N   ! number of elements in this compound
    IF (Reason .GT. 0)  THEN ! if it's a formula:
       backspace(FN2) ! read this line again:
       temp = ''   ! to restart
       READ(FN2,*,IOSTAT=Reason) temp   ! chemical formula of this compound
+      Matter%Chem = trim(adjustl(temp))   ! save chemical formula of the materials
       call read_file(Reason, i, read_well) ! reports if everything read well
       if (.not. read_well) goto 2014
       call Decompose_compound(temp, Numpar%path_sep, Target_atoms, read_well) ! from module "Dealing_with_EADL"
@@ -562,6 +569,13 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
         Target_atoms(j)%Name = Name  ! name of the element
         Target_atoms(j)%Full_Name = Full_Name  ! full name of the element
         Target_atoms(j)%Mass = M  ! mass of the element in the proton-mass units
+        ! Construct chemical formula:
+        if ( abs(Target_atoms(j)%Pers-1.0d0) > 1.0d-6 ) then
+         write(temp,'(f10.2)') Target_atoms(j)%Pers
+        else
+         temp = ''
+        endif
+        Matter%Chem = trim(adjustl(Matter%Chem))//trim(adjustl(Target_atoms(j)%Name))//trim(adjustl(temp))
       enddo
    endif
 
@@ -591,6 +605,7 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    SP_CDF:if (.not. read_well) then ! check if there is a CDF
       write(*,'(a)') ' No CDF parameters found in the file '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
       NumPar%kind_of_CDF = 1  ! single-pole CDF
+      NumPar%kind_of_CDF_ph = 1 ! use single-pole approximation ofr phonon CDf
 
       ! Read the atomic parameters from EPICS-database:
       call check_atomic_parameters(NumPar, Target_atoms, Error_message=Error_message, read_well=read_well) ! from module 'Dealing_with_EADL'
@@ -743,11 +758,10 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
 
    ! Check if phonon CDF requires single-pole approximation:
    if (NumPar%kind_of_CDF_ph == 1) then   ! allocate phonon CDF
-      if (.not. allocated(CDF_Phonon%A)) allocate(CDF_Phonon%A(1))
-      if (.not. allocated(CDF_Phonon%E0)) allocate(CDF_Phonon%E0(1))
-      if (.not. allocated(CDF_Phonon%Gamma)) allocate(CDF_Phonon%Gamma(1))
+      if (.not. allocated(CDF_Phonon%A)) allocate(CDF_Phonon%A(1), source = 0.0d0)
+      if (.not. allocated(CDF_Phonon%E0)) allocate(CDF_Phonon%E0(1), source = 0.0d0)
+      if (.not. allocated(CDF_Phonon%Gamma)) allocate(CDF_Phonon%Gamma(1), source = 0.0d0)
    endif
-
 
 2014 continue   ! if we must skip to the end for some reason
    if (.not. read_well) print*, trim(adjustl(Material_file))
@@ -819,6 +833,9 @@ subroutine make_valence_band(Target_atoms, NumPar, Matter, Error_message, read_w
       N_e_VB = N_e_VB + N_el*Target_atoms(i)%Pers
    enddo
 
+   ! Save number of VB electrons:
+   Matter%N_VB_el = N_e_VB
+
    !-----------
    ! 4) Combine valence levels into valence band:
    do i = 1, N_at
@@ -833,46 +850,6 @@ subroutine make_valence_band(Target_atoms, NumPar, Matter, Error_message, read_w
 9999   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)             ! and if it is, close it
 end subroutine make_valence_band
-
-
-
-subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
-   type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
-   type(Atom), dimension(:), allocatable, intent(inout) :: Atoms_temp  ! define target atoms as objects, we don't know yet how many they are
-   !------------
-   integer :: i, j, N_at, Shl
-   N_at = size(Target_atoms)
-
-   allocate(Atoms_temp(N_at))
-
-   do i = 1, N_at
-      Atoms_temp(i)%N_shl = Target_atoms(i)%N_shl
-      Shl = Atoms_temp(i)%N_shl
-      allocate(Atoms_temp(i)%Shell_name(Shl)) ! allocate shell-names for each shell
-      allocate(Atoms_temp(i)%Shl_num(Shl)) ! allocate shell disignator for each shell
-      allocate(Atoms_temp(i)%Nel(Shl)) ! allocate numbers of electrons for each shell
-      allocate(Atoms_temp(i)%Ip(Shl)) ! allocate ionization potentials for each shell
-      allocate(Atoms_temp(i)%Ek(Shl)) ! allocate mean kinetic energies for each shell
-      allocate(Atoms_temp(i)%Auger(Shl)) ! allocate auger-times for each shell
-      allocate(Atoms_temp(i)%Radiat(Shl)) ! allocate radiative-times for each shell
-      allocate(Atoms_temp(i)%PQN(Shl)) ! allocate principle quantum numbers for each shell
-      allocate(Atoms_temp(i)%KOCS(Shl)) ! allocate kind of inelastic cross sections
-      allocate(Atoms_temp(i)%KOCS_SHI(Shl)) ! allocate kind of inelastic cross sections
-      allocate(Atoms_temp(i)%Ritchi(Shl)) ! allocate Ritchi-functions' coefficiants for each shell
-
-      Atoms_temp(i)%Shell_name = Target_atoms(i)%Shell_name
-      Atoms_temp(i)%Shl_num = Target_atoms(i)%Shl_num
-      Atoms_temp(i)%Nel = Target_atoms(i)%Nel
-      Atoms_temp(i)%Ip = Target_atoms(i)%Ip
-      Atoms_temp(i)%Ek = Target_atoms(i)%Ek
-      Atoms_temp(i)%Auger = Target_atoms(i)%Auger
-      Atoms_temp(i)%Radiat = Target_atoms(i)%Radiat
-      Atoms_temp(i)%PQN = Target_atoms(i)%PQN
-      Atoms_temp(i)%KOCS = Target_atoms(i)%KOCS
-      Atoms_temp(i)%KOCS_SHI = Target_atoms(i)%KOCS_SHI
-      Atoms_temp(i)%Ritchi = Target_atoms(i)%Ritchi
-   enddo
-end subroutine copy_atomic_data
 
 
 
@@ -946,6 +923,49 @@ subroutine copy_atomic_data_back(Target_atoms, Atoms_temp, Egap, N_e_VB, i, Nsiz
 end subroutine copy_atomic_data_back
 
 
+
+
+subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   type(Atom), dimension(:), allocatable, intent(inout) :: Atoms_temp  ! define target atoms as objects, we don't know yet how many they are
+   !------------
+   integer :: i, j, N_at, Shl
+   N_at = size(Target_atoms)
+
+   allocate(Atoms_temp(N_at))
+   do i = 1, N_at
+      Atoms_temp(i)%Zat = Target_atoms(i)%Zat
+      Atoms_temp(i)%Mass = Target_atoms(i)%Mass
+      Atoms_temp(i)%Pers = Target_atoms(i)%Pers
+      Atoms_temp(i)%Name = Target_atoms(i)%Name
+      Atoms_temp(i)%Full_Name = Target_atoms(i)%Full_Name
+      Atoms_temp(i)%N_shl = Target_atoms(i)%N_shl
+      Shl = Atoms_temp(i)%N_shl
+      allocate(Atoms_temp(i)%Shell_name(Shl)) ! allocate shell-names for each shell
+      allocate(Atoms_temp(i)%Shl_num(Shl)) ! allocate shell disignator for each shell
+      allocate(Atoms_temp(i)%Nel(Shl)) ! allocate numbers of electrons for each shell
+      allocate(Atoms_temp(i)%Ip(Shl)) ! allocate ionization potentials for each shell
+      allocate(Atoms_temp(i)%Ek(Shl)) ! allocate mean kinetic energies for each shell
+      allocate(Atoms_temp(i)%Auger(Shl)) ! allocate auger-times for each shell
+      allocate(Atoms_temp(i)%Radiat(Shl)) ! allocate radiative-times for each shell
+      allocate(Atoms_temp(i)%PQN(Shl)) ! allocate principle quantum numbers for each shell
+      allocate(Atoms_temp(i)%KOCS(Shl)) ! allocate kind of inelastic cross sections
+      allocate(Atoms_temp(i)%KOCS_SHI(Shl)) ! allocate kind of inelastic cross sections
+      allocate(Atoms_temp(i)%Ritchi(Shl)) ! allocate Ritchi-functions' coefficiants for each shell
+
+      Atoms_temp(i)%Shell_name = Target_atoms(i)%Shell_name
+      Atoms_temp(i)%Shl_num = Target_atoms(i)%Shl_num
+      Atoms_temp(i)%Nel = Target_atoms(i)%Nel
+      Atoms_temp(i)%Ip = Target_atoms(i)%Ip
+      Atoms_temp(i)%Ek = Target_atoms(i)%Ek
+      Atoms_temp(i)%Auger = Target_atoms(i)%Auger
+      Atoms_temp(i)%Radiat = Target_atoms(i)%Radiat
+      Atoms_temp(i)%PQN = Target_atoms(i)%PQN
+      Atoms_temp(i)%KOCS = Target_atoms(i)%KOCS
+      Atoms_temp(i)%KOCS_SHI = Target_atoms(i)%KOCS_SHI
+      Atoms_temp(i)%Ritchi = Target_atoms(i)%Ritchi
+   enddo
+end subroutine copy_atomic_data
 
 
 
@@ -1105,8 +1125,8 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_m
         call Linear_approx(Temp_DOS, E, loc_DOS, (Temp_DOS(1,1)-dE), 0.0d0)
         Mat_DOS%E(i) = E ! [eV] energy
         Mat_DOS%DOS(i) = loc_DOS ! [1/eV] DOS
+        !print*, 'DOS', i,  Mat_DOS%E(i), Mat_DOS%DOS(i)
     enddo
-   
     Mat_DOS%E = ABS(Mat_DOS%E - Mat_DOS%E(size(Mat_DOS%E))) ! shift it to 'zero', and make it positive [eV]
     Mat_DOS%E = Mat_DOS%E(size(Mat_DOS%E):1:-1) ! make the array increasing
     Mat_DOS%DOS = Mat_DOS%DOS(size(Mat_DOS%DOS):1:-1) ! make the array according to the increasing energy
@@ -1142,6 +1162,7 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_m
         else    ! regular energy particle
            Mat_DOS%Eff_m(i) = g_h*g_h*Mat_DOS%k(i)*Mat_DOS%k(i)/(2.0*Mat_DOS%E(i)*g_e)/g_me
         endif
+        !print*, i, Mat_DOS%E(i), Mat_DOS%DOS(i), Mat_DOS%int_DOS(i), Mat_DOS%int_DOS_inv(i)
     enddo
      
     SUM_DOS = Mat_DOS%int_DOS_inv(size(Mat_DOS%E))   ! sum of all electrons in the DOS, to normalize it
@@ -1154,7 +1175,7 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_m
     elsewhere   ! regular energy particle
        Mat_DOS%Eff_m_inv(:) = g_h*g_h*Mat_DOS%k_inv(:)*Mat_DOS%k_inv(:)/(2.0*Mat_DOS%E(:)*g_e)/g_me
     endwhere
-    
+
 2016 inquire(unit=FN2,opened=file_opened)    ! check if this file is opened
     if (file_opened) close(FN2)             ! and if it is, close it
 end subroutine reading_material_DOS
@@ -1557,6 +1578,8 @@ subroutine Find_VB_numbers(Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl)
           if (Target_atoms(i)%Shl_num(j) .GE. 63) exit  ! if we found VB, that's the lowest Ip anyway
        enddo
     enddo
+    !print*, Lowest_Ip_At, Lowest_Ip_Shl, Target_atoms(Lowest_Ip_At)%Ip(Lowest_Ip_Shl)
+    !pause 'Find_VB_numbers'
 end subroutine Find_VB_numbers
 
 subroutine Linear_approx_2d(Array, In_val, Value1, El1, El2)

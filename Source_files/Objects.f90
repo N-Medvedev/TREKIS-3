@@ -67,6 +67,7 @@ endtype all_R_Z_distr
 ! Material parameters are all in here:
 type :: Solid
     character(100) Target_name
+    character(100) Chem ! chemical formula
     real(8) Dens    ! [g/cm^3] material density
     real(8) Vsound  ! [m/s] speed of sound in the material
     real(8) At_Dens ! [1/cm^3] atomic material density
@@ -129,6 +130,7 @@ type :: Flag
     integer :: Last_mod_time_CDF, Last_mod_time_DSF ! Time when the CDF- and DSF-files were last modified
     ! Printout for testing:
     logical :: verbose, very_verbose
+    logical :: print_CDF
 end type Flag
 !==============================================
 

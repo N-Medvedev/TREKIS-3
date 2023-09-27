@@ -8,6 +8,7 @@ MODULE Sorting_output_data
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
   use Reading_files_and_parameters, only : Find_VB_numbers, print_time_step
   use Variables, only: dashline, starline
+  use Cross_sections, only :  w_plasma, sumrules
 implicit none
 private  ! hides items not listed on public statement
 
@@ -28,62 +29,13 @@ subroutine TREKIS_title(FN)
    write(FN,'(a)') '*                                                      *'
    write(FN,'(a)') trim(adjustl(starline))
    write(FN,'(a)') 'Time-Resolved Electron Kinetics in SHI-Irradiated Solids'
-   write(FN,'(a)') 'Version: 3.0.8  (update 25.09.2023)     '
+   write(FN,'(a)') 'Version: 3.1.0  (update 27.09.2023)     '
    write(FN,'(a)') trim(adjustl(starline))
 end subroutine TREKIS_title
 
 
 
-
-subroutine write_CDF_file(FN, Material, Chem, dens, Efermi, Egap, c_sound, Atoms)
-   integer, intent(in) :: FN  ! file to write CDF data into
-   character(*), intent(in) :: Material   ! material name
-   character(*), intent(in) :: Chem       ! chemical formula
-   real(8), intent(in) :: dens   ! density of the target [g/cm^3]
-   real(8), intent(in) :: Efermi, Egap ! [eV] fermi energy; bandgap [ev]
-   real(8), intent(in) :: c_sound  ! speed of sound [m/s]
-   type(Atom), dimension(:), intent(in) :: Atoms !Target_atoms
-   !-------------------------
-   integer :: N_KOA, i, j, k
-   character(200) :: line_to_write
-
-   N_KOA = size(Atoms)  ! kinds of atoms
-
-   write(FN,'(a)') trim(adjustl(Material)) ! material name
-   write(FN,'(a)') trim(adjustl(Chem))     ! chemical formula
-   write(line_to_write,'(f15.6, f15.6, f15.6, f15.6, a)') dens, c_sound, Efermi, Egap, &
-                        '   ! density [g/cm^3], speed of sound [m/s], Fermi level [eV], bandgap [eV]'
-   write(FN,'(a)') trim(adjustl(line_to_write))
-
-   AT_NUM:do i = 1, N_KOA ! for each kind of atoms:
-      write(line_to_write,'(i4,a)') Atoms(i)%N_shl, '   ! number of shells in element: '//trim(adjustl(Atoms(i)%Name))
-      write(FN,'(a)') trim(adjustl(line_to_write))
-
-      if (allocated(Atoms(i)%Ritchi)) then
-         SH_NUM:do j = 1, Atoms(i)%N_shl  ! for all shells
-            write(line_to_write,'(i3, i4, f15.6, f15.6, es15.6E3, a)') size(Atoms(i)%Ritchi), Atoms(i)%Shl_num(j), &
-               Atoms(i)%Ip(j), Atoms(i)%Nel(j), Atoms(i)%Auger(j), &
-               '  ! Oscillators, designator:'//trim(adjustl(Atoms(i)%Shell_name(j)))//', Ip [eV], Ne, Auger [fs]'
-            write(FN,'(a)') trim(adjustl(line_to_write))
-
-            CDF_NUM:do k = 1, size(Atoms(i)%Ritchi(j)%A)  ! for all CDF-functions for this shell
-               write(line_to_write,'(f15.6, f15.6, f15.6, a)') Atoms(i)%Ritchi(j)%E0(k), Atoms(i)%Ritchi(j)%A(k), Atoms(i)%Ritchi(j)%Gamma(k),&
-                                                                  '   ! E0, A, G'
-               write(FN,'(a)') trim(adjustl(line_to_write))
-            enddo CDF_NUM
-         enddo SH_NUM
-      else
-         write(FN,'(a)') '************************************************'
-         write(FN,'(a)') 'The Ritchie-Howie CDF-coefficients are undefined, cannot print them out!'
-         write(FN,'(a)') 'Probably, the cdf-file was not specified or specified incorrectly in INPUT.txt'
-      endif
-   enddo AT_NUM
-end subroutine write_CDF_file
-
-
-
-
-subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, NumPar, Tim, dt, NMC, Num_th, &
+subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, NumPar, CDF_Phonon, Tim, dt, NMC, Num_th, &
             print_title, print_atomic)
     integer, intent(in) :: print_to ! file number to print to
     class(Ion), intent (in) :: SHI  ! all about SHI
@@ -91,6 +43,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
     type(Solid), intent(in) :: Matter   ! all material parameters
     type(Flag), intent(in) :: NumPar
+    type(CDF), intent(in) :: CDF_Phonon   ! CDF parameters for phonon to be read from a file
     real(8), intent(in) :: Tim !  [fs] total duration of the analysis
     real(8), intent(in) :: dt  !  [fs] timestep
     integer, intent(in) :: NMC ! number of MC iterations
@@ -99,6 +52,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     integer :: j, k
     character(100) :: ch_temp, ch_temp2
+    real(8) :: ksum, fsum, Omega, Mean_Mass, N_at_mol
 
     ! print title:
     if (print_title) then
@@ -291,21 +245,47 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
         endif
     endif
 
+    N_at_mol = SUM(Target_atoms(:)%Pers)   ! number of atoms in a molecule
+
     ! Atomic parameters:
     if (print_atomic) then
         write(print_to,'(a)') trim(adjustl(dashline))
         write(print_to, '(a)') ' The following atomic parameters of the target are used:'
         do j = 1, size(Target_atoms)  ! for each element, its shells data:
             write(print_to, '(a)') trim(adjustl(Target_atoms(j)%Name))//' atom:'
-            write(print_to, '(a)') ' Shell  Quantum_n  Ne    Ip[eV]  Ekin[eV]  t(Auger)[fs]  t(Rad)[fs]'
+            write(print_to, '(a)') ' Shell  Quantum_n  Ne    Ip[eV]  Ekin[eV]  t(Auger)[fs]  t(Rad)[fs]  k-sum  f-sum'
             do k = 1, Target_atoms(j)%N_shl ! all the data for each shell:
+
+                if ( (j == 1) .and. (k == Target_atoms(j)%N_shl) ) then ! the valence band
+                    Omega = w_plasma(1d6*Matter%At_dens/N_at_mol)    ! module "Cross_sections"
+                else ! core shell
+                    Omega = w_plasma(1d6*Matter%At_dens)    ! module "Cross_sections"
+                endif
+
+                ! Get sum rule:
+                call sumrules(Target_atoms(j)%Ritchi(k)%A, Target_atoms(j)%Ritchi(k)%E0, Target_atoms(j)%Ritchi(k)%Gamma, &
+                              ksum, fsum, Target_atoms(j)%Ip(k), Omega) ! module "Cross_sections"
+
                 if ((j .EQ. 1) .AND. (k .EQ. Target_atoms(j)%N_shl)) then
-                write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2)') Target_atoms(j)%Shell_name(k), '   ', Target_atoms(j)%Nel(k), Target_atoms(j)%Ip(k), Target_atoms(j)%Ek(k), Target_atoms(j)%Auger(k), Target_atoms(j)%Radiat(k)
+                  write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2,f9.2)') Target_atoms(j)%Shell_name(k), '   ', &
+                        Target_atoms(j)%Nel(k), Target_atoms(j)%Ip(k), Target_atoms(j)%Ek(k), Target_atoms(j)%Auger(k), &
+                        Target_atoms(j)%Radiat(k), ksum, fsum
                 else
-                write(print_to,'(a,i3,f8.2,f9.2,f9.2,es12.2,es12.2)') Target_atoms(j)%Shell_name(k), Target_atoms(j)%PQN(k), Target_atoms(j)%Nel(k), Target_atoms(j)%Ip(k), Target_atoms(j)%Ek(k), Target_atoms(j)%Auger(k), Target_atoms(j)%Radiat(k)
+                  write(print_to,'(a,i3,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2,f9.2)') Target_atoms(j)%Shell_name(k), &
+                        Target_atoms(j)%PQN(k), Target_atoms(j)%Nel(k), Target_atoms(j)%Ip(k), &
+                        Target_atoms(j)%Ek(k), Target_atoms(j)%Auger(k), &
+                        Target_atoms(j)%Radiat(k), ksum, fsum
                 endif
             enddo
         enddo
+
+        ! Phonons:
+        Mean_Mass = SUM(Target_atoms(:)%Pers * Target_atoms(:)%Mass)*g_Mp / N_at_mol  ! average atomic mass
+        Omega = w_plasma( 1d6*Matter%At_dens/N_at_mol, Mass=Mean_Mass )  ! module "Cross_sections"
+        call sumrules(CDF_Phonon%A, CDF_Phonon%E0, CDF_Phonon%Gamma, ksum, fsum, 1.0d-8, Omega) ! module "Cross_sections"
+        write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2,f9.2)') 'Phonons', &
+                        '       ', N_at_mol, 0.0d0, 0.0d0, 0.0d0, 0.0d0, ksum, fsum
+        !print*, 'print_parameters', CDF_Phonon%A(1), CDF_Phonon%E0(1), CDF_Phonon%Gamma(1), ksum, fsum, Mean_Mass, N_at_mol, Omega, Matter%At_dens
     endif
 
     write(print_to,'(a)') trim(adjustl(dashline))
@@ -315,7 +295,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
 end subroutine print_parameters
 
 
-subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, &
+subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, CDF_Phonon, &
                 SHI, Out_R, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_nphot, Out_Ephot, &
                 Out_Ee_vs_E, Out_Eh_vs_E, Out_E_at, Out_E_h, Out_Eat_dens, &
                 Out_Distr, Out_Elat, Out_theta, Out_theta_h, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, NumPar, &
@@ -327,6 +307,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     type(Solid), intent(in) :: Matter   ! all material parameters
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! target atoms as objects
     type(Density_of_states), intent(in) :: Mat_DOS   ! Material DOS for VB distribution
+    type(CDF), intent(in) :: CDF_Phonon   ! CDF parameters for phonon to be read from a file
     type(Ion), intent(in) :: SHI   ! declare SHI as an object with atributes "Ion"
     real(8), dimension(:), allocatable, intent(in) :: Out_R
     real(8), dimension(:), allocatable, intent(in) :: Out_tot_Ne
@@ -353,7 +334,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     !-------------------------------------------------
     real(8) :: t, as1, tim_glob, out_val
     integer :: c1(8), i, j,k,l,N, Nat, N_R, FN, FN1, FN2, FN3, FN31, FN4, Lowest_Ip_At, Lowest_Ip_Shl !, NOTP
-    character(200) :: command, charge_name, charge_kind, File_name, File_name1, File_name2, File_name3, File_name4, C_time
+    character(300) :: command, charge_name, charge_kind, File_name, File_name1, File_name2, File_name3, File_name4, C_time
     character(30) :: ch1, ch2, ch3
     character(LEN=25) :: FMT
     logical :: file_exist, file_opened
@@ -409,7 +390,8 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     
     write(ch1,'(f8.2)') SHI%E/1d6
     write(ch2,'(f10.2)') Tim
-    write(File_name,'(a,a,a,a,a,a,a,a)') trim(adjustl(Output_path)),trim(adjustl(NumPar%path_sep)),trim(adjustl(SHI%Name)),'_E_',trim(adjustl(ch1)),'_MeV_',trim(adjustl(ch2)),'_fs'
+    write(File_name,'(a,a,a,a,a,a,a,a)') trim(adjustl(Output_path)), trim(adjustl(NumPar%path_sep)), trim(adjustl(SHI%Name)), &
+                                        '_E_', trim(adjustl(ch1)), '_MeV_', trim(adjustl(ch2)), '_fs'
     File_name2 = File_name
     i = 0
     inquire(DIRECTORY=trim(adjustl(File_name2)),exist=file_exist)    ! check if input file excists
@@ -431,7 +413,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     File_name = trim(adjustl(File_name2))//'/!Parameters.txt'
     open(unit = FN1, FILE = trim(adjustl(File_name)))
 
-    call print_parameters(FN1, SHI, Material_name, Target_atoms, Matter, NumPar, Tim, dt, NMC, Num_th, .true., .true.) ! see above
+    call print_parameters(FN1, SHI, Material_name, Target_atoms, Matter, NumPar, CDF_Phonon, Tim, dt, NMC, Num_th, .true., .true.) ! see above
 
     write(FN1, '(a,f6.3,a)') 'Ion equilibrium charge: ', SHI%Zeff, ' [electron charge]'
     write(FN1, '(a,f9.2,a)') 'MC calculated energy loss: ', Out_tot_E(N)/Matter%Layer, ' [eV/A]'
@@ -444,7 +426,6 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
 
     inquire(unit=FN1,opened=file_opened)    ! check if this file is opened
     if (file_opened) close(FN1)             ! and if it is, close it
-
 
     ! Electron field vs radius:
     if (NumPar%field_include .GT. 0.9) then

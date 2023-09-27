@@ -12,6 +12,8 @@ implicit none
 PRIVATE
 
 real(8), parameter :: m_two_third = 2.0d0/3.0d0
+real(8), parameter :: m_Pi_6 = (g_Pi/6.0d0)**(1.0d0/3.0d0)
+
 
 ! this interface finds by itself which of the two subroutine to use depending on the parameters passed:
 interface Electron_energy_transfer ! finds energy transfer in electron collision
@@ -22,7 +24,7 @@ end interface Electron_energy_transfer
 !private  ! hides items not listed on public statement 
 public :: Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, &
          SHI_Total_IMFP, SHI_TotIMFP, SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF, &
-         NRG_transfer_elastic_atomic_OLD, get_single_pole
+         NRG_transfer_elastic_atomic_OLD, get_single_pole, w_plasma, sumrules
 
 
 contains
@@ -36,7 +38,7 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
    type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
    !--------------------------
    integer :: i, j, N_at, N_shl
-   real(8) :: NVB, N_at_mol, Omega, ksum, fsum, contrib
+   real(8) :: NVB, N_at_mol, Omega, ksum, fsum, contrib, Mean_Mass, E_debye, E_eistein
 
    N_at = size(Target_atoms)  ! number of kinds of atoms
 
@@ -69,6 +71,9 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
                               ksum, fsum, Target_atoms(i)%Ip(j), Omega) ! below
 
                Target_atoms(i)%Ritchi(j)%A(1) = NVB/ksum
+
+               ! To calculate the sum rules in VB, we need molecular density, not atomic:
+               Omega = w_plasma(1d6*Matter%At_dens/N_at_mol)   ! below
             else ! core shell
                NVB = Target_atoms(i)%Nel(j)    ! core electrons per atom
                contrib = Target_atoms(i)%Pers/N_at_mol  ! contribution of the atoms into the compound
@@ -89,6 +94,13 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
 
                Target_atoms(i)%Ritchi(j)%A(1) = NVB/ksum
             endif
+            ! Sum rules:
+            if (NumPar%verbose) then
+               call sumrules(Target_atoms(i)%Ritchi(j)%A, Target_atoms(i)%Ritchi(j)%E0, Target_atoms(i)%Ritchi(j)%Gamma, &
+                              ksum, fsum, Target_atoms(i)%Ip(j), Omega) ! below
+               write(*,'(a,f10.3,a,f10.3,a,f12.5)') 'K-sum rule:', ksum, ' Na=', Target_atoms(i)%Nel(j), ' F-sum rule:', fsum
+               print*, '------------------------'
+            endif
          enddo ! j
       enddo ! i
    endif
@@ -97,12 +109,53 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
    ! 2) single-pole CDF for elastic scattering
    if (NumPar%kind_of_CDF_ph == 1) then
       if (NumPar%verbose) call print_time_step('Getting phononic single-pole CDF calculations:', msec=.true.)
+
+         ! Debye energy [eV]:
+         E_debye = Debye_energy(Matter%At_Dens, Matter%Vsound) ! below
+         ! Einstein energy [eV]:
+         E_eistein = Einstein_energy(E_debye) ! below
+
+         ! Set it at 2 x Einstein frequency (empirical coeff):
+         CDF_Phonon%E0(1) = 2.0d0 * E_eistein   ! [eV]
+         ! Gamma set equal to (empirical approximation):
+         CDF_Phonon%Gamma(1) = CDF_Phonon%E0(1) * 0.5d0
+         ! A is set via normalization (sum rule):
+         CDF_Phonon%A(1) = 1.0d0   ! just to get sum rule to renormalize below
+
+         Mean_Mass = SUM(Target_atoms(:)%Pers * Target_atoms(:)%Mass)*g_Mp / N_at_mol  ! average atomic mass
+
+         Omega = w_plasma( 1d6*Matter%At_dens/N_at_mol, Mass=Mean_Mass )  ! below
+         call sumrules(CDF_Phonon%A, CDF_Phonon%E0, CDF_Phonon%Gamma, ksum, fsum, 1.0d-8, Omega) ! below
+
+         CDF_Phonon%A(1) = N_at_mol/ksum
+
+         ! Now we can recalculate sum-rules:
+         if (NumPar%verbose) then
+            call sumrules(CDF_Phonon%A, CDF_Phonon%E0, CDF_Phonon%Gamma, ksum, fsum, 1.0d-8, Omega) ! below
+            write(*,'(a,f10.3,a,f10.3,a,f12.5)') 'K-sum rule:', ksum, ' Na=', N_at_mol, ' F-sum rule:', fsum
+            print*, '------------------------'
+         endif
    endif
 
 end subroutine get_single_pole
 
 
 
+pure function Debye_energy(At_Dens, Vsound) result(Edebye)
+   real(8) Edebye   ! [eV] maximal phonon energy within Debye approximation
+   real(8), intent(in) :: At_Dens   ! [1/cm^3] atomic density
+   real(8), intent(in) :: Vsound    ! [m/s] speed of sound in the material
+   real(8) :: qdebye
+   qdebye = (6.0d0*g_Pi*g_Pi*(At_Dens*1d6))**(0.33333333d0)   ! Debye momentum [1/m]
+   Edebye = g_h*Vsound*qdebye/g_e  ! Debye energy [eV]
+end function Debye_energy
+
+
+pure function Einstein_energy(Edebye) result(Eeinstein) ! https://en.wikipedia.org/wiki/Debye_model#Debye_versus_Einstein
+   real(8) Eeinstein   ! [eV] maximal phonon energy within Debye approximation
+   real(8), intent(in) :: Edebye   ! [eV] maximal phonon energy within Debye approximation
+   Eeinstein = Edebye * m_Pi_6  ! Einstein energy [eV]
+end function Einstein_energy
 
 
 function w_plasma(At_dens, Mass)
@@ -1087,7 +1140,9 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     L_need = L_tot/RN   ! [A] we need to reach
     
     qdebay = (6.0d0*g_Pi*g_Pi*(Matter%At_Dens*1e6))**(0.33333333d0)   ! maximum energy of phonons analyzed [1/m], debay energy
-    Edebay = 2.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy // 2 is artificial...
+    !Edebay = 2.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy // 2 is artificial...
+    Edebay = 3.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy // 3 is artificial...
+
     Ee => Ele   ! just to use this name later
     Emin = 0.1d-8    !Target_atoms(Nat)%Ip(Nshl)   ! [eV] ionization potential of the shell is minimum possible transferred energy
 
@@ -1778,7 +1833,11 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
         !endif
     enddo
     !Sigma = 1.0d0/Mass/Ltot1 !*dE ! [A]
-    Sigma = 1.0d0/(Zeff*Zeff*Mass*Ltot1) !*dE ! [A]
+    if (Mass < 1.0d-20) then
+      Sigma = 1.0d29
+    else
+      Sigma = 1.0d0/(Zeff*Zeff*Mass*Ltot1) !*dE ! [A]
+    endif
     if (Sigma > 1d30) Sigma = 1d30 ! get rid of infinities
 
     !dEdx = Mass*ddEdx !*dE ! energy losses [eV/A]

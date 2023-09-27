@@ -1194,6 +1194,7 @@ subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At
     character(100) Error_descript
     
     E = dE - Target_atoms(Nat_cur)%Ip(Nshl_cur)    ! [eV] energy that electron might recieve
+
     N_temmp = 1
     if ((Nat_cur .EQ. Lowest_Ip_At) .AND. (Nshl_cur .EQ. Lowest_Ip_Shl)) then   ! it's valence band:
         if ((.not. allocated(Mat_DOS%E)) .OR. (dE .LE. Target_atoms(Nat_cur)%Ip(Nshl_cur))) then  ! VB is treated as atomic energy level:
@@ -1205,6 +1206,7 @@ subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At
             else
                 M_temp = N+1  ! the last element is possible, all of them are
             endif
+
             if (M_temp .GT. 1) then
                 Sum_DOS = Mat_DOS%int_DOS(M_temp-1)   ! only these electrons of VB are available
                 call random_number(RN)
@@ -1224,7 +1226,7 @@ subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
         write(*,'(a,e,e,i3,i3)') 'dE, dE_cur:', dE, dE_cur, Nat_cur, Nshl_cur
         write(*,'(a,e)') 'Ionization potential ', Target_atoms(Nat_cur)%Ip(Nshl_cur)
-        write(*,'(a,e,e,i3,i3)') 'Band:', N_temmp, Mat_DOS%E(N_temmp)
+        write(*,'(a,i5,e)') 'Band:', N_temmp, Mat_DOS%E(N_temmp)
         !write(*, '(a,e,e)') 'SumDOS: ', Sum_DOS, Tot_N
         !pause 'STOPPED WORKING...'
         if (N_temmp .GT. 1) then
