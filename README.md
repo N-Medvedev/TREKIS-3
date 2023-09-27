@@ -2,7 +2,7 @@
 
  ## TREKIS : <ins>T</ins>ime <ins>R</ins>esolved <ins>E</ins>lectron <ins>K</ins>inetics in SHI <ins>I</ins>rradiated <ins>S</ins>olids
  ### Monte-Carlo code modelling electronic kinetics after swift-heavy ion impact on matter
- ### Current version: 3.1.0 (update 27.06.2023)
+ ### Current version: 3.1.0 (update 27.09.2023)
  
  For all details and instruction, address the files
  !READ_ME_TREKIS_3.doc  or  !READ_ME_TREKIS_3.pdf
