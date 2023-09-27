@@ -245,16 +245,22 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
         endif
     endif
 
+    N_at_mol = SUM(Target_atoms(:)%Pers)   ! number of atoms in a molecule
+
     ! Atomic parameters:
     if (print_atomic) then
-        Omega = w_plasma(1d6*Matter%At_dens)    ! module "Cross_sections"
-
         write(print_to,'(a)') trim(adjustl(dashline))
         write(print_to, '(a)') ' The following atomic parameters of the target are used:'
         do j = 1, size(Target_atoms)  ! for each element, its shells data:
             write(print_to, '(a)') trim(adjustl(Target_atoms(j)%Name))//' atom:'
             write(print_to, '(a)') ' Shell  Quantum_n  Ne    Ip[eV]  Ekin[eV]  t(Auger)[fs]  t(Rad)[fs]  k-sum  f-sum'
             do k = 1, Target_atoms(j)%N_shl ! all the data for each shell:
+
+                if ( (j == 1) .and. (k == Target_atoms(j)%N_shl) ) then ! the valence band
+                    Omega = w_plasma(1d6*Matter%At_dens/N_at_mol)    ! module "Cross_sections"
+                else ! core shell
+                    Omega = w_plasma(1d6*Matter%At_dens)    ! module "Cross_sections"
+                endif
 
                 ! Get sum rule:
                 call sumrules(Target_atoms(j)%Ritchi(k)%A, Target_atoms(j)%Ritchi(k)%E0, Target_atoms(j)%Ritchi(k)%Gamma, &
@@ -274,7 +280,6 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
         enddo
 
         ! Phonons:
-        N_at_mol = SUM(Target_atoms(:)%Pers)   ! number of atoms in a molecule
         Mean_Mass = SUM(Target_atoms(:)%Pers * Target_atoms(:)%Mass)*g_Mp / N_at_mol  ! average atomic mass
         Omega = w_plasma( 1d6*Matter%At_dens/N_at_mol, Mass=Mean_Mass )  ! module "Cross_sections"
         call sumrules(CDF_Phonon%A, CDF_Phonon%E0, CDF_Phonon%Gamma, ksum, fsum, 1.0d-8, Omega) ! module "Cross_sections"

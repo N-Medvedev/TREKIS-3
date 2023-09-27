@@ -71,6 +71,9 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
                               ksum, fsum, Target_atoms(i)%Ip(j), Omega) ! below
 
                Target_atoms(i)%Ritchi(j)%A(1) = NVB/ksum
+
+               ! To calculate the sum rules in VB, we need molecular density, not atomic:
+               Omega = w_plasma(1d6*Matter%At_dens/N_at_mol)   ! below
             else ! core shell
                NVB = Target_atoms(i)%Nel(j)    ! core electrons per atom
                contrib = Target_atoms(i)%Pers/N_at_mol  ! contribution of the atoms into the compound
