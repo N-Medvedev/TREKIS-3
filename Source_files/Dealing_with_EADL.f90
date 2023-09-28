@@ -181,6 +181,31 @@ subroutine Count_lines_in_file(File_num, N)
 end subroutine Count_lines_in_file
 
 
+
+subroutine SkipCount_lines_in_file(File_num, N, skip_lines)
+    integer, INTENT(in) :: File_num     ! number of file to be opened
+    integer, INTENT(out) :: N           ! number of lines in this file
+    integer, intent(in), optional :: skip_lines ! if you want to start not from the first line
+    integer i
+    if (present(skip_lines)) then	! If the user specified to start counting lines not from the first one:
+       do i=1,skip_lines
+          read(File_num,*, end=604)
+       enddo
+       604 continue
+    endif
+    i = 0
+    do	! count all the lines in the file from the specified one to the end:
+        read(File_num,*, end=603)
+        i = i + 1
+    enddo
+    603 continue
+    rewind (File_num) ! to read next time from the beginning, not continue from the line we ended now.
+    N = i	! print out the number of lines from the specified one to the last one
+end subroutine SkipCount_lines_in_file
+
+
+
+
 subroutine check_atomic_parameters(NumPar, Target_atoms, N_at, cur_shl, shl, Error_message, read_well) ! from module 'Dealing_with_EADL'
    type(Flag), intent(inout) :: NumPar ! numerical parameters
    type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are

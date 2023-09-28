@@ -8,7 +8,9 @@
 
 module Gnuplotting_subs
 use Objects, only : Flag, All_names, Atom, Ion
-!use ifport  ! library, allowing to operate with directories in intel fortran
+USE IFLPORT, only : system, chdir   ! library, allowing to operate with directories in intel fortran
+use Dealing_with_EADL, only : Count_lines_in_file
+
 
 implicit none
 PRIVATE  ! hides items not listed on public statement
@@ -79,10 +81,131 @@ subroutine Gnuplot_ion(NumPar, SHI, Target_atoms, File_names, Output_path_SHI)  
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)             ! and if it is, close it
 
-
+   ! 5) Collect all gnuplot scripts together into one, and execute it:
+   call collect_gnuplots(NumPar, trim(adjustl(Output_path_SHI)))   ! below
 
 end subroutine Gnuplot_ion
 
+
+
+
+
+!===================================================
+! Gnuplotting all the scripts:
+subroutine collect_gnuplots(numpar, out_path)
+   type(Flag), intent(in) :: numpar        ! all numerical parameters
+   character(*), intent(in) :: out_path    ! folder with the cmd-files
+   !------------------------
+   character(200) :: File_name, command, Gnuplot_all_file
+   integer :: FN, N_f, i, n_slash
+   integer :: open_status, iret, idir
+   character(200), dimension(:), allocatable :: All_files
+   character(300) :: output_path
+   character(5) ::  call_slash, sh_cmd
+
+   ! In which directory to collect all gnu scripts:
+   output_path = out_path
+
+   ! Create a temporary file:
+   Gnuplot_all_file = 'Gnuplot_all'
+
+   ! Find the extension of the gnuplot scripts:
+   call cmd_vs_sh(numpar%path_sep, call_slash, sh_cmd)  ! module "Gnuplotting"
+   ! Include the extension of the script:
+   Gnuplot_all_file = 'Gnuplot_all'//trim(adjustl(sh_cmd))
+
+   ! Include the path to the directory:
+   File_name = trim(adjustl(output_path))//numpar%path_sep//trim(adjustl(Gnuplot_all_file))
+
+   ! Save the names of all gnuplot scripts into this file:
+   if (numpar%path_sep == '\') then	! if it is Windows
+      command = 'dir '//trim(adjustl(output_path))//'\*'//trim(adjustl(sh_cmd))//' /b >'//trim(adjustl(File_name))
+   else ! linux:
+      command = "ls -t "//trim(adjustl(output_path))//" | grep '"//trim(adjustl(sh_cmd))//"' >"//trim(adjustl(File_name))
+   endif
+
+   iret = system(trim(adjustl(command)))   ! execute the command to save file names in the temp file
+   !call system(trim(adjustl(command))) ! execute the command to save file names in the temp file
+
+   ! Open the files with gnuplot script names:
+   open(NEWUNIT=FN, file=trim(adjustl(File_name)), iostat=open_status)
+   if ( open_status /= 0 ) then
+      print *, 'Could not open ',trim(adjustl(File_name)),' for gnuplotting.', ' Unit = ', FN
+   endif
+
+   ! Find out how many there are:
+   call Count_lines_in_file(FN, N_f) ! below
+
+   ! Allocate array with them:
+   allocate(All_files(N_f)) ! array with all relevant file names
+
+   ! Read file names:
+   do i = 1,N_f
+      read(FN,*) All_files(i)
+   enddo
+
+   ! Rewind file to overwrite including the calls:
+   rewind(FN)
+   ! Make the script executable:
+   if (numpar%path_sep == '\') then	! if it is Windows
+      write(FN,'(a)') '@echo off'
+   else
+      write(FN,'(a)') '#!/bin/bash'
+   endif
+   do i = 1,N_f
+      if (trim(adjustl(All_files(i))) /= trim(adjustl(Gnuplot_all_file))) then ! exclude the file itself
+         if (numpar%path_sep == '\') then	! if it is Windows
+            write(FN,'(a)') trim(adjustl(call_slash))//' '//trim(adjustl(All_files(i)))
+         else
+            write(FN,'(a)') trim(adjustl(call_slash))//trim(adjustl(All_files(i)))
+         endif
+      endif
+   enddo
+   close (FN)
+   if (numpar%path_sep /= '\') then	! if it is Linux
+      iret = system('chmod +x '//trim(adjustl(File_name))) ! make the output-script executable
+   endif
+   !pause 'Execute all'
+
+   !--------------
+   ! Execute all the gnuplot scripts:
+   idir = chdir(trim(adjustl(output_path))) ! go into the directory with output files
+   !call chdir(trim(adjustl(output_path))) ! go into the directory with output files
+
+   if (numpar%path_sep == '\') then	! if it is Windows
+      iret = system( '@echo off' )   ! create the folder
+      iret = system(trim(adjustl(call_slash))//' '//trim(adjustl(Gnuplot_all_file)))   ! create the folder
+      !call system( '@echo off' )
+      !call system(trim(adjustl(call_slash))//' '//trim(adjustl(Gnuplot_all_file)))
+   else ! linux:
+      iret = system( '#!/bin/bash' )
+      iret = system(trim(adjustl(call_slash))//trim(adjustl(Gnuplot_all_file)))
+      !call system( '#!/bin/bash' )
+      !call system(trim(adjustl(call_slash))//trim(adjustl(Gnuplot_all_file)))
+   endif
+
+   ! Count how many times the system has to go out of the directory to get back into the original directory:
+   ! Defined by the number of slashes in the path given:
+   n_slash = count( (/ (trim(adjustl(output_path(i:i))), i=1,len_trim(output_path)) /) == trim(adjustl(numpar%path_sep)) )
+   do i = 1, n_slash+1  ! go up in the directory tree as many times as needed
+      idir = chdir("../")    ! exit the directory with output files
+      !call chdir("../")    ! exit the directory with output files
+   enddo
+end subroutine collect_gnuplots
+
+
+
+pure subroutine cmd_vs_sh(path_sep, call_slash, sh_cmd)
+   character(*), intent(in) :: path_sep
+   character(*), intent(out) :: call_slash, sh_cmd
+   if (path_sep .EQ. '\') then	! if it is Windows
+      call_slash = 'call '
+      sh_cmd = '.cmd'
+   else ! It is linux
+      call_slash = './'
+      sh_cmd = '.sh'
+   endif
+end subroutine cmd_vs_sh
 
 
 
@@ -106,7 +229,7 @@ subroutine gnuplot_SHI_Zeff(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_
    Se_max = dble(SHI%Zat)
    write(ymax,'(i10)') ceiling(Se_max)
    E_min = 1.0d0*SHI%Zat/100.0d0
-   E_max = 1.0d6*(SHI%Zat/100.0d0)**1.5
+   E_max = 1.0d5*(SHI%Zat/100.0d0)**1.5
    write(xmin,'(f12.5)') E_min
    write(xmax,'(i10)') ceiling(E_max)
 
@@ -152,9 +275,9 @@ subroutine gnuplot_SHI_Range(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot
    ! Get index of file extension:
    call get_extension_index(plot_extension, ext_ind)   ! below
 
-   Se_max = 20000.0d0*(SHI%Zat/100.0d0)**1.5   ! maximal Se estimate, to plot up to
+   Se_max = 10000.0d0*(SHI%Zat/100.0d0)**0.5   ! maximal Se estimate, to plot up to
    R_min = 10.d6*SHI%Zat/100.0d0
-   R_max = max(1.0d10*(SHI%Zat/100.0d0)**2,1e7)
+   R_max = max(1.0d9*(SHI%Zat/100.0d0)**1.5,1e7)
    write(ymax,'(i10)') ceiling(Se_max)
    write(xmin,'(f16.3)') R_min
    write(xmax,'(f16.3)') R_max
@@ -201,10 +324,10 @@ subroutine gnuplot_SHI_dEdx(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_
    ! Get index of file extension:
    call get_extension_index(plot_extension, ext_ind)   ! below
 
-   Se_max = 20000.0d0*(SHI%Zat/100.0d0)**1.5   ! maximal Se estimate, to plot up to
+   Se_max = 10000.0d0*(SHI%Zat/100.0d0)**0.5   ! maximal Se estimate, to plot up to
    write(ymax,'(i10)') ceiling(Se_max)
    E_min = 1.0d0*SHI%Zat/100.0d0
-   E_max = 1.0d6*(SHI%Zat/100.0d0)**1.5
+   E_max = 1.0d5*(SHI%Zat/100.0d0)**1.5
    write(xmin,'(f12.5)') E_min
    write(xmax,'(i10)') ceiling(E_max)
 
@@ -595,13 +718,15 @@ subroutine write_gnuplot_script_ending_new(FN, File_name, path_sep)
    integer, intent(in) :: FN
    character(*), intent(in) :: File_name
    character(1), intent(in) :: path_sep ! path separator defines which system it is
+   integer :: iret
 
    if (path_sep .EQ. '\') then	! if it is Windows
       ! no need to add anything here
    else ! it is linux
       write(FN, '(a)') 'reset'
       write(FN, '(a)') '" | gnuplot '
-      call system('chmod +x '//trim(adjustl(File_name))) ! make the output-script executable
+      !call system('chmod +x '//trim(adjustl(File_name))) ! make the output-script executable
+      iret = system('chmod +x '//trim(adjustl(File_name))) ! make the output-script executable
    endif
 end subroutine write_gnuplot_script_ending_new
 
@@ -639,15 +764,19 @@ end subroutine get_extension_index
 subroutine Gnuplot_execute_old(Folder, File_name, n)
    character(*), intent(in) :: Folder, File_name    ! folder, where the script is; script name
    integer, intent(in), optional :: n
-   integer i
-   call chdir(trim(adjustl(Folder))) ! go to the directory with the created Gnuplot file
-   call system(trim(adjustl(File_name)))  ! execute there the Gnuplot script
+   integer i, idir
+   !call chdir(trim(adjustl(Folder))) ! go to the directory with the created Gnuplot file
+   idir = chdir(trim(adjustl(Folder))) ! go to the directory with the created Gnuplot file
+   !call system(trim(adjustl(File_name)))  ! execute there the Gnuplot script
+   idir = system(trim(adjustl(File_name)))  ! execute there the Gnuplot script
    if (present(n)) then
       do i = 1, n
-         call chdir("../")    ! go back into the parent directory
+         !call chdir("../")    ! go back into the parent directory
+         idir = chdir("../")    ! go back into the parent directory
       enddo
    else
-      call chdir("../")    ! go back into the parent directory
+      !call chdir("../")    ! go back into the parent directory
+      idir = chdir("../")    ! go back into the parent directory
    endif
 end subroutine Gnuplot_execute_old
 
