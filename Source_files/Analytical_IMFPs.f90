@@ -46,7 +46,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     integer Num_th, my_id, OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS, IMFP_last_modified
     integer i, j, k, Nat, Nshl, Reason, Va, Ord, Mnum, MFPnum
     character(200) Input_files, Input_elastic_file, File_el_range, File_hole_range
-    character(200) temp_char, temp_char1, temp_ch, File_name
+    character(200) temp_char, temp_char1, temp_ch, File_name, temp_char2
     !character(3) KCS
     character(10) KCS
     logical file_exist, file_opened, file_opened2, do_range
@@ -169,28 +169,35 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         temp_char = trim(adjustl(KCS(2:)))//'_'//trim(adjustl(temp_char))
 
         if (KCS .EQ. 'BEB') then ! BEB vs CDF cross section:
-          Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_'//trim(adjustl(KCS))//'.dat'
-          if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_'//trim(adjustl(KCS))//'.dat' ! save for later use
+          temp_char1 = 'OUTPUT_Electron_IMFPs_'//trim(adjustl(KCS))//'.dat'
+          !Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_'//trim(adjustl(KCS))//'.dat'
+          !if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_'//trim(adjustl(KCS))//'.dat' ! save for later use
           File_el_range = trim(adjustl(Output_path))//'/OUTPUT_Electron_range_'//trim(adjustl(KCS))//'.dat'
         else ! CDF:
           if (NumPar%kind_of_DR .EQ. 4) then    ! Delta-CDF
-            Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_Delta_'//trim(adjustl(temp_char))//'.dat'
-            if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_Delta_'//trim(adjustl(temp_char))//'.dat' ! save for later use
+            temp_char1 = 'OUTPUT_Electron_IMFPs_Delta_'//trim(adjustl(temp_char))//'.dat'
+            !Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_Delta_'//trim(adjustl(temp_char))//'.dat'
+            !if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_Delta_'//trim(adjustl(temp_char))//'.dat' ! save for later use
             File_el_range = trim(adjustl(Output_path))//'/OUTPUT_Electron_Delta_range_'//trim(adjustl(temp_char))//'.dat'
           else if (NumPar%kind_of_DR .EQ. 3) then
-            Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_Ritchie_'//trim(adjustl(temp_char))//'.dat'
-            if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_Ritchie_'//trim(adjustl(temp_char))//'.dat' ! save for later use
+            temp_char1 = 'OUTPUT_Electron_IMFPs_Ritchie_'//trim(adjustl(temp_char))//'.dat'
+            !Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_Ritchie_'//trim(adjustl(temp_char))//'.dat'
+            !if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_Ritchie_'//trim(adjustl(temp_char))//'.dat' ! save for later use
             File_el_range = trim(adjustl(Output_path))//'/OUTPUT_Electron_Ritchie_range_'//trim(adjustl(temp_char))//'.dat'
           else if (NumPar%kind_of_DR .EQ. 2) then
-            Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_Plasmon_pole_'//trim(adjustl(temp_char))//'.dat'
-            if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_Plasmon_pole_'//trim(adjustl(temp_char))//'.dat' ! save for later use
+            temp_char1 = 'OUTPUT_Electron_IMFPs_Plasmon_pole_'//trim(adjustl(temp_char))//'.dat'
+            !Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_Plasmon_pole_'//trim(adjustl(temp_char))//'.dat'
+            !if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_Plasmon_pole_'//trim(adjustl(temp_char))//'.dat' ! save for later use
             File_el_range = trim(adjustl(Output_path))//'/OUTPUT_Electron_Plasmon_pole_range_'//trim(adjustl(temp_char))//'.dat'
           else
-            Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_Free_'//trim(adjustl(temp_char))//'.dat'
-            if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_Free_'//trim(adjustl(temp_char))//'.dat' ! save for later use
+            temp_char1 = 'OUTPUT_Electron_IMFPs_Free_'//trim(adjustl(temp_char))//'.dat'
+            !Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_Free_'//trim(adjustl(temp_char))//'.dat'
+            !if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_Free_'//trim(adjustl(temp_char))//'.dat' ! save for later use
             File_el_range = trim(adjustl(Output_path))//'/OUTPUT_Electron_range_Free_'//trim(adjustl(temp_char))//'.dat'
           endif
         endif ! which name
+        if (allocated(File_names%F)) File_names%F(2) = trim(adjustl(temp_char1)) ! save for later use
+        Input_files = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char1))
 
         ! IMFP files:
         FN = 201
@@ -218,8 +225,9 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     else if (kind_of_particle .EQ. 'Hole') then
         FN = 202
         if (KCS .EQ. 'BEB') then ! BEB vs CDF cross section:
-           Input_files = trim(adjustl(Output_path))//'/OUTPUT_Hole_IMFPs_BEB.dat'
-           if (allocated(File_names%F)) File_names%F(3) = 'OUTPUT_Hole_IMFPs_BEB.dat' ! save for later use
+           temp_char1 = 'OUTPUT_Hole_IMFPs_BEB.dat'
+           !Input_files = trim(adjustl(Output_path))//'/OUTPUT_Hole_IMFPs_BEB.dat'
+           !if (allocated(File_names%F)) File_names%F(3) = 'OUTPUT_Hole_IMFPs_BEB.dat' ! save for later use
            File_hole_range = trim(adjustl(Output_path))//'/OUTPUT_Hole_range_BEB.dat'
         else
            KCS = ''
@@ -230,11 +238,15 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             KCS = '_spCDF'
            endselect
            write(temp_char, '(f7.2, a)') Matter%temp, '_K'
-           Input_files = trim(adjustl(Output_path))//'/OUTPUT_Hole_IMFPs_CDF'//trim(adjustl(KCS))//'_'//trim(adjustl(temp_char))//'.dat'
-           if (allocated(File_names%F)) File_names%F(3) = 'OUTPUT_Hole_IMFPs_CDF'//trim(adjustl(KCS))//'_' &
-                                            //trim(adjustl(temp_char))//'.dat' ! save for later use
+           temp_char1 = 'OUTPUT_Hole_IMFPs_CDF'//trim(adjustl(KCS))//'_'//trim(adjustl(temp_char))//'.dat'
+           !Input_files = trim(adjustl(Output_path))//'/OUTPUT_Hole_IMFPs_CDF'//trim(adjustl(KCS))//'_'//trim(adjustl(temp_char))//'.dat'
+           !if (allocated(File_names%F)) File_names%F(3) = 'OUTPUT_Hole_IMFPs_CDF'//trim(adjustl(KCS))//'_'
+                                            !//trim(adjustl(temp_char))//'.dat' ! save for later use
            File_hole_range = trim(adjustl(Output_path))//'/OUTPUT_Hole_range_CDF'//trim(adjustl(KCS))//'_'//trim(adjustl(temp_char))//'.dat'
         endif
+        Input_files = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char1))
+        if (allocated(File_names%F)) File_names%F(3) = trim(adjustl(temp_char1)) ! save for later use
+
         file_exist = .false.                !This file must be overwriten before each calculation.
         call All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, kind_of_particle) ! calculate all IMFPs
         open(FN, file=trim(adjustl(Input_files)))
@@ -244,8 +256,9 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     else kind_of_particle1 ! photon
         !if (KCS .EQ. 'BEB') then ! BEB vs CDF cross section:
         if (.not.allocated(Target_atoms(1)%Ritchi(size(Target_atoms))%E0)) then ! no CDF known, use EPDL97 database:
-           Input_files = trim(adjustl(Output_path))//'/OUTPUT_Photon_IMFPs_EPDL.dat'
-           if (allocated(File_names%F)) File_names%F(7) = 'OUTPUT_Photon_IMFPs_EPDL.dat' ! save for later use
+           temp_char1 = 'OUTPUT_Photon_IMFPs_EPDL.dat'
+           !Input_files = trim(adjustl(Output_path))//'/OUTPUT_Photon_IMFPs_EPDL.dat'
+           !if (allocated(File_names%F)) File_names%F(7) = 'OUTPUT_Photon_IMFPs_EPDL.dat' ! save for later use
         else
            KCS = ''
            select case (NumPar%kind_of_CDF)
@@ -255,11 +268,15 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             KCS = '_spCDF'
            endselect
            write(temp_char, '(f7.2, a)') Matter%temp, '_K'
-           Input_files = trim(adjustl(Output_path))//'/OUTPUT_Photon_IMFPs'//trim(adjustl(KCS))//'_'//trim(adjustl(temp_char))//'.dat'
-           if (allocated(File_names%F)) then
-                File_names%F(7) = 'OUTPUT_Photon_IMFPs'//trim(adjustl(KCS))//'_'//trim(adjustl(temp_char))//'.dat' ! save for later use
-           endif
+           temp_char1 = 'OUTPUT_Photon_IMFPs'//trim(adjustl(KCS))//'_'//trim(adjustl(temp_char))//'.dat'
+           !Input_files = trim(adjustl(Output_path))//'/OUTPUT_Photon_IMFPs'//trim(adjustl(KCS))//'_'//trim(adjustl(temp_char))//'.dat'
+           !if (allocated(File_names%F)) then
+           !     File_names%F(7) = 'OUTPUT_Photon_IMFPs'//trim(adjustl(KCS))//'_'//trim(adjustl(temp_char))//'.dat' ! save for later use
+           !endif
         endif
+        Input_files = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char1))
+        if (allocated(File_names%F)) File_names%F(7) = trim(adjustl(temp_char1)) ! save for later use
+
         inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
 
         ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
@@ -333,8 +350,10 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
          select case (NumPar%kind_of_EMFP) ! el_elastic_CS
          case (2) ! Read DSF elastic MFP
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
-            Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Electron_DSF_EMFPs_'//trim(adjustl(temp_char1))//'.dat'
-            if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Electron_DSF_EMFP_'//trim(adjustl(temp_char1))//'.dat' ! save for later use
+            temp_char2 = 'OUTPUT_Electron_DSF_EMFPs_'//trim(adjustl(temp_char1))//'.dat'
+            !Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Electron_DSF_EMFPs_'//trim(adjustl(temp_char1))//'.dat'
+            Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
+            if (allocated(File_names%F)) File_names%F(4) = trim(adjustl(temp_char2)) ! save for later
             FN2 = 2032
             inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
 
@@ -418,10 +437,14 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 endselect
 
                 write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
-                Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Electron_EMFPs'//trim(adjustl(KCS))//'_'// &
-                    trim(adjustl(temp_char1))//'.dat'
+
+                temp_char2 = 'OUTPUT_Electron_EMFPs'//trim(adjustl(KCS))//'_'//trim(adjustl(temp_char1))//'.dat'
+                Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
+                !Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Electron_EMFPs'//trim(adjustl(KCS))//'_'// &
+                !    trim(adjustl(temp_char1))//'.dat'
                 if (allocated(File_names%F)) then
-                    File_names%F(4) = 'OUTPUT_Electron_EMFPs'//trim(adjustl(KCS))//'_'//trim(adjustl(temp_char1))//'.dat' ! save for later use
+                    !File_names%F(4) = 'OUTPUT_Electron_EMFPs'//trim(adjustl(KCS))//'_'//trim(adjustl(temp_char1))//'.dat' ! save for later use
+                    File_names%F(4) = trim(adjustl(temp_char2)) ! save for later use
                 endif
                 FN2 = 203
                 inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
@@ -456,8 +479,11 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             endif
          case (0) ! Calculate or read Mott elastic MFP
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
-            Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Electron_Mott_EMFPs.dat'
-            if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Electron_Mott_EMFPs.dat' ! save for later use
+
+            temp_char2 = 'OUTPUT_Electron_Mott_EMFPs.dat'
+
+            Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
+            if (allocated(File_names%F)) File_names%F(4) = trim(adjustl(temp_char2))
             FN2 = 2031
             inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
 
@@ -482,8 +508,9 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             endif
          case default ! el_elastic_CS             ! Elastic scattering is disabled
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
-            Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Electron_No_elas_EMFPs.dat'
-            if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Electron_No_elas_EMFPs.dat' ! save for later use
+            temp_char2 = 'OUTPUT_Electron_No_elas_EMFPs.dat'
+            Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
+            if (allocated(File_names%F)) File_names%F(4) = trim(adjustl(temp_char2))    ! save for later use
             FN2 = 2031
             open(FN2, file=trim(adjustl(Input_elastic_file)))
             write(*,'(a)') 'Electron kinetics will be traces without elastic scatterings on target atoms'
@@ -504,8 +531,11 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         select case (NumPar%kind_of_EMFP)
         case (2)    ! Read DSF elastic MFP
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
-            Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Hole_DSF_EMFPs_'//trim(adjustl(temp_char1))//'.dat'
-            if (allocated(File_names%F)) File_names%F(5) = 'OUTPUT_Hole_DSF_EMFPs.dat'//trim(adjustl(temp_char1))//'.dat' ! save for later use
+
+            temp_char2 = 'OUTPUT_Hole_DSF_EMFPs_'//trim(adjustl(temp_char1))//'.dat'
+
+            Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
+            if (allocated(File_names%F)) File_names%F(5) = trim(adjustl(temp_char2)) ! save for later use
             FN2 = 2032
 
             file_exist = .false.
@@ -554,9 +584,12 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             endselect
 
             write(temp_char, '(f7.2, a)') Matter%temp, '_K'
-            Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Hole'//trim(adjustl(KCS))//'_EMFPs_'//trim(adjustl(temp_char))//'.dat'
+
+            temp_char2 = 'OUTPUT_Hole'//trim(adjustl(KCS))//'_EMFPs_'//trim(adjustl(temp_char))//'.dat'
+
+            Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
             if (allocated(File_names%F)) then
-                File_names%F(5) = 'OUTPUT_Hole'//trim(adjustl(KCS))//'_EMFPs_'//trim(adjustl(temp_char))//'.dat' ! save for later use
+                File_names%F(5) = trim(adjustl(temp_char2)) ! save for later use
             endif
             FN2 = 204
             file_exist = .false.
@@ -566,8 +599,11 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             write(*, '(a)') trim(adjustl(Input_elastic_file))
          case (0) ! Mott cross-sections
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
-            Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Hole_Mott_EMFPs_'//trim(adjustl(temp_char1))//'.dat'
-            if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Hole_Mott_EMFPs_'//trim(adjustl(temp_char1))//'.dat' ! save for later use
+
+            temp_char2 = 'OUTPUT_Hole_Mott_EMFPs_'//trim(adjustl(temp_char1))//'.dat'
+
+            Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
+            if (allocated(File_names%F)) File_names%F(4) = trim(adjustl(temp_char2)) ! save for later use
             FN2 = 2043
             inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
 
@@ -592,8 +628,11 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             endif
          case default ! disabled
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
-            Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Hole_No_elas_EMFPs.dat'
-            if (allocated(File_names%F)) File_names%F(4) = 'OUTPUT_Hole_No_elas_EMFPs.dat' ! save for later use
+
+            temp_char2 = 'OUTPUT_Hole_No_elas_EMFPs.dat'
+
+            Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
+            if (allocated(File_names%F)) File_names%F(4) = trim(adjustl(temp_char2)) ! save for later use
             FN2 = 2031
             open(FN2, file=trim(adjustl(Input_elastic_file)))
             write(*,'(a)') 'Valence hole kinetics will be traces without elastic scatterings on target atoms'

@@ -25,13 +25,443 @@ PRIVATE  ! hides items not listed on public statement
 ! File_names%F(6) = SHI dEdx; MFP; Range
 ! File_names%F(7) = Photon IMFP
 ! File_names%F(8) = Photon EMFP
+! File_names%F(9) = DOS
 
-public :: Gnuplot_ion, Gnuplot_electrons
+public :: Gnuplot_ion, Gnuplot_electron_hole
 
 
 contains
 
 
+
+
+subroutine Gnuplot_electron_hole(NumPar, Target_atoms, File_names, Output_path)   ! From modlue "Gnuplotting_subs"
+   type(Flag), intent(in) :: NumPar
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   type(All_names) :: File_names   ! all file names for printing out stuff
+   character(*), intent(in) :: Output_path
+   !----------------
+   integer :: FN, ext_ind
+   character(200) :: Filename
+   logical :: file_opened
+
+   !----------------
+   ! 1) Plot electron MFPs:
+   Filename = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'Gnuplot_electron_MFP.cmd'
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_electron_MFP(FN, Target_atoms, Filename, File_names%F(2), File_names%F(4), &
+         NumPar%plot_extension, trim(adjustl(NumPar%path_sep)))  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)             ! and if it is, close it
+
+   !----------------
+   ! 2) Plot hole MFPs:
+   Filename = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'Gnuplot_hole_MFP.cmd'
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_hole_MFP(FN, Target_atoms, Filename, File_names%F(3), File_names%F(5), &
+         NumPar%plot_extension, trim(adjustl(NumPar%path_sep)))  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)             ! and if it is, close it
+
+   !----------------
+   ! 3) Plot photon MFPs:
+   Filename = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'Gnuplot_photon_MFP.cmd'
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_photon_MFP(FN, Target_atoms, Filename, File_names%F(7), NumPar%plot_extension, trim(adjustl(NumPar%path_sep)))  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)             ! and if it is, close it
+
+   !----------------
+   ! 4) Plot DOS things:
+   Filename = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'Gnuplot_DOS.cmd'
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_DOS(FN, Target_atoms, Filename, File_names%F(9), NumPar%plot_extension, trim(adjustl(NumPar%path_sep)))  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)             ! and if it is, close it
+
+   !----------------
+   ! Collect all gnuplot scripts together into one, and execute it:
+   call collect_gnuplots(NumPar, trim(adjustl(Output_path)))   ! below
+
+end subroutine Gnuplot_electron_hole
+
+
+
+subroutine gnuplot_DOS(FN, Target_atoms, Filename, file_DOS, plot_extension, path_sep)
+   integer, intent(in) :: FN  ! file with gnuplot script
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   character(*), intent(in) :: Filename, file_DOS
+   character(*), intent(in) :: plot_extension   ! file extension
+   character(1), intent(in) :: path_sep
+   !-----------------
+   integer :: ext_ind   ! file extension index
+   integer :: i, j, Nat, shl, col_count, VB_count
+   character(100) :: datafile, ymin, ymax, xmin, xmax
+   character(3) :: col
+   real(8) :: L_min, L_max, E_min, E_max
+
+   ! Get index of file extension:
+   call get_extension_index(plot_extension, ext_ind)   ! below
+
+   L_max = 10.0d0   ! maximal DOS
+   L_min = 0.0d0      ! minimal DOS
+   write(ymax,'(i10)') ceiling(L_max)
+   write(ymin,'(i10)') floor(L_min)
+   E_min = 0.0d0
+   E_max = 20.0d0
+   write(xmin,'(f12.5)') E_min
+   write(xmax,'(i10)') ceiling(E_max)
+   ! File with the data:
+   datafile = trim(adjustl(file_DOS))
+
+
+   ! Prepare grnplot script header:
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'DOS', 'Energy (eV)', 'DOS or mass (arb.units)', &
+      'DOS.'//trim(adjustl(plot_extension)), path_sep, 0, set_x_log=.false., set_y_log=.false., fontsize=14) ! below
+
+   Nat = size(Target_atoms)
+   col_count = 1  ! to start with
+   ! Prepare the plotting line:
+   if (path_sep .EQ. '\') then	! if it is Windows
+      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+         trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] "'// &
+         trim(adjustl(datafile)) // '"u 1:($3*10) w l lw LW title "DOS" ,\'
+
+      write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:5 w l lw LW title "Effective mass [me]" '
+
+   else ! It is linux
+      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+         trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] \"'// &
+         trim(adjustl(datafile)) // '\"u 1:(\$3*10) w l lw \"$LW\" title \"DOS\" ,\'
+
+      write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:5 w l lw \"$LW\" title \"Effective mass [me]\" '
+   endif
+
+   ! Prepare the ending:
+   call write_gnuplot_script_ending_new(FN, Filename, path_sep)  ! below
+
+end subroutine gnuplot_DOS
+
+
+
+
+subroutine gnuplot_electron_MFP(FN, Target_atoms, Filename, file_IMFP, file_EMFP, plot_extension, path_sep)
+   integer, intent(in) :: FN  ! file with gnuplot script
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   character(*), intent(in) :: Filename, file_IMFP, file_EMFP  ! file with data to plot
+   character(*), intent(in) :: plot_extension   ! file extension
+   character(1), intent(in) :: path_sep
+   !-----------------
+   integer :: ext_ind   ! file extension index
+   integer :: i, j, Nat, shl, col_count, VB_count
+   character(100) :: datafile_IMFP, datafile_EMFP, ymin, ymax, xmin, xmax
+   character(3) :: col
+   real(8) :: L_min, L_max, E_min, E_max
+
+   ! Get index of file extension:
+   call get_extension_index(plot_extension, ext_ind)   ! below
+
+   L_max = 10000.0d0   ! maximal MFP
+   L_min = 1.0d0      ! minimal MFP
+   write(ymax,'(i10)') ceiling(L_max)
+   write(ymin,'(i10)') floor(L_min)
+   E_min = 0.01d0
+   E_max = 1.0d5
+   write(xmin,'(f12.5)') E_min
+   write(xmax,'(i10)') ceiling(E_max)
+   ! File with the data:
+   datafile_IMFP = trim(adjustl(file_IMFP))
+   datafile_EMFP = trim(adjustl(file_EMFP))
+
+   ! Prepare grnplot script header:
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'Electron MFP', 'Electron energy (eV)', 'Mean free path (A)', &
+      'Electron_MFP.'//trim(adjustl(plot_extension)), path_sep, 1, set_x_log=.true., set_y_log=.true., fontsize=14) ! below
+
+   Nat = size(Target_atoms)
+   col_count = 1  ! to start with
+   ! Prepare the plotting line:
+   if (path_sep .EQ. '\') then	! if it is Windows
+      ! IMFPs:
+      do i = 1, Nat   ! all atoms
+         shl = size(Target_atoms(i)%Ip)
+         do j = 1, shl
+            col_count = col_count + 1  ! column number to print
+            write(col,'(i3)') col_count
+
+            if ((i == 1) .and. (j == 1)) then    ! first shell
+               write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+                  trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] "'// &
+                  trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+                  trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
+            elseif ((i == 1) .and. (j == shl)) then    ! VB
+               VB_count = col_count ! save column number for VB to plot before last line
+            elseif ((i == Nat) .and. (j == shl)) then    ! last one
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
+
+               write(col,'(i3)') VB_count ! add valence band
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence" ,\'
+
+               write(col,'(i3)') col_count+1 ! last column is the total MFP
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Total IMFP" ,\'
+            else
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
+            endif
+         enddo ! j
+      enddo ! i
+
+      ! EMFPs:
+      write(FN, '(a)') ' "'//trim(adjustl(datafile_EMFP))//'"u 1:2 w l lw LW title "Total EMFP" '
+
+   else ! It is linux
+      do i = 1, Nat   ! all atoms
+         shl = size(Target_atoms(i)%Ip)
+         do j = 1, shl
+            col_count = col_count + 1  ! column number to print
+            if ((i == 1) .and. (j == 1)) then    ! first shell
+               write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+                  trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] \"'// &
+                  trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+                  trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
+            elseif ((i == 1) .and. (j == shl)) then    ! VB
+               VB_count = col_count ! save column number for VB to plot before last line
+            elseif ((i == Nat) .and. (j == shl)) then    ! last one
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
+
+               write(col,'(i3)') VB_count ! add valence band
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
+
+               write(col,'(i3)') col_count+1 ! last column is the total MFP
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total IMFP\" ,\'
+            else
+               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
+            endif
+         enddo ! j
+      enddo ! i
+
+      ! EMFPs:
+      write(FN, '(a)') '\"'//trim(adjustl(datafile_EMFP))//'\"u 1:2 w l lw \"$LW\" title \"Total EMFP\" '
+   endif
+
+   ! Prepare the ending:
+   call write_gnuplot_script_ending_new(FN, Filename, path_sep)  ! below
+end subroutine gnuplot_electron_MFP
+
+
+
+subroutine gnuplot_hole_MFP(FN, Target_atoms, Filename, file_IMFP, file_EMFP, plot_extension, path_sep)
+   integer, intent(in) :: FN  ! file with gnuplot script
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   character(*), intent(in) :: Filename, file_IMFP, file_EMFP  ! file with data to plot
+   character(*), intent(in) :: plot_extension   ! file extension
+   character(1), intent(in) :: path_sep
+   !-----------------
+   integer :: ext_ind   ! file extension index
+   integer :: i, j, Nat, shl, col_count, VB_count
+   character(100) :: datafile_IMFP, datafile_EMFP, ymin, ymax, xmin, xmax
+   character(3) :: col
+   real(8) :: L_min, L_max, E_min, E_max
+
+   ! Get index of file extension:
+   call get_extension_index(plot_extension, ext_ind)   ! below
+
+   L_max = 10000.0d0   ! maximal MFP
+   L_min = 1.0d0      ! minimal MFP
+   write(ymax,'(i10)') ceiling(L_max)
+   write(ymin,'(i10)') floor(L_min)
+   E_min = 0.0d0
+   E_max = 30.0d0
+   write(xmin,'(f12.5)') E_min
+   write(xmax,'(i10)') ceiling(E_max)
+   ! File with the data:
+   datafile_IMFP = trim(adjustl(file_IMFP))
+   datafile_EMFP = trim(adjustl(file_EMFP))
+
+   ! Prepare grnplot script header:
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'Valence hole MFP', 'Valence hole energy (eV)', 'Mean free path (A)', &
+      'Hole_MFP.'//trim(adjustl(plot_extension)), path_sep, 0, set_x_log=.false., set_y_log=.true., fontsize=14) ! below
+
+   Nat = size(Target_atoms)
+   col_count = 1  ! to start with
+   ! Prepare the plotting line:
+   if (path_sep .EQ. '\') then	! if it is Windows
+      ! IMFPs:
+      do i = 1, Nat   ! all atoms
+         shl = size(Target_atoms(i)%Ip)
+         do j = 1, shl
+            col_count = col_count + 1  ! column number to print
+            write(col,'(i3)') col_count
+
+            if ((i == 1) .and. (j == 1)) then    ! first shell
+               write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+                  trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] "'// &
+                  trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+                  trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
+            elseif ((i == 1) .and. (j == shl)) then    ! VB
+               VB_count = col_count ! save column number for VB to plot before last line
+            elseif ((i == Nat) .and. (j == shl)) then    ! last one
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
+
+               write(col,'(i3)') VB_count ! add valence band
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence" ,\'
+
+               write(col,'(i3)') col_count+1 ! last column is the total MFP
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Total IMFP" ,\'
+            else
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
+            endif
+         enddo ! j
+      enddo ! i
+
+      ! EMFPs:
+      write(FN, '(a)') ' "'//trim(adjustl(datafile_EMFP))//'"u 1:2 w l lw LW title "Total EMFP" '
+
+   else ! It is linux
+      do i = 1, Nat   ! all atoms
+         shl = size(Target_atoms(i)%Ip)
+         do j = 1, shl
+            col_count = col_count + 1  ! column number to print
+            if ((i == 1) .and. (j == 1)) then    ! first shell
+               write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+                  trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] \"'// &
+                  trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+                  trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
+            elseif ((i == 1) .and. (j == shl)) then    ! VB
+               VB_count = col_count ! save column number for VB to plot before last line
+            elseif ((i == Nat) .and. (j == shl)) then    ! last one
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
+
+               write(col,'(i3)') VB_count ! add valence band
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
+
+               write(col,'(i3)') col_count+1 ! last column is the total MFP
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total IMFP\" ,\'
+            else
+               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
+            endif
+         enddo ! j
+      enddo ! i
+
+      ! EMFPs:
+      write(FN, '(a)') '\"'//trim(adjustl(datafile_EMFP))//'\"u 1:2 w l lw \"$LW\" title \"Total EMFP\" '
+   endif
+
+   ! Prepare the ending:
+   call write_gnuplot_script_ending_new(FN, Filename, path_sep)  ! below
+end subroutine gnuplot_hole_MFP
+
+
+
+
+subroutine gnuplot_photon_MFP(FN, Target_atoms, Filename, file_IMFP, plot_extension, path_sep)
+   integer, intent(in) :: FN  ! file with gnuplot script
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   character(*), intent(in) :: Filename, file_IMFP ! file with data to plot
+   character(*), intent(in) :: plot_extension   ! file extension
+   character(1), intent(in) :: path_sep
+   !-----------------
+   integer :: ext_ind   ! file extension index
+   integer :: i, j, Nat, shl, col_count, VB_count
+   character(100) :: datafile_IMFP, datafile_EMFP, ymin, ymax, xmin, xmax
+   character(3) :: col
+   real(8) :: L_min, L_max, E_min, E_max
+
+   ! Get index of file extension:
+   call get_extension_index(plot_extension, ext_ind)   ! below
+
+   L_max = 1.0d6   ! maximal MFP
+   L_min = 10.0d0      ! minimal MFP
+   write(ymax,'(i10)') ceiling(L_max)
+   write(ymin,'(i10)') floor(L_min)
+   E_min = 1.0d0
+   E_max = 1.0d5
+   write(xmin,'(f12.5)') E_min
+   write(xmax,'(i10)') ceiling(E_max)
+   ! File with the data:
+   datafile_IMFP = trim(adjustl(file_IMFP))
+
+   ! Prepare grnplot script header:
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'Photon MFP', 'Photon energy (eV)', 'Mean free path (A)', &
+      'Photon_MFP.'//trim(adjustl(plot_extension)), path_sep, 1, set_x_log=.true., set_y_log=.true., fontsize=14) ! below
+
+   Nat = size(Target_atoms)
+   col_count = 1  ! to start with
+   ! Prepare the plotting line:
+   if (path_sep .EQ. '\') then	! if it is Windows
+      ! IMFPs:
+      do i = 1, Nat   ! all atoms
+         shl = size(Target_atoms(i)%Ip)
+         do j = 1, shl
+            col_count = col_count + 1  ! column number to print
+            write(col,'(i3)') col_count
+
+            if ((i == 1) .and. (j == 1)) then    ! first shell
+               write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+                  trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] "'// &
+                  trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+                  trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
+            elseif ((i == 1) .and. (j == shl)) then    ! VB
+               VB_count = col_count ! save column number for VB to plot before last line
+            elseif ((i == Nat) .and. (j == shl)) then    ! last one
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
+
+               write(col,'(i3)') VB_count ! add valence band
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence" ,\'
+
+               write(col,'(i3)') col_count+1 ! last column is the total MFP
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Total" '
+            else
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
+            endif
+         enddo ! j
+      enddo ! i
+
+   else ! It is linux
+      do i = 1, Nat   ! all atoms
+         shl = size(Target_atoms(i)%Ip)
+         do j = 1, shl
+            col_count = col_count + 1  ! column number to print
+            if ((i == 1) .and. (j == 1)) then    ! first shell
+               write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+                  trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] \"'// &
+                  trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+                  trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
+            elseif ((i == 1) .and. (j == shl)) then    ! VB
+               VB_count = col_count ! save column number for VB to plot before last line
+            elseif ((i == Nat) .and. (j == shl)) then    ! last one
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
+
+               write(col,'(i3)') VB_count ! add valence band
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
+
+               write(col,'(i3)') col_count+1 ! last column is the total MFP
+               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total\"'
+            else
+               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
+            endif
+         enddo ! j
+      enddo ! i
+
+   endif
+
+   ! Prepare the ending:
+   call write_gnuplot_script_ending_new(FN, Filename, path_sep)  ! below
+end subroutine gnuplot_photon_MFP
+
+
+!------------------------
+! SHI plotting:
 
 subroutine Gnuplot_ion(NumPar, SHI, Target_atoms, File_names, Output_path_SHI)   ! From modlue "Gnuplotting_subs"
    type(Flag), intent(in) :: NumPar
@@ -85,127 +515,6 @@ subroutine Gnuplot_ion(NumPar, SHI, Target_atoms, File_names, Output_path_SHI)  
    call collect_gnuplots(NumPar, trim(adjustl(Output_path_SHI)))   ! below
 
 end subroutine Gnuplot_ion
-
-
-
-
-
-!===================================================
-! Gnuplotting all the scripts:
-subroutine collect_gnuplots(numpar, out_path)
-   type(Flag), intent(in) :: numpar        ! all numerical parameters
-   character(*), intent(in) :: out_path    ! folder with the cmd-files
-   !------------------------
-   character(200) :: File_name, command, Gnuplot_all_file
-   integer :: FN, N_f, i, n_slash
-   integer :: open_status, iret, idir
-   character(200), dimension(:), allocatable :: All_files
-   character(300) :: output_path
-   character(5) ::  call_slash, sh_cmd
-
-   ! In which directory to collect all gnu scripts:
-   output_path = out_path
-
-   ! Create a temporary file:
-   Gnuplot_all_file = 'Gnuplot_all'
-
-   ! Find the extension of the gnuplot scripts:
-   call cmd_vs_sh(numpar%path_sep, call_slash, sh_cmd)  ! module "Gnuplotting"
-   ! Include the extension of the script:
-   Gnuplot_all_file = 'Gnuplot_all'//trim(adjustl(sh_cmd))
-
-   ! Include the path to the directory:
-   File_name = trim(adjustl(output_path))//numpar%path_sep//trim(adjustl(Gnuplot_all_file))
-
-   ! Save the names of all gnuplot scripts into this file:
-   if (numpar%path_sep == '\') then	! if it is Windows
-      command = 'dir '//trim(adjustl(output_path))//'\*'//trim(adjustl(sh_cmd))//' /b >'//trim(adjustl(File_name))
-   else ! linux:
-      command = "ls -t "//trim(adjustl(output_path))//" | grep '"//trim(adjustl(sh_cmd))//"' >"//trim(adjustl(File_name))
-   endif
-
-   iret = system(trim(adjustl(command)))   ! execute the command to save file names in the temp file
-   !call system(trim(adjustl(command))) ! execute the command to save file names in the temp file
-
-   ! Open the files with gnuplot script names:
-   open(NEWUNIT=FN, file=trim(adjustl(File_name)), iostat=open_status)
-   if ( open_status /= 0 ) then
-      print *, 'Could not open ',trim(adjustl(File_name)),' for gnuplotting.', ' Unit = ', FN
-   endif
-
-   ! Find out how many there are:
-   call Count_lines_in_file(FN, N_f) ! below
-
-   ! Allocate array with them:
-   allocate(All_files(N_f)) ! array with all relevant file names
-
-   ! Read file names:
-   do i = 1,N_f
-      read(FN,*) All_files(i)
-   enddo
-
-   ! Rewind file to overwrite including the calls:
-   rewind(FN)
-   ! Make the script executable:
-   if (numpar%path_sep == '\') then	! if it is Windows
-      write(FN,'(a)') '@echo off'
-   else
-      write(FN,'(a)') '#!/bin/bash'
-   endif
-   do i = 1,N_f
-      if (trim(adjustl(All_files(i))) /= trim(adjustl(Gnuplot_all_file))) then ! exclude the file itself
-         if (numpar%path_sep == '\') then	! if it is Windows
-            write(FN,'(a)') trim(adjustl(call_slash))//' '//trim(adjustl(All_files(i)))
-         else
-            write(FN,'(a)') trim(adjustl(call_slash))//trim(adjustl(All_files(i)))
-         endif
-      endif
-   enddo
-   close (FN)
-   if (numpar%path_sep /= '\') then	! if it is Linux
-      iret = system('chmod +x '//trim(adjustl(File_name))) ! make the output-script executable
-   endif
-   !pause 'Execute all'
-
-   !--------------
-   ! Execute all the gnuplot scripts:
-   idir = chdir(trim(adjustl(output_path))) ! go into the directory with output files
-   !call chdir(trim(adjustl(output_path))) ! go into the directory with output files
-
-   if (numpar%path_sep == '\') then	! if it is Windows
-      iret = system( '@echo off' )   ! create the folder
-      iret = system(trim(adjustl(call_slash))//' '//trim(adjustl(Gnuplot_all_file)))   ! create the folder
-      !call system( '@echo off' )
-      !call system(trim(adjustl(call_slash))//' '//trim(adjustl(Gnuplot_all_file)))
-   else ! linux:
-      iret = system( '#!/bin/bash' )
-      iret = system(trim(adjustl(call_slash))//trim(adjustl(Gnuplot_all_file)))
-      !call system( '#!/bin/bash' )
-      !call system(trim(adjustl(call_slash))//trim(adjustl(Gnuplot_all_file)))
-   endif
-
-   ! Count how many times the system has to go out of the directory to get back into the original directory:
-   ! Defined by the number of slashes in the path given:
-   n_slash = count( (/ (trim(adjustl(output_path(i:i))), i=1,len_trim(output_path)) /) == trim(adjustl(numpar%path_sep)) )
-   do i = 1, n_slash+1  ! go up in the directory tree as many times as needed
-      idir = chdir("../")    ! exit the directory with output files
-      !call chdir("../")    ! exit the directory with output files
-   enddo
-end subroutine collect_gnuplots
-
-
-
-pure subroutine cmd_vs_sh(path_sep, call_slash, sh_cmd)
-   character(*), intent(in) :: path_sep
-   character(*), intent(out) :: call_slash, sh_cmd
-   if (path_sep .EQ. '\') then	! if it is Windows
-      call_slash = 'call '
-      sh_cmd = '.cmd'
-   else ! It is linux
-      call_slash = './'
-      sh_cmd = '.sh'
-   endif
-end subroutine cmd_vs_sh
 
 
 
@@ -502,10 +811,9 @@ subroutine gnuplot_SHI_MFP(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_e
 end subroutine gnuplot_SHI_MFP
 
 
-subroutine Gnuplot_electrons()
-end subroutine Gnuplot_electrons
 
-
+!=========================================
+! General gnuplot subroutines:
 
 subroutine write_gnuplot_script_header_new(FN, ind, LW, x_tics, labl, xlabl, ylabl, Out_file, path_sep, setkey, set_x_log, set_y_log, fontsize)
    integer, intent(in) :: FN, ind
@@ -756,10 +1064,128 @@ subroutine get_extension_index(text_ext, ind)
 end subroutine get_extension_index
 
 
+!===================================================
+! Gnuplotting all the scripts:
+subroutine collect_gnuplots(numpar, out_path)
+   type(Flag), intent(in) :: numpar        ! all numerical parameters
+   character(*), intent(in) :: out_path    ! folder with the cmd-files
+   !------------------------
+   character(200) :: File_name, command, Gnuplot_all_file
+   integer :: FN, N_f, i, n_slash
+   integer :: open_status, iret, idir
+   character(200), dimension(:), allocatable :: All_files
+   character(300) :: output_path
+   character(5) ::  call_slash, sh_cmd
+
+   ! In which directory to collect all gnu scripts:
+   output_path = out_path
+
+   ! Create a temporary file:
+   Gnuplot_all_file = 'Gnuplot_all'
+
+   ! Find the extension of the gnuplot scripts:
+   call cmd_vs_sh(numpar%path_sep, call_slash, sh_cmd)  ! module "Gnuplotting"
+   ! Include the extension of the script:
+   Gnuplot_all_file = 'Gnuplot_all'//trim(adjustl(sh_cmd))
+
+   ! Include the path to the directory:
+   File_name = trim(adjustl(output_path))//numpar%path_sep//trim(adjustl(Gnuplot_all_file))
+
+   ! Save the names of all gnuplot scripts into this file:
+   if (numpar%path_sep == '\') then	! if it is Windows
+      command = 'dir '//trim(adjustl(output_path))//'\*'//trim(adjustl(sh_cmd))//' /b >'//trim(adjustl(File_name))
+   else ! linux:
+      command = "ls -t "//trim(adjustl(output_path))//" | grep '"//trim(adjustl(sh_cmd))//"' >"//trim(adjustl(File_name))
+   endif
+
+   iret = system(trim(adjustl(command)))   ! execute the command to save file names in the temp file
+   !call system(trim(adjustl(command))) ! execute the command to save file names in the temp file
+
+   ! Open the files with gnuplot script names:
+   open(NEWUNIT=FN, file=trim(adjustl(File_name)), iostat=open_status)
+   if ( open_status /= 0 ) then
+      print *, 'Could not open ',trim(adjustl(File_name)),' for gnuplotting.', ' Unit = ', FN
+   endif
+
+   ! Find out how many there are:
+   call Count_lines_in_file(FN, N_f) ! below
+
+   ! Allocate array with them:
+   allocate(All_files(N_f)) ! array with all relevant file names
+
+   ! Read file names:
+   do i = 1,N_f
+      read(FN,*) All_files(i)
+   enddo
+
+   ! Rewind file to overwrite including the calls:
+   rewind(FN)
+   ! Make the script executable:
+   if (numpar%path_sep == '\') then	! if it is Windows
+      write(FN,'(a)') '@echo off'
+   else
+      write(FN,'(a)') '#!/bin/bash'
+   endif
+   do i = 1,N_f
+      if (trim(adjustl(All_files(i))) /= trim(adjustl(Gnuplot_all_file))) then ! exclude the file itself
+         if (numpar%path_sep == '\') then	! if it is Windows
+            write(FN,'(a)') trim(adjustl(call_slash))//' '//trim(adjustl(All_files(i)))
+         else
+            write(FN,'(a)') trim(adjustl(call_slash))//trim(adjustl(All_files(i)))
+         endif
+      endif
+   enddo
+   close (FN)
+   if (numpar%path_sep /= '\') then	! if it is Linux
+      iret = system('chmod +x '//trim(adjustl(File_name))) ! make the output-script executable
+   endif
+   !pause 'Execute all'
+
+   !--------------
+   ! Execute all the gnuplot scripts:
+   idir = chdir(trim(adjustl(output_path))) ! go into the directory with output files
+   !call chdir(trim(adjustl(output_path))) ! go into the directory with output files
+
+   if (numpar%path_sep == '\') then	! if it is Windows
+      iret = system( '@echo off' )   ! create the folder
+      iret = system(trim(adjustl(call_slash))//' '//trim(adjustl(Gnuplot_all_file)))   ! create the folder
+      !call system( '@echo off' )
+      !call system(trim(adjustl(call_slash))//' '//trim(adjustl(Gnuplot_all_file)))
+   else ! linux:
+      iret = system( '#!/bin/bash' )
+      iret = system(trim(adjustl(call_slash))//trim(adjustl(Gnuplot_all_file)))
+      !call system( '#!/bin/bash' )
+      !call system(trim(adjustl(call_slash))//trim(adjustl(Gnuplot_all_file)))
+   endif
+
+   ! Count how many times the system has to go out of the directory to get back into the original directory:
+   ! Defined by the number of slashes in the path given:
+   n_slash = count( (/ (trim(adjustl(output_path(i:i))), i=1,len_trim(output_path)) /) == trim(adjustl(numpar%path_sep)) )
+   do i = 1, n_slash+1  ! go up in the directory tree as many times as needed
+      idir = chdir("../")    ! exit the directory with output files
+      !call chdir("../")    ! exit the directory with output files
+   enddo
+end subroutine collect_gnuplots
+
+
+
+pure subroutine cmd_vs_sh(path_sep, call_slash, sh_cmd)
+   character(*), intent(in) :: path_sep
+   character(*), intent(out) :: call_slash, sh_cmd
+   if (path_sep .EQ. '\') then	! if it is Windows
+      call_slash = 'call '
+      sh_cmd = '.cmd'
+   else ! It is linux
+      call_slash = './'
+      sh_cmd = '.sh'
+   endif
+end subroutine cmd_vs_sh
+
+
 
 
 !------------------------------------
-! Old subroutines:
+! Obsolete subroutines:
 
 subroutine Gnuplot_execute_old(Folder, File_name, n)
    character(*), intent(in) :: Folder, File_name    ! folder, where the script is; script name

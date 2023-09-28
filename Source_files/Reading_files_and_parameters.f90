@@ -370,8 +370,12 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    call reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_message, read_well)    ! read material DOS
    if (.not. read_well) goto 2015
 
-   open(25, file = trim(adjustl(Output_path))//'/'//'OUTPUT_'//trim(adjustl(Material_name))//'_DOS_analysis.dat')
-   write(25, *) 'E[eV]   k[1/m]   DOS[a.u.]    Int_DOS[a.u.]   Eff_mass[me]'
+
+
+   temp_char1 = 'OUTPUT_'//trim(adjustl(Material_name))//'_DOS_analysis.dat'
+   File_names%F(9) = trim(adjustl(temp_char1))  ! save for plotting later
+   open(25, file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char1)))
+   write(25, *) '#E[eV]   k[1/m]   DOS[a.u.]    Int_DOS[a.u.]   Eff_mass[me]'
    if (Target_atoms(1)%Ip(size(Target_atoms(1)%Ip)) .LT. 0.2d0) then      ! Metal: Use DOS from bottom of CB to calculate dispersion relation
         do i = 1, size(Mat_DOS%E)
             write(25,'(e,e,e,e,e)') Mat_DOS%E(i), Mat_DOS%k_inv(i), Mat_DOS%DOS_inv(i), Mat_DOS%int_DOS_inv(i), Mat_DOS%Eff_m_inv(i)
