@@ -981,13 +981,15 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
     type(Solid), intent(in) :: Matter
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Flag), intent(inout) :: NumPar
-
+    !------------------------------
     real(8), dimension(:), allocatable :: dEdx_tot
     real(8) SHI_E, Emin, Emax, dE
     integer N, Ord, Va, IMFP_last_modified
     integer i, j, k, Nat, Nshl, FN, FN2, FN3
-    character(100) Input_files, Input_files11, Input_files2, Input_files3, Path_name, command, charge_name, charge_kind, CS_name
+    character(100) Input_files, Input_files11, Input_files2, Input_files3, Path_name, command, charge_name, charge_kind, CS_name, ch_temp
     logical file_exist, file_exist2
+    !------------------------------
+
     read_well = .true.  ! so far so good
     Nat = size(Target_atoms)    ! how many atoms
     if (.not. allocated(SHI_MFP)) allocate(SHI_MFP(size(Target_atoms))) ! that's how many atoms
@@ -1065,21 +1067,17 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
        charge_kind = '_P'
     END SELECT
     
-    Input_files = trim(adjustl(Path_name))//'/OUTPUT_'//trim(adjustl(SHI%Name))//trim(adjustl(CS_name))// &
-        trim(adjustl(charge_name))//trim(adjustl(charge_kind))//'_IMFP.dat'
+    ch_temp = trim(adjustl(Path_name))//'/OUTPUT_'//trim(adjustl(SHI%Name))//trim(adjustl(CS_name))// &
+        trim(adjustl(charge_name))//trim(adjustl(charge_kind))
 
-    Input_files2 = trim(adjustl(Path_name))//'/OUTPUT_'//trim(adjustl(SHI%Name))//trim(adjustl(CS_name))// &
-        trim(adjustl(charge_name))//trim(adjustl(charge_kind))//'_dEdx.dat'
+    Input_files = trim(adjustl(ch_temp))//'_IMFP.dat'
+    Input_files2 = trim(adjustl(ch_temp))//'_dEdx.dat'
+    Input_files11 = trim(adjustl(ch_temp))//'_effective_charges.dat'
+    Input_files3 = trim(adjustl(ch_temp))//'_Range.dat'
 
-    Input_files11 = trim(adjustl(Path_name))//'/OUTPUT_'//trim(adjustl(SHI%Name))//trim(adjustl(CS_name))// &
-        trim(adjustl(charge_name))//trim(adjustl(charge_kind))//'_effective_charges.dat'
-
-    Input_files3 = trim(adjustl(Path_name))//'/OUTPUT_'//trim(adjustl(SHI%Name))//trim(adjustl(CS_name))// &
-        trim(adjustl(charge_name))//trim(adjustl(charge_kind))//'_Range.dat'
-
-    if (allocated(File_names%F)) then
+    if (allocated(File_names%F)) then   ! name of the file without the path
         File_names%F(6) = 'OUTPUT_'//trim(adjustl(SHI%Name))//trim(adjustl(CS_name))// &
-            trim(adjustl(charge_name))//trim(adjustl(charge_kind))
+        trim(adjustl(charge_name))//trim(adjustl(charge_kind))
     endif
 
     inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
@@ -1167,8 +1165,8 @@ subroutine Get_ion_range(Input_files3,N,SHI_MFP,Target_atoms,dEdx_tot) ! calcula
     
     FN3 = 202
     open(FN3, file=trim(adjustl(Input_files3)))
-    write(FN3,'(A)')    'Energy dEdx    Range'
-    write(FN3,'(A)')    '[eV] [eV/A]    [A]'
+    write(FN3,'(A)')    '# Energy dEdx    Range'
+    write(FN3,'(A)')    '# [eV] [eV/A]    [A]'
     do i = 1,N  ! save into file
         write(FN3,'(es,es,es)') SHI_MFP(1)%ELMFP(1)%E(i), dEdx_tot(i), SHI_range(i)
     enddo

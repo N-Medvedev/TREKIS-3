@@ -65,7 +65,7 @@ PROGRAM Universal_MC_for_SHI
 use Universal_Constants
 use Objects
 use Variables
-use Gnuplotting_subs, only: Gnuplot_ion, Gnuplot_electrons_MFP
+use Gnuplotting_subs, only: Gnuplot_ion, Gnuplot_electrons
 use Reading_files_and_parameters, only: Read_input_file, get_num_shells, Find_VB_numbers, print_time_step, &
                                     get_add_data
 use Sorting_output_data, only: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, &
@@ -120,16 +120,29 @@ if (SHI%Zat .LE. 0) goto  3012  ! if ion is to be skipped, skip ion:
 if (NumPar%verbose) call print_time_step('Starting SHI mean-free-paths calculations:', msec=.true.)
 call Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI, SHI_MFP, Error_message, read_well, NumPar, Matter, Mat_DOS, File_names)  ! precalculate SHI mean free path and energy loss
 if (.not. read_well) goto 2012  ! if we couldn't read the input files, there is nothing else to do, go to end
-if (allocated(File_names%F)) call Gnuplot_ion(NumPar%path_sep, File_names%F(1), Output_path_SHI, File_names%F(6), Nshtot+2)   ! From modlue "Gnuplotting_subs"
+!if (allocated(File_names%F)) call Gnuplot_ion_old(NumPar%path_sep, File_names%F(1), Output_path_SHI, File_names%F(6), Nshtot+2)   ! From module "Gnuplotting_subs"
 call Equilibrium_charge_SHI(SHI, Target_atoms)  ! get Barcas' equilibrium charge from module Cross_sections
+
+! Plot SHI's parameters if requisted:
+if (NumPar%do_gnuplot) then
+    call Gnuplot_ion(NumPar, SHI, Target_atoms, File_names, Output_path_SHI)   ! module "Gnuplotting_subs"
+endif
+
 3012 continue ! if the ion skipped, go on from here:
+
+
 
 ! Electron MFPs:
 if (NumPar%verbose) call print_time_step('Starting electron mean-free-paths calculations:', msec=.true.)
 kind_of_particle = 'Electron'
 call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_el_MFPs, &
         Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names=File_names) ! from module Analytical_IMPS / openmp parallelization
-if (allocated(File_names%F)) call Gnuplot_electrons_MFP(NumPar%path_sep, File_names%F(1), Output_path, File_names%F(2), Nshtot+2)   ! From modlue "Gnuplotting_subs"
+!if (allocated(File_names%F)) call Gnuplot_electrons_MFP(NumPar%path_sep, File_names%F(1), Output_path, File_names%F(2), Nshtot+2)   ! From module "Gnuplotting_subs"
+! Plot electron's MFPs if requisted:
+if (NumPar%do_gnuplot) then
+    !call Gnuplot_electrons(NumPar, File_names, Output_path_SHI)   ! module "Gnuplotting_subs"
+endif
+
 
 ! Hole MFPs:
 if (NumPar%verbose) call print_time_step('Starting VB hole mean-free-paths calculations:', msec=.true.)
@@ -158,6 +171,7 @@ do i = 1, size(Target_atoms)
         Total_Hole_MFPs(i)%ELMFP(j)%E(:) = Total_Hole_MFPs(1)%ELMFP(1)%E(:) ! [eV] energy
     enddo
 enddo
+
 
 if ((NMC .LE. 0) .OR. (Tim .LE. 0.0d0)) then
     !write(*,'(a)') '----------------------------------------------------'
