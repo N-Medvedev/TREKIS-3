@@ -134,6 +134,8 @@ type :: Flag
     real(8) :: Zout_min
     real(8) :: Zout_max
     real(8) :: Zout_dz
+    ! Time grid:
+    real(8), dimension(:), allocatable :: time_grid ! grid_points in time
 end type Flag
 !==============================================
 

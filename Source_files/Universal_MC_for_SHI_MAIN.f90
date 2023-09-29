@@ -278,7 +278,7 @@ call Deallocate_out_arrays(Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_
     Out_Ee_vs_E_Em, Out_E_field)       !Module 'Sorting_output_data.f90'
 
 ! Gnuplot the data, if requested:
-call Gnuplot_transients(Tim, NumPar, Target_atoms, File_names)   ! module "Gnuplotting_subs"
+call Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)   ! module "Gnuplotting_subs"
 !MCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMC
 
 

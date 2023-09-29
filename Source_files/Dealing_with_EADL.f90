@@ -11,7 +11,7 @@ implicit none
 PRIVATE  ! hides items not listed on public statement
 
 public :: Decompose_compound, check_atomic_parameters, get_photon_cross_section_EPDL, next_designator, Find_element_name, &
-         define_PQN, Count_lines_in_file, m_atomic_folder, m_atomic_data_file
+         define_PQN, Count_lines_in_file, m_atomic_folder, m_atomic_data_file, Count_columns_in_file
 
 
 character(25), parameter :: m_atomic_folder = 'INPUT_EADL'
@@ -202,6 +202,52 @@ subroutine SkipCount_lines_in_file(File_num, N, skip_lines)
     rewind (File_num) ! to read next time from the beginning, not continue from the line we ended now.
     N = i	! print out the number of lines from the specified one to the last one
 end subroutine SkipCount_lines_in_file
+
+
+
+subroutine Count_columns_in_file(File_num, N, skip_lines)
+    integer, INTENT(in) :: File_num     ! number of file to be opened
+    integer, INTENT(out) :: N           ! number of columns in this file
+    integer, intent(in), optional :: skip_lines ! if you want to start not from the first line
+    real(8) temp
+    character(1000) temp_ch
+    integer i, Reason
+    integer :: temp_i
+    if (present(skip_lines)) then
+       do i=1,skip_lines
+          read(File_num,*, end=605)
+       enddo
+       605 continue
+    endif
+
+    read(File_num,'(a)', IOSTAT=Reason) temp_ch ! count columns in this line
+    N = number_of_columns(trim(adjustl(temp_ch))) ! see below
+
+    rewind (File_num) ! to read next time from the beginning, not continue from the line we ended now.
+end subroutine Count_columns_in_file
+
+
+pure function number_of_columns(line)
+   integer :: number_of_columns
+   character(*), intent(in) :: line
+   integer i, n
+   logical :: same_space
+   same_space = .false.
+   i = 0
+   n = len(line)
+   number_of_columns = 0
+   do while(i < n) ! scan through all the line
+      i = i + 1
+      selectcase (line(i:I))
+      case (' ', '	') ! space or tab can be a separator between the columns
+         if (.not.same_space) number_of_columns = number_of_columns + 1
+         same_space = .true. ! in case columns are separated by more than one space or tab
+      case default ! column data themselves, not a space inbetween
+         same_space = .false.
+      endselect
+   enddo
+   number_of_columns = number_of_columns + 1	! number of columns is by 1 more than number of spaces inbetween
+end function number_of_columns
 
 
 

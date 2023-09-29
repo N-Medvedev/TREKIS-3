@@ -331,7 +331,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     real(8), dimension(:), intent(in) :: Out_Ne_Em
     real(8), dimension(:), intent(in) :: Out_E_Em
     type(Cylinder_distr), intent(in) :: Out_Distr   ! OUTPUT radial distributions
-    type(Flag), intent(in) :: NumPar
+    type(Flag), intent(inout) :: NumPar
     !-------------------------------------------------
     real(8) :: t, as1, tim_glob, out_val
     integer :: c1(8), i, j,k,l,N, Nat, N_R, FN, FN1, FN2, FN3, FN31, FN4, Lowest_Ip_At, Lowest_Ip_Shl !, NOTP
@@ -367,6 +367,9 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
             enddo
             time_grid(size(time_grid)) = min(time_grid(size(time_grid)),Tim)
     endselect
+    if (.not. allocated(NumPar%time_grid)) then ! save the time-grid for gnuplotting:
+        allocate(NumPar%time_grid(size(time_grid)), source=time_grid)
+    endif
     
     SELECT CASE (SHI%Kind_Zeff) ! 0=Barkas; 1=Bohr; 2=Nikolaev-Dmitriev; 3=Schiwietz-Grande;
     CASE (1)
@@ -517,6 +520,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     ch_temp = 'Emitted_electron_distribution_vs_E[1_eV].txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
     !File_name = trim(adjustl(File_name2))//'/Emitted_electron_distribution_vs_E[1_eV].txt'
+    File_names%F(14) = trim(adjustl(ch_temp))   ! save for gnuplotting
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Energy[eV] '
     t = 0.0d0
@@ -777,14 +781,15 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     !File_name = trim(adjustl(File_name2))//'/Electron_distribution_vs_E[1_eV].txt'
     ch_temp = 'Electron_distribution_vs_E[1_eV].txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
-    !File_names%F(12) = trim(adjustl(ch_temp))
+    File_names%F(13) = trim(adjustl(ch_temp))
 
     open(unit = FN3, FILE = trim(adjustl(File_name)))
-    write(FN3, '(a)', advance='no') 'Energy[eV] '
+    write(FN3, '(a)') '#Energy[eV]   Spectrum[arb.units]'
+    write(FN3, '(a)', advance='no') '#time[fs]:  '
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
-        write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
+        write(FN3, '(f10.2)', advance='no') t
     enddo
     write(FN3, '(a)') ' '
     do i = 1, N_R   ! radii
@@ -805,7 +810,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     !File_name = trim(adjustl(File_name2))//'/VB_holes_distribution_vs_E[1_eV].txt'
     ch_temp = 'VB_holes_distribution_vs_E[1_eV].txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
-    !File_names%F(12) = trim(adjustl(ch_temp))
+    File_names%F(15) = trim(adjustl(ch_temp))
 
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Energy[eV] '
@@ -815,7 +820,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
         write(FN3, '(f10.2,a)', advance='no') t, '[fs]   '
     enddo
     write(FN3, '(a)') ' '
-    do i = 1, N_R   ! radii
+    do i = 1, size(Mat_DOS%E)   ! radii
         write(FN3, '(f9.1)', advance='no') Mat_DOS%E(i)
         t = 0.0d0
         do k = 1, N ! time-steps
@@ -980,7 +985,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
                 FN31 = 3051
                 !File_name1 = trim(adjustl(File_name2))//'/Radial_'//trim(adjustl(File_name4))//'_holes_kin_energy[eV_A^-3].txt'
                 ch_temp = 'Radial_'//trim(adjustl(File_name4))//'_holes_kin_energy[eV_A^-3].txt'
-                File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+                File_name1 = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
                 !File_names%F(12) = trim(adjustl(ch_temp))
 
                 open(unit = FN3, FILE = trim(adjustl(File_name)))

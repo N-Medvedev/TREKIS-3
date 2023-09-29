@@ -7,9 +7,9 @@
 ! http://www.gnuplot.info/
 
 module Gnuplotting_subs
-use Objects, only : Flag, All_names, Atom, Ion
+use Objects, only : Flag, All_names, Atom, Ion, Solid
 USE IFLPORT, only : system, chdir   ! library, allowing to operate with directories in intel fortran
-use Dealing_with_EADL, only : Count_lines_in_file
+use Dealing_with_EADL, only : Count_lines_in_file, Count_columns_in_file
 
 
 implicit none
@@ -40,6 +40,9 @@ public :: Gnuplot_ion, Gnuplot_electron_hole, Gnuplot_transients
 ! File_names%F(10) = Output directory name for transients
 ! File_names%F(11) = Total_numbers
 ! File_names%F(12) = Total_energies
+! File_names%F(13) = Electronic spectrum
+! File_names%F(14) = Emitted electrons spectrum
+! File_names%F(15) = Valence holes spectrum
 !----------------------------------------------
 
 contains
@@ -47,9 +50,10 @@ contains
 
 !------------------------------
 ! Dynamical quantities:
-subroutine Gnuplot_transients(Tim, NumPar, Target_atoms, File_names)
+subroutine Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)
    real(8), intent(in) :: Tim ! total simulation time [fs]
    type(Flag), intent(in) :: NumPar
+   type(Solid), intent(in) :: Matter   ! all material parameters
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(All_names), intent(in) :: File_names   ! all file names for printing out stuff
    !-----------------------------
@@ -84,11 +88,162 @@ subroutine Gnuplot_transients(Tim, NumPar, Target_atoms, File_names)
    if (file_opened) close(FN)             ! and if it is, close it
 
 
+   !--------------
+   ! 3) Print electron spectrum:
+   leng = LEN(trim(adjustl(File_names%F(13))))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(File_names%F(13)(1:leng-4)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_electron_spectrum(FN, Tim, Target_atoms, Filename, trim(adjustl(File_names%F(13))), NumPar)  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)             ! and if it is, close it
+
+   ! 3.1) Print emitted electron spectrum:
+   if (Matter%work_function .GT. 0.0d0) then
+      leng = LEN(trim(adjustl(File_names%F(14))))
+      Filename = trim(adjustl(Output_path))//trim(adjustl(File_names%F(14)(1:leng-4)))//trim(adjustl(sh_cmd))
+      open(newunit=FN, FILE = trim(adjustl(Filename)))
+      call gnuplot_electron_spectrum(FN, Tim, Target_atoms, Filename, trim(adjustl(File_names%F(14))), NumPar)  ! below
+      inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+      if (file_opened) close(FN)             ! and if it is, close it
+   endif
+
+   ! 3.2) Print valence holes spectrum:
+   leng = LEN(trim(adjustl(File_names%F(14))))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(File_names%F(15)(1:leng-4)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_electron_spectrum(FN, Tim, Target_atoms, Filename, trim(adjustl(File_names%F(15))), NumPar, .true.)  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)             ! and if it is, close it
+
+
+   !--------------
+   ! 3) Print electron velosity angular distribution:
+   leng = LEN(trim(adjustl(File_names%F(13))))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(File_names%F(13)(1:leng-4)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_electron_spectrum(FN, Tim, Target_atoms, Filename, trim(adjustl(File_names%F(13))), NumPar)  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)
+
    !----------------
    ! Collect all gnuplot scripts together into one, and execute it:
    call collect_gnuplots(NumPar, trim(adjustl(Output_path)))   ! below
 
 end subroutine Gnuplot_transients
+
+
+subroutine gnuplot_electron_spectrum(FN, Tim, Target_atoms, Filename, file_data, NumPar, holes)
+integer, intent(in) :: FN  ! file with gnuplot script
+   real(8), intent(in) :: Tim ! total simulation time [fs]
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   character(*), intent(in) :: Filename, file_data
+   type(Flag), intent(in) :: NumPar
+   logical, optional :: holes
+   !-----------------
+   character(10) :: plot_extension, path_sep
+   character(20) :: time_step
+   integer :: ext_ind, File_num
+   integer :: i, j, Nat, shl, col_count, VB_count, leng, N_col
+   character(200) :: datafile, ymin, ymax, xmin, xmax
+   character(3) :: col
+   real(8) :: L_min, L_max, T_min, T_max, dt, x_tics
+   character(8) :: temp, time_order
+   logical :: x_log, holes_spectrum
+   !-----------------
+
+   if (present(holes)) then
+      holes_spectrum = holes
+   else ! default, electron""
+      holes_spectrum = .false.
+   endif
+
+   ! number of columns (time instants) in the file to plot:
+   N_col = size(NumPar%time_grid)
+
+   plot_extension = trim(adjustl(NumPar%plot_extension))
+   path_sep = trim(adjustl(NumPar%path_sep))
+
+   ! Get index of file extension:
+   call get_extension_index(plot_extension, ext_ind)   ! below
+
+   !L_max = 10.0d0   ! maximal
+   L_min = 1.0d-6      ! minimal
+   !write(ymax,'(i10)') ceiling(L_max)
+   write(ymin,'(es12.2)') L_min
+
+   ! Prepare grnplot script header:
+   if (holes_spectrum) then   ! hole uses linear scale:
+      T_min = 0.0
+      x_tics = 1.0  ! for log scale, assume base 10
+      T_max = 20.0
+      write(xmin,'(f12.5)') T_min
+      write(xmax,'(i10)') ceiling(T_max)
+      x_log = .false.
+   else ! electron uses log scale:
+      T_min = 1.0d0
+      x_tics = 10.0  ! for log scale, assume base 10
+      T_max = Tim
+      write(xmin,'(f12.5)') T_min
+      write(xmax,'(i10)') 100000
+      x_log = .true.
+   endif
+
+   ! File with the data:
+   datafile = trim(adjustl(file_data))
+   leng = LEN(trim(adjustl(datafile)))
+
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, x_tics, 'Spectrum', 'Energy (eV)', 'Spectrum (arb.units)', &
+         trim(adjustl(datafile(1:leng-3)))//trim(adjustl(plot_extension)), path_sep, 0, &
+         set_x_log=x_log, set_y_log=.true., fontsize=14) ! below
+
+   ! Prepare the plotting line:
+   if (path_sep .EQ. '\') then	! if it is Windows
+      ! All time instants:
+      do i = 1, N_col    ! all time-steps
+         col_count = 1 + i
+         write(col,'(i3)') col_count
+         write(time_step,'(f12.2)')  NumPar%time_grid(i)
+
+         if (i == 1) then  ! Start:
+            write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+               trim(adjustl(ymin))//':] "'// &
+               trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "'//&
+               trim(adjustl(time_step))//' fs" ,\'
+         elseif (i == N_col) then    ! last
+            write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+               trim(adjustl(time_step))//' fs" '
+         else
+            write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+               trim(adjustl(time_step))//' fs" ,\'
+         endif
+      enddo ! i
+
+   else ! It is linux
+      ! All time instants:
+      do i = 1, N_col    ! all time-steps
+         col_count = 1 + i
+         write(col,'(i3)') col_count
+         write(time_step,'(f12.2)')  NumPar%time_grid(i)
+
+         if (i == 1) then  ! Start:
+            write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+               trim(adjustl(ymin))//':] \"'// &
+               trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"'//&
+               trim(adjustl(time_step))//' fs" ,\'
+         elseif (i == N_col) then    ! last
+            write(FN, '(a)') ' \"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+               trim(adjustl(time_step))//' fs\" '
+         else
+            write(FN, '(a)') ' \"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+               trim(adjustl(time_step))//' fs\" ,\'
+         endif
+      enddo ! i
+   endif
+
+   ! Prepare the ending:
+   call write_gnuplot_script_ending_new(FN, Filename, path_sep)  ! below
+
+end subroutine gnuplot_electron_spectrum
 
 
 
@@ -190,13 +345,13 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
       ! Total:
       write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
                   trim(adjustl(ymin))//':] \"'// &
-                  trim(adjustl(file_Numbers))//'\"u 1:4 w l lw \"$LW\" title "Total" ,\'
+                  trim(adjustl(file_Numbers))//'\"u 1:4 w l lw \"$LW\" title \"Total\" ,\'
       ! Electrons:
-      write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:2 w l lw \"$LW\" title "Electrons" ,\'
+      write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:2 w l lw \"$LW\" title \"Electrons\" ,\'
       ! Atoms:
-      write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:3 w l lw \"$LW\" title "Atoms" ,\'
+      write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:3 w l lw \"$LW\" title \"Atoms\" ,\'
       ! Photons:
-      write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:4 w l lw \"$LW\" title "Photons" ,\'
+      write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:4 w l lw \"$LW\" title \"Photons\" ,\'
       ! Valence:
       VB_count = 5 + size(Target_atoms(1)%Ip)
       write(col,'(i3)') VB_count ! add valence band
@@ -1226,11 +1381,17 @@ subroutine write_gnuplot_script_header_linux_new(FN, ind, LW, x_tics, labl, xlab
    endif
 
    if (present(set_x_log)) then
-      if (set_x_log) write(FN, '(a)') "set logscale x"
+      if (set_x_log) then
+         write(FN, '(a)') "set logscale x"
+         write(FN, '(a)') 'set format x \"10^{\%L}\"'
+      endif
    endif
 
    if (present(set_y_log)) then
-      if (set_y_log) write(FN, '(a)') "set logscale y"
+      if (set_y_log) then
+         write(FN, '(a)') "set logscale y"
+         write(FN, '(a)') 'set format y \"10^{\%L}\"'
+      endif
    endif
 
    write(FN, '(a)') 'set xtics \"$TICSIZ\" '
@@ -1304,11 +1465,17 @@ subroutine write_gnuplot_script_header_windows_new(FN, ind, LW, x_tics, labl, xl
    endif
 
    if (present(set_x_log)) then
-      if (set_x_log) write(FN, '(a)') "set logscale x"
+      if (set_x_log) then
+         write(FN, '(a)') "set logscale x"
+         write(FN, '(a)') 'set format x "10^{%L}"'
+      endif
    endif
 
    if (present(set_y_log)) then
-      if (set_y_log) write(FN, '(a)') "set logscale y"
+      if (set_y_log) then
+         write(FN, '(a)') "set logscale y"
+         write(FN, '(a)') 'set format y "10^{%L}"'
+      endif
    endif
 
    !write(FN, '(a,f6.2)') 'set xtics ', x_tics
