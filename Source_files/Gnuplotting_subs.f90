@@ -45,6 +45,19 @@ public :: Gnuplot_ion, Gnuplot_electron_hole, Gnuplot_transients
 ! File_names%F(15) = Valence holes spectrum
 ! File_names%F(16) = Electron velosity angular sitribution
 ! File_names%F(17) = Valence hole velosity angular sitribution
+! File_names%F(18) = Electron raidal sitribution
+! File_names%F(19) = Electron energy raidal sitribution
+! File_names%F(20) = Radial_electron_temperature
+! File_names%F(21) = Radial_photon_density
+! File_names%F(22) = Radial_photon_energy
+! File_names%F(23) = Radial_Lattice_energy
+! File_names%F(24) = Radial_Track_energy
+! File_names%F(25) = Radial_Lattice_temperature
+! File_names%F(26) = VB Holes density vs R
+! File_names%F(27) = Radial_holes_pot_energy
+! File_names%F(28) = Radial_holes_kin_energy
+! File_names%F(29) = Radial_holes_temperature
+
 !----------------------------------------------
 
 contains
@@ -142,13 +155,239 @@ subroutine Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)
 
+   !--------------
+   ! 5) Print electron density radial distribution:
+   In_file = trim(adjustl(File_names%F(18)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d16, &
+            'Electron density (1/cm^3)')  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)
 
+   ! 5.1) Print VB holes density radial distribution:
+   In_file = trim(adjustl(File_names%F(26)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d16, &
+            'Valence holes density (1/cm^3)')  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)
 
+   ! 5.2) Print photon density radial distribution:
+   In_file = trim(adjustl(File_names%F(21)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d16, &
+            'Photons density (1/cm^3)')  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)
+
+   !--------------
+   ! 6) Print electron energy density radial distribution:
+   In_file = trim(adjustl(File_names%F(19)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+            'Electrons energy density (eV/A^3)')  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)
+
+   ! 6.1) Print VB hole potential energy density radial distribution:
+   In_file = trim(adjustl(File_names%F(27)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+            'Holes potential energy density (eV/A^3)')  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)
+   ! 6.2) Print VB hole kinetic energy density radial distribution:
+   In_file = trim(adjustl(File_names%F(28)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+            'Holes kinetic energy density (eV/A^3)')  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)
+
+   ! 6.3) Print atomic energy density radial distribution:
+   In_file = trim(adjustl(File_names%F(23)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+            'Atoms kinetic energy density (eV/A^3)')  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)
+   ! 6.4) Print total atomic energy density radial distribution (scattering + nonthermal):
+   In_file = trim(adjustl(File_names%F(24)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+            'Track energy density (eV/A^3)')  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)
+
+   ! 6.5) Print photon energy density radial distribution:
+   In_file = trim(adjustl(File_names%F(22)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+            'Track energy density (eV/A^3)')  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)
+
+   !--------------
+   ! 7) Print electron temperature radial distribution:
+   In_file = trim(adjustl(File_names%F(20)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-4)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d1, &
+            'Electron kinetic temperature (K)')  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)
+
+   ! 7.1) Print VB holes temperature radial distribution:
+   In_file = trim(adjustl(File_names%F(29)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-4)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d1, &
+            'Valence holes kinetic temperature (K)')  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)
+
+   ! 7.2) Print atomic temperature radial distribution:
+   In_file = trim(adjustl(File_names%F(25)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-4)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d1, &
+            'Atomic kinetic temperature (K)')  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)
 
    !----------------
    ! Collect all gnuplot scripts together into one, and execute it:
    call collect_gnuplots(NumPar, trim(adjustl(Output_path)))   ! below
 end subroutine Gnuplot_transients
+
+
+
+
+subroutine gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, file_data, NumPar, y_min, value_name)
+   integer, intent(in) :: FN  ! file with gnuplot script
+   real(8), intent(in) :: Tim, y_min ! total simulation time [fs], minimal value of y-axis
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   character(*), intent(in) :: Filename, file_data
+   type(Flag), intent(in) :: NumPar
+   character(*), intent(in) :: value_name
+   !-----------------
+   character(10) :: plot_extension, path_sep
+   character(20) :: time_step
+   integer :: ext_ind, File_num
+   integer :: i, j, Nat, shl, col_count, VB_count, leng, N_col
+   character(200) :: datafile, ymin, ymax, xmin, xmax
+   character(3) :: col
+   real(8) :: L_min, L_max, T_min, T_max, dt, x_tics
+   character(8) :: temp, time_order
+   logical :: x_log
+   !-----------------
+
+   ! number of columns (time instants) in the file to plot:
+   N_col = size(NumPar%time_grid)
+
+   plot_extension = trim(adjustl(NumPar%plot_extension))
+   path_sep = trim(adjustl(NumPar%path_sep))
+
+   ! Get index of file extension:
+   call get_extension_index(plot_extension, ext_ind)   ! below
+
+   !L_max = 10.0d0   ! maximal
+   L_min = y_min      ! minimal
+   !write(ymax,'(i10)') ceiling(L_max)
+   write(ymin,'(es12.2)') L_min
+
+   ! Prepare grnplot script header:
+   T_min = 1.0d0
+   x_tics = 10.0  ! for log scale, assume base 10
+   T_max = Tim
+   write(xmin,'(f12.5)') T_min
+   if (Tim < 5.0) then
+      write(xmax,'(i10)') 1000
+   elseif (Tim < 50.0) then
+      write(xmax,'(i10)') 10000
+   else
+      write(xmax,'(i10)') 100000
+   endif
+   x_log = .true.
+
+   ! File with the data:
+   datafile = trim(adjustl(file_data))
+   leng = LEN(trim(adjustl(datafile)))
+
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, x_tics, 'Distribution', 'Radius (A)', trim(adjustl(value_name)), &
+         trim(adjustl(datafile(1:leng-3)))//trim(adjustl(plot_extension)), path_sep, 0, &
+         set_x_log=x_log, set_y_log=.true., fontsize=14) ! below
+
+   ! Prepare the plotting line:
+   if (path_sep .EQ. '\') then	! if it is Windows
+      ! All time instants:
+      do i = 1, N_col    ! all time-steps
+         col_count = 1 + i
+         write(col,'(i3)') col_count
+         write(time_step,'(f12.2)')  NumPar%time_grid(i)
+
+         if (i == 1) then  ! Start:
+            write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+               trim(adjustl(ymin))//':] "'// &
+               trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "'//&
+               trim(adjustl(time_step))//' fs" ,\'
+         elseif (i == N_col) then    ! last
+            write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+               trim(adjustl(time_step))//' fs" '
+         else
+            write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+               trim(adjustl(time_step))//' fs" ,\'
+         endif
+      enddo ! i
+
+   else ! It is linux
+      ! All time instants:
+      do i = 1, N_col    ! all time-steps
+         col_count = 1 + i
+         write(col,'(i3)') col_count
+         write(time_step,'(f12.2)')  NumPar%time_grid(i)
+
+         if (i == 1) then  ! Start:
+            write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+               trim(adjustl(ymin))//':] \"'// &
+               trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"'//&
+               trim(adjustl(time_step))//' fs\" ,\'
+         elseif (i == N_col) then    ! last
+            write(FN, '(a)') ' \"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+               trim(adjustl(time_step))//' fs\" '
+         else
+            write(FN, '(a)') ' \"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+               trim(adjustl(time_step))//' fs\" ,\'
+         endif
+      enddo ! i
+   endif
+
+   ! Prepare the ending:
+   call write_gnuplot_script_ending_new(FN, Filename, path_sep)  ! below
+
+end subroutine gnuplot_raidal_distribution
+
 
 
 
@@ -174,7 +413,7 @@ subroutine gnuplot_theta_distribution(FN, Tim, Target_atoms, Filename, file_data
 
    if (present(holes)) then
       holes_spectrum = holes
-   else ! default, electron""
+   else ! default, electron"
       holes_spectrum = .false.
    endif
 
@@ -241,7 +480,7 @@ subroutine gnuplot_theta_distribution(FN, Tim, Target_atoms, Filename, file_data
             write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
                trim(adjustl(ymin))//':] \"'// &
                trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"'//&
-               trim(adjustl(time_step))//' fs" ,\'
+               trim(adjustl(time_step))//' fs\" ,\'
          elseif (i == N_col) then    ! last
             write(FN, '(a)') ' \"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                trim(adjustl(time_step))//' fs\" '
@@ -282,7 +521,7 @@ subroutine gnuplot_spectrum(FN, Tim, Target_atoms, Filename, file_data, NumPar, 
 
    if (present(holes)) then
       holes_spectrum = holes
-   else ! default, electron""
+   else ! default, electron"
       holes_spectrum = .false.
    endif
 
@@ -358,7 +597,7 @@ subroutine gnuplot_spectrum(FN, Tim, Target_atoms, Filename, file_data, NumPar, 
             write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
                trim(adjustl(ymin))//':] \"'// &
                trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"'//&
-               trim(adjustl(time_step))//' fs" ,\'
+               trim(adjustl(time_step))//' fs\" ,\'
          elseif (i == N_col) then    ! last
             write(FN, '(a)') ' \"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                trim(adjustl(time_step))//' fs\" '
@@ -484,7 +723,7 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
       ! Valence:
       VB_count = 5 + size(Target_atoms(1)%Ip)
       write(col,'(i3)') VB_count ! add valence band
-      write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence holes\" ,\'
+      write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence holes\" ,\'
       ! Core holes:
       col_count = 5
       do i = 1, Nat   ! all atoms
@@ -494,11 +733,9 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
             if ((i == 1) .and. (j == shl)) then    ! VB
                VB_count = col_count ! save column number for VB to plot before last line
             elseif ((i == Nat) .and. (j == shl)) then    ! last one
-               write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+               write(FN, '(a)') '\"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" '
 
-               !write(col,'(i3)') VB_count ! add valence band
-               !write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence holes\" ,\'
             else
                write(FN, '(a)') '\"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
@@ -574,13 +811,12 @@ subroutine gnuplot_total_numbers(FN, Tim, Target_atoms, Filename, file_data, Num
          trim(adjustl(datafile)) // '"u 1:2 w l lw LW title "Excited e-" ,\'
 
       write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:3 w l lw LW title "Emitted e-" ,\'
-
       write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:6 w l lw LW title "Photons" '
 
    else ! It is linux
       write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
          trim(adjustl(ymin))//':] \"'// &
-         trim(adjustl(datafile)) // '\"u 1:2 w l lw \"$LW\" title \""Excited e-\" ,\'
+         trim(adjustl(datafile)) // '\"u 1:2 w l lw \"$LW\" title \"Excited e-\" ,\'
 
       write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:3 w l lw \"$LW\" title \"Emitted e-\" ,\'
       write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:6 w l lw \"$LW\" title \"Photons\" '
@@ -785,6 +1021,8 @@ subroutine gnuplot_electron_MFP(FN, Target_atoms, Filename, file_IMFP, file_EMFP
          shl = size(Target_atoms(i)%Ip)
          do j = 1, shl
             col_count = col_count + 1  ! column number to print
+            write(col,'(i3)') col_count
+
             if ((i == 1) .and. (j == 1)) then    ! first shell
                write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
                   trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] \"'// &
@@ -793,14 +1031,14 @@ subroutine gnuplot_electron_MFP(FN, Target_atoms, Filename, file_IMFP, file_EMFP
             elseif ((i == 1) .and. (j == shl)) then    ! VB
                VB_count = col_count ! save column number for VB to plot before last line
             elseif ((i == Nat) .and. (j == shl)) then    ! last one
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
 
                write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
+               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
 
                write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total IMFP\" ,\'
+               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total IMFP\" ,\'
             else
                write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
@@ -892,6 +1130,8 @@ subroutine gnuplot_hole_MFP(FN, Target_atoms, Filename, file_IMFP, file_EMFP, pl
          shl = size(Target_atoms(i)%Ip)
          do j = 1, shl
             col_count = col_count + 1  ! column number to print
+            write(col,'(i3)') col_count
+
             if ((i == 1) .and. (j == 1)) then    ! first shell
                write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
                   trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] \"'// &
@@ -900,14 +1140,14 @@ subroutine gnuplot_hole_MFP(FN, Target_atoms, Filename, file_IMFP, file_EMFP, pl
             elseif ((i == 1) .and. (j == shl)) then    ! VB
                VB_count = col_count ! save column number for VB to plot before last line
             elseif ((i == Nat) .and. (j == shl)) then    ! last one
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
 
                write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
+               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
 
                write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total IMFP\" ,\'
+               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total IMFP\" ,\'
             else
                write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
@@ -996,6 +1236,8 @@ subroutine gnuplot_photon_MFP(FN, Target_atoms, Filename, file_IMFP, plot_extens
          shl = size(Target_atoms(i)%Ip)
          do j = 1, shl
             col_count = col_count + 1  ! column number to print
+            write(col,'(i3)') col_count
+
             if ((i == 1) .and. (j == 1)) then    ! first shell
                write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
                   trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] \"'// &
@@ -1004,14 +1246,14 @@ subroutine gnuplot_photon_MFP(FN, Target_atoms, Filename, file_IMFP, plot_extens
             elseif ((i == 1) .and. (j == shl)) then    ! VB
                VB_count = col_count ! save column number for VB to plot before last line
             elseif ((i == Nat) .and. (j == shl)) then    ! last one
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
 
                write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
+               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
 
                write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total\"'
+               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total\"'
             else
                write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
@@ -1122,7 +1364,7 @@ subroutine gnuplot_SHI_Zeff(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_
 
    ! Prepare grnplot script header:
    call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'SHI Se', 'Ion energy (MeV)', 'Effective charge (Z)', &
-       trim(adjustl(file_ion_MFP))//'_Zeff.'//trim(adjustl(plot_extension)), path_sep, 0, &
+       trim(adjustl(file_ion_MFP))//'_Zeff.'//trim(adjustl(plot_extension)), path_sep, 1, &
        set_x_log=.true., set_y_log=.false., fontsize=14) ! below
 
    Nat = size(Target_atoms)
@@ -1179,10 +1421,10 @@ subroutine gnuplot_SHI_Range(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot
    col_count = 1  ! to start with
    ! Prepare the plotting line:
    if (path_sep .EQ. '\') then	! if it is Windows
-      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//'][0.0:'//trim(adjustl(ymax))//'] "'// trim(adjustl(datafile)) // &
+      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//'][0.0:] "'// trim(adjustl(datafile)) // &
          '"u 3:2 w l lw LW title "Range"'
    else ! It is linux
-      write(FN, '(a)') 'p [1e5:1e8][0.0:'//trim(adjustl(ymax))//'] \"'// trim(adjustl(datafile)) // &
+      write(FN, '(a)') 'p [1e5:1e8][0.0:] \"'// trim(adjustl(datafile)) // &
          '\"u 3:2 w l lw \"$LW\" title \"Range\"'
    endif
 
@@ -1236,7 +1478,7 @@ subroutine gnuplot_SHI_dEdx(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_
             write(col,'(i3)') col_count
 
             if ((i == 1) .and. (j == 1)) then    ! first shell
-               write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//'][0.0:'//trim(adjustl(ymax))//'] "'// &
+               write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//'][0.0:] "'// &
                   trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
                   trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
             elseif ((i == 1) .and. (j == shl)) then    ! VB
@@ -1261,21 +1503,23 @@ subroutine gnuplot_SHI_dEdx(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_
          shl = size(Target_atoms(i)%Ip)
          do j = 1, shl
             col_count = col_count + 1  ! column number to print
+            write(col,'(i3)') col_count
+
             if ((i == 1) .and. (j == 1)) then    ! first shell
-               write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//'][0.0:'//trim(adjustl(ymax))//'] \"'// &
+               write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//'][0.0:] \"'// &
                   trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                   trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
             elseif ((i == 1) .and. (j == shl)) then    ! VB
                VB_count = col_count ! save column number for VB to plot before last line
             elseif ((i == Nat) .and. (j == shl)) then    ! last one
-               write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+               write(FN, '(a)') '\"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
 
                write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
+               write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
 
                write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total\"'
+               write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total\"'
             else
                write(FN, '(a)') '\"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
@@ -1361,6 +1605,8 @@ subroutine gnuplot_SHI_MFP(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_e
          shl = size(Target_atoms(i)%Ip)
          do j = 1, shl
             col_count = col_count + 1  ! column number to print
+            write(col,'(i3)') col_count
+
             if ((i == 1) .and. (j == 1)) then    ! first shell
                write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
                   trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] \"'// &
@@ -1369,14 +1615,14 @@ subroutine gnuplot_SHI_MFP(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_e
             elseif ((i == 1) .and. (j == shl)) then    ! VB
                VB_count = col_count ! save column number for VB to plot before last line
             elseif ((i == Nat) .and. (j == shl)) then    ! last one
-               write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+               write(FN, '(a)') '\"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
 
                write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
+               write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
 
                write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total\"'
+               write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total\"'
             else
                write(FN, '(a)') '\"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
@@ -1722,7 +1968,7 @@ subroutine collect_gnuplots(numpar, out_path)
    !------------------------
    character(200) :: File_name, command, Gnuplot_all_file
    integer :: FN, N_f, i, n_slash
-   integer :: open_status, iret, idir
+   integer :: open_status, iret, idir, leng
    character(200), dimension(:), allocatable :: All_files
    character(300) :: output_path
    character(5) ::  call_slash, sh_cmd
@@ -1781,7 +2027,10 @@ subroutine collect_gnuplots(numpar, out_path)
          if (numpar%path_sep == '\') then	! if it is Windows
             write(FN,'(a)') trim(adjustl(call_slash))//' '//trim(adjustl(All_files(i)))
          else
-            write(FN,'(a)') trim(adjustl(call_slash))//trim(adjustl(All_files(i)))
+            leng = LEN(trim(adjustl(All_files(i))))
+            if (trim(adjustl(All_files(i)(leng-2:))) == '.sh') then  ! to exclude other files possible containing "sh"
+               write(FN,'(a)') trim(adjustl(call_slash))//trim(adjustl(All_files(i)))
+            endif
          endif
       endif
    enddo

@@ -29,7 +29,7 @@ subroutine TREKIS_title(FN)
    write(FN,'(a)') '*                                                      *'
    write(FN,'(a)') trim(adjustl(starline))
    write(FN,'(a)') 'Time-Resolved Electron Kinetics in SHI-Irradiated Solids'
-   write(FN,'(a)') 'Version: 3.1.0  (update 29.09.2023)     '
+   write(FN,'(a)') 'Version: 3.1.1  (update 29.09.2023)     '
    write(FN,'(a)') trim(adjustl(starline))
 end subroutine TREKIS_title
 
@@ -440,7 +440,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
         FN3 = 312
         File_name = trim(adjustl(File_name2))//'/Electric_fields_produced[V_m-1].txt'
         open(unit = FN3, FILE = trim(adjustl(File_name)))
-        write(FN3, '(a)', advance='no') 'Radius[A] '
+        write(FN3, '(a)', advance='no') '#Radius[A] '
         t = 0.0d0
         do i = 1, N     ! timesteps
             t = time_grid(i)
@@ -637,10 +637,10 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     !File_name = trim(adjustl(File_name2))//'/Radial_electron_density[1_cm^-3].txt'
     ch_temp = 'Radial_electron_density[1_cm^-3].txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
-    !File_names%F(12) = trim(adjustl(ch_temp))
+    File_names%F(18) = trim(adjustl(ch_temp))
 
     open(unit = FN3, FILE = trim(adjustl(File_name)))
-    write(FN3, '(a)', advance='no') 'Radius[A] '
+    write(FN3, '(a)', advance='no') '#Radius[A] '
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
@@ -664,9 +664,9 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     !File_name = trim(adjustl(File_name2))//'/Radial_electron_energy[eV_A^-3].txt'
     ch_temp = 'Radial_electron_energy[eV_A^-3].txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
-    !File_names%F(12) = trim(adjustl(ch_temp))
+    File_names%F(19) = trim(adjustl(ch_temp))
     open(unit = FN3, FILE = trim(adjustl(File_name)))
-    write(FN3, '(a)', advance='no') 'Radius[A] '
+    write(FN3, '(a)', advance='no') '#Radius[A] '
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
@@ -691,10 +691,10 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     !File_name = trim(adjustl(File_name2))//'/Radial_electron_temperature[K].txt'
     ch_temp = 'Radial_electron_temperature[K].txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
-    !File_names%F(12) = trim(adjustl(ch_temp))
+    File_names%F(20) = trim(adjustl(ch_temp))
 
     open(unit = FN3, FILE = trim(adjustl(File_name)))
-    write(FN3, '(a)', advance='no') 'Radius[A] '
+    write(FN3, '(a)', advance='no') '#Radius[A] '
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
@@ -724,10 +724,10 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
         !File_name = trim(adjustl(File_name2))//'/Radial_photon_density[1_cm^-3].txt'
         ch_temp = 'Radial_photon_density[1_cm^-3].txt'
         File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
-        !File_names%F(12) = trim(adjustl(ch_temp))
+        File_names%F(21) = trim(adjustl(ch_temp))
 
         open(unit = FN3, FILE = trim(adjustl(File_name)))
-        write(FN3, '(a)', advance='no') 'Radius[A] '
+        write(FN3, '(a)', advance='no') '#Radius[A] '
         t = 0.0d0
         do i = 1, N     ! timesteps
             t = time_grid(i)
@@ -751,10 +751,10 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
         !File_name = trim(adjustl(File_name2))//'/Radial_photon_energy[eV_A^-3].txt'
         ch_temp = 'Radial_photon_energy[eV_A^-3].txt'
         File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
-        !File_names%F(12) = trim(adjustl(ch_temp))
+        File_names%F(22) = trim(adjustl(ch_temp))
 
         open(unit = FN3, FILE = trim(adjustl(File_name)))
-        write(FN3, '(a)', advance='no') 'Radius[A] '
+        write(FN3, '(a)', advance='no') '#Radius[A] '
         t = 0.0d0
         do i = 1, N     ! timesteps
             t = time_grid(i)
@@ -839,10 +839,10 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     !File_name = trim(adjustl(File_name2))//'/Radial_Lattice_energy[eV_A^-3].txt'
     ch_temp = 'Radial_Lattice_energy[eV_A^-3].txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
-    !File_names%F(12) = trim(adjustl(ch_temp))
+    File_names%F(23) = trim(adjustl(ch_temp))
 
     open(unit = FN3, FILE = trim(adjustl(File_name)))
-    write(FN3, '(a)', advance='no') 'Radius[A] '
+    write(FN3, '(a)', advance='no') '#Radius[A] '
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
@@ -868,10 +868,10 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     !File_name = trim(adjustl(File_name2))//'/Radial_Track_energy[eV_A^-3].txt'
     ch_temp = 'Radial_Track_energy[eV_A^-3].txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
-    !File_names%F(12) = trim(adjustl(ch_temp))
+    File_names%F(24) = trim(adjustl(ch_temp))
 
     open(unit = FN3, FILE = trim(adjustl(File_name)))
-    write(FN3, '(a)', advance='no') 'Radius[A] '
+    write(FN3, '(a)', advance='no') '#Radius[A] '
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
@@ -896,10 +896,10 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     !File_name = trim(adjustl(File_name2))//'/Radial_Lattice_temperature[K].txt'
     ch_temp = 'Radial_Lattice_temperature[K].txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
-    !File_names%F(12) = trim(adjustl(ch_temp))
+    File_names%F(25) = trim(adjustl(ch_temp))
 
     open(unit = FN3, FILE = trim(adjustl(File_name)))
-    write(FN3, '(a)', advance='no') 'Radius[A] '
+    write(FN3, '(a)', advance='no') '#Radius[A] '
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
@@ -926,10 +926,12 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
                 write(File_name4, '(a,a,a)') trim(adjustl(Target_atoms(j)%Name)),'_',trim(adjustl(Target_atoms(j)%Shell_name(l)))
             else    ! valence band:
                 write(File_name4, '(a)') trim(adjustl(Target_atoms(j)%Shell_name(l)))
+                File_names%F(26) = 'Radial_'//trim(adjustl(File_name4))//'_holes_density[1_cm^-3].txt'  ! save for gnuplotting
             endif
-            File_name = trim(adjustl(File_name2))//'/Radial_'//trim(adjustl(File_name4))//'_holes_density[1_cm^-3].txt'
+            File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))// &
+                        'Radial_'//trim(adjustl(File_name4))//'_holes_density[1_cm^-3].txt'
             open(unit = FN3, FILE = trim(adjustl(File_name)))
-            write(FN3, '(a)', advance='no') 'Radius[A] '
+            write(FN3, '(a)', advance='no') '#Radius[A] '
             t = 0.0d0
             do i = 1, N     ! timesteps
                 t = time_grid(i)
@@ -959,7 +961,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
                 write(File_name4, '(a,a,a)') trim(adjustl(Target_atoms(j)%Name)),'_',trim(adjustl(Target_atoms(j)%Shell_name(l)))
                 File_name = trim(adjustl(File_name2))//'/Radial_'//trim(adjustl(File_name4))//'_holes_energy[eV_A^-3].txt'
                 open(unit = FN3, FILE = trim(adjustl(File_name)))
-                write(FN3, '(a)', advance='no') 'Radius[A] '
+                write(FN3, '(a)', advance='no') '#Radius[A] '
                 t = 0.0d0
                 do i = 1, N     ! timesteps
                     t = time_grid(i)
@@ -981,18 +983,18 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
                 !File_name = trim(adjustl(File_name2))//'/Radial_'//trim(adjustl(File_name4))//'_holes_pot_energy[eV_A^-3].txt'
                 ch_temp = 'Radial_'//trim(adjustl(File_name4))//'_holes_pot_energy[eV_A^-3].txt'
                 File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
-                !File_names%F(12) = trim(adjustl(ch_temp))
+                File_names%F(27) = trim(adjustl(ch_temp))
 
                 FN31 = 3051
                 !File_name1 = trim(adjustl(File_name2))//'/Radial_'//trim(adjustl(File_name4))//'_holes_kin_energy[eV_A^-3].txt'
                 ch_temp = 'Radial_'//trim(adjustl(File_name4))//'_holes_kin_energy[eV_A^-3].txt'
                 File_name1 = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
-                !File_names%F(12) = trim(adjustl(ch_temp))
+                File_names%F(28) = trim(adjustl(ch_temp))
 
                 open(unit = FN3, FILE = trim(adjustl(File_name)))
                 open(unit = FN31, FILE = trim(adjustl(File_name1)))
-                write(FN3, '(a)', advance='no') 'Radius[A] '
-                write(FN31, '(a)', advance='no') 'Radius[A] '
+                write(FN3, '(a)', advance='no') '#Radius[A] '
+                write(FN31, '(a)', advance='no') '#Radius[A] '
                 t = 0.0d0
                 do i = 1, N     ! timesteps
                     t = time_grid(i)
@@ -1029,9 +1031,12 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
             FN3 = 304
             if (Target_atoms(j)%Shl_num(l) .EQ. 63) then    ! VB
                 write(File_name4, '(a)') trim(adjustl(Target_atoms(j)%Shell_name(l)))
-                File_name = trim(adjustl(File_name2))//'/Radial_'//trim(adjustl(File_name4))//'_holes_temperature[K].txt'
+                ch_temp = 'Radial_'//trim(adjustl(File_name4))//'_holes_temperature[K].txt'
+                File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+                File_names%F(29) = trim(adjustl(ch_temp))
+
                 open(unit = FN3, FILE = trim(adjustl(File_name)))
-                write(FN3, '(a)', advance='no') 'Radius[A] '
+                write(FN3, '(a)', advance='no') '#Radius[A] '
                 t = 0.0d0
                 do i = 1, N     ! timesteps
                     t = time_grid(i)
