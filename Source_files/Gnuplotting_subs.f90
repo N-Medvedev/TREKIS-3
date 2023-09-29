@@ -43,6 +43,8 @@ public :: Gnuplot_ion, Gnuplot_electron_hole, Gnuplot_transients
 ! File_names%F(13) = Electronic spectrum
 ! File_names%F(14) = Emitted electrons spectrum
 ! File_names%F(15) = Valence holes spectrum
+! File_names%F(16) = Electron velosity angular sitribution
+! File_names%F(17) = Valence hole velosity angular sitribution
 !----------------------------------------------
 
 contains
@@ -57,7 +59,7 @@ subroutine Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(All_names), intent(in) :: File_names   ! all file names for printing out stuff
    !-----------------------------
-   character(300) :: output_path, Filename
+   character(300) :: output_path, Filename, In_file
    character(10) :: call_slash, sh_cmd
    integer :: FN, ext_ind, leng
    logical :: file_opened
@@ -70,70 +72,197 @@ subroutine Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)
 
    !--------------
    ! 1) Print total numbers:
-   leng = LEN(trim(adjustl(File_names%F(11))))
-   Filename = trim(adjustl(Output_path))//trim(adjustl(File_names%F(11)(1:leng-4)))//trim(adjustl(sh_cmd))
+   In_file = trim(adjustl(File_names%F(11)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-4)))//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
-   call gnuplot_total_numbers(FN, Tim, Target_atoms, Filename, trim(adjustl(File_names%F(11))), NumPar)  ! below
+   call gnuplot_total_numbers(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar)  ! below
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)             ! and if it is, close it
 
 
    !--------------
    ! 2) Print total energies:
-   leng = LEN(trim(adjustl(File_names%F(11))))
-   Filename = trim(adjustl(Output_path))//trim(adjustl(File_names%F(12)(1:leng-4)))//trim(adjustl(sh_cmd))
+   In_file = trim(adjustl(File_names%F(12)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-4)))//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
-   call gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, trim(adjustl(File_names%F(12))), trim(adjustl(File_names%F(11))), NumPar) ! below
+   call gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), trim(adjustl(File_names%F(11))), NumPar) ! below
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)             ! and if it is, close it
 
 
    !--------------
    ! 3) Print electron spectrum:
-   leng = LEN(trim(adjustl(File_names%F(13))))
-   Filename = trim(adjustl(Output_path))//trim(adjustl(File_names%F(13)(1:leng-4)))//trim(adjustl(sh_cmd))
+   In_file = trim(adjustl(File_names%F(13)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-4)))//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
-   call gnuplot_electron_spectrum(FN, Tim, Target_atoms, Filename, trim(adjustl(File_names%F(13))), NumPar)  ! below
+   call gnuplot_spectrum(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar)  ! below
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)             ! and if it is, close it
 
    ! 3.1) Print emitted electron spectrum:
    if (Matter%work_function .GT. 0.0d0) then
-      leng = LEN(trim(adjustl(File_names%F(14))))
-      Filename = trim(adjustl(Output_path))//trim(adjustl(File_names%F(14)(1:leng-4)))//trim(adjustl(sh_cmd))
+      In_file = trim(adjustl(File_names%F(14)))
+      leng = LEN(trim(adjustl(In_file)))
+      Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-4)))//trim(adjustl(sh_cmd))
       open(newunit=FN, FILE = trim(adjustl(Filename)))
-      call gnuplot_electron_spectrum(FN, Tim, Target_atoms, Filename, trim(adjustl(File_names%F(14))), NumPar)  ! below
+      call gnuplot_spectrum(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar)  ! below
       inquire(unit=FN,opened=file_opened)    ! check if this file is opened
       if (file_opened) close(FN)             ! and if it is, close it
    endif
 
    ! 3.2) Print valence holes spectrum:
-   leng = LEN(trim(adjustl(File_names%F(14))))
-   Filename = trim(adjustl(Output_path))//trim(adjustl(File_names%F(15)(1:leng-4)))//trim(adjustl(sh_cmd))
+   In_file = trim(adjustl(File_names%F(15)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-4)))//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
-   call gnuplot_electron_spectrum(FN, Tim, Target_atoms, Filename, trim(adjustl(File_names%F(15))), NumPar, .true.)  ! below
+   call gnuplot_spectrum(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, .true.)  ! below
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)             ! and if it is, close it
 
 
    !--------------
-   ! 3) Print electron velosity angular distribution:
-   leng = LEN(trim(adjustl(File_names%F(13))))
-   Filename = trim(adjustl(Output_path))//trim(adjustl(File_names%F(13)(1:leng-4)))//trim(adjustl(sh_cmd))
+   ! 4) Print electron velosity angular distribution:
+   In_file = trim(adjustl(File_names%F(16)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-4)))//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
-   call gnuplot_electron_spectrum(FN, Tim, Target_atoms, Filename, trim(adjustl(File_names%F(13))), NumPar)  ! below
+   call gnuplot_theta_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar)  ! below
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)
+
+   ! 4.1) Print VB hole velosity angular distribution:
+   In_file = trim(adjustl(File_names%F(17)))
+   leng = LEN(trim(adjustl(In_file)))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-4)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_theta_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar)  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)
+
+
+
 
    !----------------
    ! Collect all gnuplot scripts together into one, and execute it:
    call collect_gnuplots(NumPar, trim(adjustl(Output_path)))   ! below
-
 end subroutine Gnuplot_transients
 
 
-subroutine gnuplot_electron_spectrum(FN, Tim, Target_atoms, Filename, file_data, NumPar, holes)
-integer, intent(in) :: FN  ! file with gnuplot script
+
+
+subroutine gnuplot_theta_distribution(FN, Tim, Target_atoms, Filename, file_data, NumPar, holes)
+   integer, intent(in) :: FN  ! file with gnuplot script
+   real(8), intent(in) :: Tim ! total simulation time [fs]
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   character(*), intent(in) :: Filename, file_data
+   type(Flag), intent(in) :: NumPar
+   logical, optional :: holes
+   !-----------------
+   character(10) :: plot_extension, path_sep
+   character(20) :: time_step
+   integer :: ext_ind, File_num
+   integer :: i, j, Nat, shl, col_count, VB_count, leng, N_col
+   character(200) :: datafile, ymin, ymax, xmin, xmax
+   character(3) :: col
+   real(8) :: L_min, L_max, T_min, T_max, dt, x_tics
+   character(8) :: temp, time_order
+   logical :: x_log, holes_spectrum
+   !-----------------
+
+   if (present(holes)) then
+      holes_spectrum = holes
+   else ! default, electron""
+      holes_spectrum = .false.
+   endif
+
+   ! number of columns (time instants) in the file to plot:
+   N_col = size(NumPar%time_grid)
+
+   plot_extension = trim(adjustl(NumPar%plot_extension))
+   path_sep = trim(adjustl(NumPar%path_sep))
+
+   ! Get index of file extension:
+   call get_extension_index(plot_extension, ext_ind)   ! below
+
+   !L_max = 10.0d0   ! maximal
+   L_min = 1.0d-3      ! minimal
+   !write(ymax,'(i10)') ceiling(L_max)
+   write(ymin,'(es12.2)') L_min
+
+   ! Prepare grnplot script header:
+   T_min = 0.0
+   x_tics = 20.0  ! for log scale, assume base 10
+   T_max = 180.0  ! degrees
+   write(xmin,'(f12.5)') T_min
+   write(xmax,'(i10)') ceiling(T_max)
+   x_log = .false.
+
+   ! File with the data:
+   datafile = trim(adjustl(file_data))
+   leng = LEN(trim(adjustl(datafile)))
+
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, x_tics, 'Theta', 'Angle (deg)', 'Spectrum (arb.units)', &
+         trim(adjustl(datafile(1:leng-3)))//trim(adjustl(plot_extension)), path_sep, 0, &
+         set_x_log=x_log, set_y_log=.true., fontsize=14) ! below
+
+   ! Prepare the plotting line:
+   if (path_sep .EQ. '\') then	! if it is Windows
+      ! All time instants:
+      do i = 1, N_col    ! all time-steps
+         col_count = 1 + i
+         write(col,'(i3)') col_count
+         write(time_step,'(f12.2)')  NumPar%time_grid(i)
+
+         if (i == 1) then  ! Start:
+            write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+               trim(adjustl(ymin))//':] "'// &
+               trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "'//&
+               trim(adjustl(time_step))//' fs" ,\'
+         elseif (i == N_col) then    ! last
+            write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+               trim(adjustl(time_step))//' fs" '
+         else
+            write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+               trim(adjustl(time_step))//' fs" ,\'
+         endif
+      enddo ! i
+
+   else ! It is linux
+      ! All time instants:
+      do i = 1, N_col    ! all time-steps
+         col_count = 1 + i
+         write(col,'(i3)') col_count
+         write(time_step,'(f12.2)')  NumPar%time_grid(i)
+
+         if (i == 1) then  ! Start:
+            write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+               trim(adjustl(ymin))//':] \"'// &
+               trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"'//&
+               trim(adjustl(time_step))//' fs" ,\'
+         elseif (i == N_col) then    ! last
+            write(FN, '(a)') ' \"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+               trim(adjustl(time_step))//' fs\" '
+         else
+            write(FN, '(a)') ' \"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+               trim(adjustl(time_step))//' fs\" ,\'
+         endif
+      enddo ! i
+   endif
+
+   ! Prepare the ending:
+   call write_gnuplot_script_ending_new(FN, Filename, path_sep)  ! below
+
+end subroutine gnuplot_theta_distribution
+
+
+
+
+
+subroutine gnuplot_spectrum(FN, Tim, Target_atoms, Filename, file_data, NumPar, holes)
+   integer, intent(in) :: FN  ! file with gnuplot script
    real(8), intent(in) :: Tim ! total simulation time [fs]
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    character(*), intent(in) :: Filename, file_data
@@ -174,7 +303,7 @@ integer, intent(in) :: FN  ! file with gnuplot script
    ! Prepare grnplot script header:
    if (holes_spectrum) then   ! hole uses linear scale:
       T_min = 0.0
-      x_tics = 1.0  ! for log scale, assume base 10
+      x_tics = 2.0  ! for log scale, assume base 10
       T_max = 20.0
       write(xmin,'(f12.5)') T_min
       write(xmax,'(i10)') ceiling(T_max)
@@ -243,7 +372,7 @@ integer, intent(in) :: FN  ! file with gnuplot script
    ! Prepare the ending:
    call write_gnuplot_script_ending_new(FN, Filename, path_sep)  ! below
 
-end subroutine gnuplot_electron_spectrum
+end subroutine gnuplot_spectrum
 
 
 

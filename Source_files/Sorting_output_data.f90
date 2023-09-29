@@ -29,7 +29,7 @@ subroutine TREKIS_title(FN)
    write(FN,'(a)') '*                                                      *'
    write(FN,'(a)') trim(adjustl(starline))
    write(FN,'(a)') 'Time-Resolved Electron Kinetics in SHI-Irradiated Solids'
-   write(FN,'(a)') 'Version: 3.1.0  (update 27.09.2023)     '
+   write(FN,'(a)') 'Version: 3.1.0  (update 29.09.2023)     '
    write(FN,'(a)') trim(adjustl(starline))
 end subroutine TREKIS_title
 
@@ -464,9 +464,10 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     FN3 = 500
     ch_temp = 'Electrons_theta_distribution.txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    File_names%F(16) = trim(adjustl(ch_temp))   ! save for gnuplotting
     !File_name = trim(adjustl(File_name2))//'/Electrons_theta_distribution.txt'
     open(unit = FN3, FILE = trim(adjustl(File_name)))
-    write(FN3, '(a)', advance='no') 'Angle[deg] '
+    write(FN3, '(a)', advance='no') '#Angle[deg] '
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
@@ -491,6 +492,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     FN3 = 5001
     ch_temp = 'VB_holes_theta_distribution.txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    File_names%F(17) = trim(adjustl(ch_temp))   ! save for gnuplotting
     !File_name = trim(adjustl(File_name2))//'/VB_holes_theta_distribution.txt'
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Angle[deg] '
@@ -513,7 +515,6 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     if (file_opened) close(FN3)             ! and if it is, close it
 
 
-
   !Emitted Electron distribution in energy space (vs E) vs time:
   if (Matter%work_function .GT. 0.0d0) then      
     FN3 = 501
@@ -522,7 +523,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     !File_name = trim(adjustl(File_name2))//'/Emitted_electron_distribution_vs_E[1_eV].txt'
     File_names%F(14) = trim(adjustl(ch_temp))   ! save for gnuplotting
     open(unit = FN3, FILE = trim(adjustl(File_name)))
-    write(FN3, '(a)', advance='no') 'Energy[eV] '
+    write(FN3, '(a)', advance='no') '#Energy[eV] '
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
@@ -813,7 +814,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     File_names%F(15) = trim(adjustl(ch_temp))
 
     open(unit = FN3, FILE = trim(adjustl(File_name)))
-    write(FN3, '(a)', advance='no') 'Energy[eV] '
+    write(FN3, '(a)', advance='no') '#Energy[eV] '
     t = 0.0d0
     do i = 1, N     ! timesteps
         t = time_grid(i)
