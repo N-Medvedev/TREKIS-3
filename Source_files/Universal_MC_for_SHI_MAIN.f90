@@ -65,7 +65,7 @@ PROGRAM Universal_MC_for_SHI
 use Universal_Constants
 use Objects
 use Variables
-use Gnuplotting_subs, only: Gnuplot_ion, Gnuplot_electron_hole
+use Gnuplotting_subs, only: Gnuplot_ion, Gnuplot_electron_hole, Gnuplot_transients
 use Reading_files_and_parameters, only: Read_input_file, get_num_shells, Find_VB_numbers, print_time_step, &
                                     get_add_data
 use Sorting_output_data, only: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, &
@@ -265,7 +265,7 @@ enddo   ! k
 
 !OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
 2011    continue
-call Save_output(Output_path_SHI, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, CDF_Phonon, &
+call Save_output(Output_path_SHI, File_names, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, CDF_Phonon, &
                 SHI, Out_R, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_nphot, Out_Ephot,&
                 Out_Ee_vs_E, Out_Eh_vs_E, Out_E_at, Out_E_h, Out_Eat_dens, Out_Distr, &
                 Out_Elat, Out_theta, Out_theta_h, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
@@ -276,6 +276,9 @@ call Deallocate_out_arrays(Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_
     Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, &
     Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, Out_theta, Out_theta_h, Out_field_all, Out_Ne_Em, Out_E_Em, &
     Out_Ee_vs_E_Em, Out_E_field)       !Module 'Sorting_output_data.f90'
+
+! Gnuplot the data, if requested:
+call Gnuplot_transients(Tim, NumPar, Target_atoms, File_names)   ! module "Gnuplotting_subs"
 !MCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMC
 
 

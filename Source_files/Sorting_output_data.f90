@@ -295,12 +295,13 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
 end subroutine print_parameters
 
 
-subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, CDF_Phonon, &
+subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, CDF_Phonon, &
                 SHI, Out_R, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_nphot, Out_Ephot, &
                 Out_Ee_vs_E, Out_Eh_vs_E, Out_E_at, Out_E_h, Out_Eat_dens, &
                 Out_Distr, Out_Elat, Out_theta, Out_theta_h, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, NumPar, &
                 Out_E_field, Out_diff_coeff)
-    character(100), intent(in) :: Output_path, Material_name
+    character(*), intent(in) :: Output_path, Material_name
+    type(All_names), intent(inout) :: File_names   ! all file names for printing out stuff
     integer, dimension(:), intent(in) :: ctim
     integer, intent(in) :: NMC, Num_th  ! number of MC iterations, and number of threads used for openmp
     real(8), intent(in) :: Tim, dt ! [fs]
@@ -334,7 +335,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     !-------------------------------------------------
     real(8) :: t, as1, tim_glob, out_val
     integer :: c1(8), i, j,k,l,N, Nat, N_R, FN, FN1, FN2, FN3, FN31, FN4, Lowest_Ip_At, Lowest_Ip_Shl !, NOTP
-    character(300) :: command, charge_name, charge_kind, File_name, File_name1, File_name2, File_name3, File_name4, C_time
+    character(300) :: command, charge_name, charge_kind, File_name, File_name1, File_name2, File_name3, File_name4, C_time, ch_temp
     character(30) :: ch1, ch2, ch3
     character(LEN=25) :: FMT
     logical :: file_exist, file_opened
@@ -406,11 +407,15 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     !write(*,'(a)') '--------------------------------'
     write(*,'(a)') trim(adjustl(dashline))
     write(*,'(a,a)') 'The outputs with MC results are storred in the folder:', trim(adjustl(File_name2))
+    ! Save this folder name for gnuplotting later:
+    File_names%F(10) = trim(adjustl(File_name2))
+    !print*, 'File_names%F(10)=', File_names%F(10)
     
     !========================================================
     !Parameters of this calculation:
     FN1 = 299
-    File_name = trim(adjustl(File_name2))//'/!Parameters.txt'
+    ch_temp = '!Parameters.txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
     open(unit = FN1, FILE = trim(adjustl(File_name)))
 
     call print_parameters(FN1, SHI, Material_name, Target_atoms, Matter, NumPar, CDF_Phonon, Tim, dt, NMC, Num_th, .true., .true.) ! see above
@@ -454,7 +459,9 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     
     !Angular distribution of velosities of electrons:
     FN3 = 500
-    File_name = trim(adjustl(File_name2))//'/Electrons_theta_distribution.txt'
+    ch_temp = 'Electrons_theta_distribution.txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    !File_name = trim(adjustl(File_name2))//'/Electrons_theta_distribution.txt'
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Angle[deg] '
     t = 0.0d0
@@ -479,7 +486,9 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
 
     !Angular distribution of velosities of holes:
     FN3 = 5001
-    File_name = trim(adjustl(File_name2))//'/VB_holes_theta_distribution.txt'
+    ch_temp = 'VB_holes_theta_distribution.txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    !File_name = trim(adjustl(File_name2))//'/VB_holes_theta_distribution.txt'
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Angle[deg] '
     t = 0.0d0
@@ -505,7 +514,9 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
   !Emitted Electron distribution in energy space (vs E) vs time:
   if (Matter%work_function .GT. 0.0d0) then      
     FN3 = 501
-    File_name = trim(adjustl(File_name2))//'/Emitted_electron_distribution_vs_E[1_eV].txt'
+    ch_temp = 'Emitted_electron_distribution_vs_E[1_eV].txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    !File_name = trim(adjustl(File_name2))//'/Emitted_electron_distribution_vs_E[1_eV].txt'
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Energy[eV] '
     t = 0.0d0
@@ -530,17 +541,21 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
 
     !Total number of electrons and total energy to check the energy conservation:
     FN = 300
-    File_name = trim(adjustl(File_name2))//'/Total_numbers.txt'
+    !File_name = trim(adjustl(File_name2))//'/Total_numbers.txt'
+    ch_temp = 'Total_numbers.txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    File_names%F(11) = trim(adjustl(ch_temp))
+
     open(unit = FN, FILE = trim(adjustl(File_name)))
     t = 0.0d0
     if (NumPar%include_photons) then ! only if we include photons:
-       write(FN, '(a)') 'Time[fs]    Ne    Ne_Emitted    Energy[eV]     Energy_Emitted[eV] N_photons'
+       write(FN, '(a)') '#Time[fs]    Ne    Ne_Emitted    Energy[eV]     Energy_Emitted[eV] N_photons'
        do i = 1, N
             t = time_grid(i)
             write(FN, '(e,e,e,e,e,e)') t, Out_tot_Ne(i), Out_Ne_Em(i), Out_tot_E(i), Out_E_Em(i), Out_tot_Nphot(i)
        enddo
     else
-       write(FN, '(a)') 'Time[fs]    Ne    Ne_Emitted    Energy[eV]     Energy_Emitted[eV]'
+       write(FN, '(a)') '#Time[fs]    Ne    Ne_Emitted    Energy[eV]     Energy_Emitted[eV]'
        do i = 1, N
             t = time_grid(i)
             write(FN, '(e,e,e,e,e)') t, Out_tot_Ne(i), Out_Ne_Em(i), Out_tot_E(i), Out_E_Em(i)
@@ -553,11 +568,14 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     
     !Hole mean diffusion coefficient
     FN = 3001
-    File_name = trim(adjustl(File_name2))//'/Hole_mean_diffusion_coefficient.txt'
+    !File_name = trim(adjustl(File_name2))//'/Hole_mean_diffusion_coefficient.txt'
+    ch_temp = 'Hole_mean_diffusion_coefficient.txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    !File_names%F(11) = trim(adjustl(ch_temp))
     open(unit = FN, FILE = trim(adjustl(File_name)))
     t = 0.0d0
     if (Matter%hole_mass .LT. 1.0d3) then ! only if we calculate hole propagation
-       write(FN, '(a)') 'Time[fs]    Diffusion_coeff[cm^2/s]'
+       write(FN, '(a)') '#Time[fs]    Diffusion_coeff[cm^2/s]'
        do i = 1, N
             t = time_grid(i)
             write(FN, '(e,e)') t, Out_diff_coeff(i)
@@ -570,12 +588,15 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     
     !Total energy of electrons, atoms, and all holes:
     FN2 = 301
-    File_name = trim(adjustl(File_name2))//'/Total_energies.txt'
+    !File_name = trim(adjustl(File_name2))//'/Total_energies.txt'
+    ch_temp = 'Total_energies.txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    File_names%F(12) = trim(adjustl(ch_temp))
     open(unit = FN2, FILE = trim(adjustl(File_name)))
     if (NumPar%include_photons) then ! only if we include photons:
-        write(FN2, '(a)', advance='no') 'Time[fs]    Electrons[eV]   Atoms[eV]   Field[eV]  Photons[eV] '
+        write(FN2, '(a)', advance='no') '#Time[fs]    Electrons[eV]   Atoms[eV]   Field[eV]  Photons[eV] '
     else
-        write(FN2, '(a)', advance='no') 'Time[fs]    Electrons[eV]   Atoms[eV]   Field[eV]  '
+        write(FN2, '(a)', advance='no') '#Time[fs]    Electrons[eV]   Atoms[eV]   Field[eV]  '
     endif
     do i = 1, Nat   ! all atoms
         do j = 1, size(Target_atoms(i)%Ip)
@@ -608,7 +629,11 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     
     !Electron density vs R vs time:
     FN3 = 302
-    File_name = trim(adjustl(File_name2))//'/Radial_electron_density[1_cm^-3].txt'
+    !File_name = trim(adjustl(File_name2))//'/Radial_electron_density[1_cm^-3].txt'
+    ch_temp = 'Radial_electron_density[1_cm^-3].txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    !File_names%F(12) = trim(adjustl(ch_temp))
+
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Radius[A] '
     t = 0.0d0
@@ -631,7 +656,10 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     
     !Electron energy density vs R vs time:
     FN3 = 303
-    File_name = trim(adjustl(File_name2))//'/Radial_electron_energy[eV_A^-3].txt'
+    !File_name = trim(adjustl(File_name2))//'/Radial_electron_energy[eV_A^-3].txt'
+    ch_temp = 'Radial_electron_energy[eV_A^-3].txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    !File_names%F(12) = trim(adjustl(ch_temp))
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Radius[A] '
     t = 0.0d0
@@ -655,7 +683,11 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
 
     !=============================== Electron radial temperature
     FN3 = 303
-    File_name = trim(adjustl(File_name2))//'/Radial_electron_temperature[K].txt'
+    !File_name = trim(adjustl(File_name2))//'/Radial_electron_temperature[K].txt'
+    ch_temp = 'Radial_electron_temperature[K].txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    !File_names%F(12) = trim(adjustl(ch_temp))
+
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Radius[A] '
     t = 0.0d0
@@ -684,7 +716,11 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     photons_here:if (NumPar%include_photons) then ! only if we include photons:
         !Photon density vs R vs time:
         FN3 = 306
-        File_name = trim(adjustl(File_name2))//'/Radial_photon_density[1_cm^-3].txt'
+        !File_name = trim(adjustl(File_name2))//'/Radial_photon_density[1_cm^-3].txt'
+        ch_temp = 'Radial_photon_density[1_cm^-3].txt'
+        File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+        !File_names%F(12) = trim(adjustl(ch_temp))
+
         open(unit = FN3, FILE = trim(adjustl(File_name)))
         write(FN3, '(a)', advance='no') 'Radius[A] '
         t = 0.0d0
@@ -707,7 +743,11 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
         
         !Photon energy density vs R vs time:
         FN3 = 306
-        File_name = trim(adjustl(File_name2))//'/Radial_photon_energy[eV_A^-3].txt'
+        !File_name = trim(adjustl(File_name2))//'/Radial_photon_energy[eV_A^-3].txt'
+        ch_temp = 'Radial_photon_energy[eV_A^-3].txt'
+        File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+        !File_names%F(12) = trim(adjustl(ch_temp))
+
         open(unit = FN3, FILE = trim(adjustl(File_name)))
         write(FN3, '(a)', advance='no') 'Radius[A] '
         t = 0.0d0
@@ -734,7 +774,11 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     
     !Electron distribution in energy space (vs E) vs time:
     FN3 = 303
-    File_name = trim(adjustl(File_name2))//'/Electron_distribution_vs_E[1_eV].txt'
+    !File_name = trim(adjustl(File_name2))//'/Electron_distribution_vs_E[1_eV].txt'
+    ch_temp = 'Electron_distribution_vs_E[1_eV].txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    !File_names%F(12) = trim(adjustl(ch_temp))
+
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Energy[eV] '
     t = 0.0d0
@@ -758,7 +802,11 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
 
     !VB holes distribution in energy space (vs E) vs time:
     FN3 = 303
-    File_name = trim(adjustl(File_name2))//'/VB_holes_distribution_vs_E[1_eV].txt'
+    !File_name = trim(adjustl(File_name2))//'/VB_holes_distribution_vs_E[1_eV].txt'
+    ch_temp = 'VB_holes_distribution_vs_E[1_eV].txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    !File_names%F(12) = trim(adjustl(ch_temp))
+
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Energy[eV] '
     t = 0.0d0
@@ -782,7 +830,11 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
 
     !Lattice energy density vs R vs time:
     FN3 = 303
-    File_name = trim(adjustl(File_name2))//'/Radial_Lattice_energy[eV_A^-3].txt'
+    !File_name = trim(adjustl(File_name2))//'/Radial_Lattice_energy[eV_A^-3].txt'
+    ch_temp = 'Radial_Lattice_energy[eV_A^-3].txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    !File_names%F(12) = trim(adjustl(ch_temp))
+
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Radius[A] '
     t = 0.0d0
@@ -807,7 +859,11 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     !Lattice energy density vs R vs time:
     call Find_VB_numbers(Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl)
     FN3 = 304
-    File_name = trim(adjustl(File_name2))//'/Radial_Track_energy[eV_A^-3].txt'
+    !File_name = trim(adjustl(File_name2))//'/Radial_Track_energy[eV_A^-3].txt'
+    ch_temp = 'Radial_Track_energy[eV_A^-3].txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    !File_names%F(12) = trim(adjustl(ch_temp))
+
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Radius[A] '
     t = 0.0d0
@@ -831,7 +887,11 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
 
     !Lattice temperature
     FN3 = 303
-    File_name = trim(adjustl(File_name2))//'/Radial_Lattice_temperature[K].txt'
+    !File_name = trim(adjustl(File_name2))//'/Radial_Lattice_temperature[K].txt'
+    ch_temp = 'Radial_Lattice_temperature[K].txt'
+    File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+    !File_names%F(12) = trim(adjustl(ch_temp))
+
     open(unit = FN3, FILE = trim(adjustl(File_name)))
     write(FN3, '(a)', advance='no') 'Radius[A] '
     t = 0.0d0
@@ -851,8 +911,7 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
     enddo
     inquire(unit=FN3,opened=file_opened)    ! check if this file is opened
     if (file_opened) close(FN3)             ! and if it is, close it
-    
-    
+
     !Holes densities vs R vs time:
     do j = 1, Nat   ! all atoms
         do l = 1, size(Target_atoms(j)%Ip)  ! all shells
@@ -913,9 +972,17 @@ subroutine Save_output(Output_path, ctim, NMC, Num_th, Tim, dt, Material_name, M
             else    ! valence band:
                 write(File_name4, '(a)') trim(adjustl(Target_atoms(j)%Shell_name(l)))
                 FN3 = 305
-                File_name = trim(adjustl(File_name2))//'/Radial_'//trim(adjustl(File_name4))//'_holes_pot_energy[eV_A^-3].txt'
+                !File_name = trim(adjustl(File_name2))//'/Radial_'//trim(adjustl(File_name4))//'_holes_pot_energy[eV_A^-3].txt'
+                ch_temp = 'Radial_'//trim(adjustl(File_name4))//'_holes_pot_energy[eV_A^-3].txt'
+                File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+                !File_names%F(12) = trim(adjustl(ch_temp))
+
                 FN31 = 3051
-                File_name1 = trim(adjustl(File_name2))//'/Radial_'//trim(adjustl(File_name4))//'_holes_kin_energy[eV_A^-3].txt'
+                !File_name1 = trim(adjustl(File_name2))//'/Radial_'//trim(adjustl(File_name4))//'_holes_kin_energy[eV_A^-3].txt'
+                ch_temp = 'Radial_'//trim(adjustl(File_name4))//'_holes_kin_energy[eV_A^-3].txt'
+                File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
+                !File_names%F(12) = trim(adjustl(ch_temp))
+
                 open(unit = FN3, FILE = trim(adjustl(File_name)))
                 open(unit = FN31, FILE = trim(adjustl(File_name1)))
                 write(FN3, '(a)', advance='no') 'Radius[A] '

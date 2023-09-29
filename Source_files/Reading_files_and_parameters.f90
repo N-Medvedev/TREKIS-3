@@ -130,8 +130,8 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    NumPar%plasmon_Emax = .false. ! do not include plasmon integration limit in inelastic CDF
    NumPar%field_include = .false.   ! no fields (bc NOT READY!)
    NumPar%print_CDF = .false. ! don't print CDF file out
-   NumPar%do_gnuplot = .false. ! don't gnuplot
-   NumPar%plot_extension = '' ! no files
+   NumPar%do_gnuplot = .true. ! gnuplot by default
+   NumPar%plot_extension = 'jpeg' ! default jpeg-files
 
    !----------------
    ! Reading the input file:
@@ -308,7 +308,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    enddo RDID
    ! If gnuplotting is required:
    if (NumPar%do_gnuplot) then
-      allocate(File_names%F(10))
+      allocate(File_names%F(100))
    endif
 
    
@@ -436,8 +436,14 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
       else ! use the provided extension
          NumPar%plot_extension = trim(adjustl(text2))
       endif
-
-      print*, "Gnuplot scripts will be created with extension '."//trim(adjustl(NumPar%plot_extension))//"'"
+      ! Check, if gnuplot was switched off:
+      select case (trim(adjustl(NumPar%plot_extension)))
+      case ('NO', 'No', 'no')
+         NumPar%do_gnuplot = .false. ! no gnuplot to create plots
+         print*, 'No gnuplot scripts will be created'
+      case default
+         print*, "Gnuplot scripts will be created with extension '."//trim(adjustl(NumPar%plot_extension))//"'"
+      end select
 
    case ('print_CDF', 'Print_CDF', 'print_cdf', 'PRINT_CDF')
       NumPar%print_CDF = .true.

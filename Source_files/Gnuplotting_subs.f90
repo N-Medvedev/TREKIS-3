@@ -15,6 +15,17 @@ use Dealing_with_EADL, only : Count_lines_in_file
 implicit none
 PRIVATE  ! hides items not listed on public statement
 
+! this is a function that returns the order of a passed number:
+interface find_order_of_number
+   module procedure find_order_of_number_real
+   module procedure find_order_of_number_int
+end interface find_order_of_number
+
+public :: Gnuplot_ion, Gnuplot_electron_hole, Gnuplot_transients
+
+
+!----------------------------------------------
+! Reminder:
 ! It is using the following order of file names
 ! type(All_names), intent(out) :: File_names:
 ! File_names%F(1) = Gnuplot path
@@ -26,28 +37,299 @@ PRIVATE  ! hides items not listed on public statement
 ! File_names%F(7) = Photon IMFP
 ! File_names%F(8) = Photon EMFP
 ! File_names%F(9) = DOS
-
-public :: Gnuplot_ion, Gnuplot_electron_hole
-
+! File_names%F(10) = Output directory name for transients
+! File_names%F(11) = Total_numbers
+! File_names%F(12) = Total_energies
+!----------------------------------------------
 
 contains
 
 
+!------------------------------
+! Dynamical quantities:
+subroutine Gnuplot_transients(Tim, NumPar, Target_atoms, File_names)
+   real(8), intent(in) :: Tim ! total simulation time [fs]
+   type(Flag), intent(in) :: NumPar
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   type(All_names), intent(in) :: File_names   ! all file names for printing out stuff
+   !-----------------------------
+   character(300) :: output_path, Filename
+   character(10) :: call_slash, sh_cmd
+   integer :: FN, ext_ind, leng
+   logical :: file_opened
+
+   ! Set the output directory path:
+   output_path = trim(adjustl(File_names%F(10)))//trim(adjustl(NumPar%path_sep))
+
+   ! Find the extension of the gnuplot scripts:
+   call cmd_vs_sh(numpar%path_sep, call_slash, sh_cmd)  ! module "Gnuplotting"
+
+   !--------------
+   ! 1) Print total numbers:
+   leng = LEN(trim(adjustl(File_names%F(11))))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(File_names%F(11)(1:leng-4)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_total_numbers(FN, Tim, Target_atoms, Filename, trim(adjustl(File_names%F(11))), NumPar)  ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)             ! and if it is, close it
 
 
+   !--------------
+   ! 2) Print total energies:
+   leng = LEN(trim(adjustl(File_names%F(11))))
+   Filename = trim(adjustl(Output_path))//trim(adjustl(File_names%F(12)(1:leng-4)))//trim(adjustl(sh_cmd))
+   open(newunit=FN, FILE = trim(adjustl(Filename)))
+   call gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, trim(adjustl(File_names%F(12))), trim(adjustl(File_names%F(11))), NumPar) ! below
+   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+   if (file_opened) close(FN)             ! and if it is, close it
+
+
+   !----------------
+   ! Collect all gnuplot scripts together into one, and execute it:
+   call collect_gnuplots(NumPar, trim(adjustl(Output_path)))   ! below
+
+end subroutine Gnuplot_transients
+
+
+
+
+subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Numbers, NumPar)
+   integer, intent(in) :: FN  ! file with gnuplot script
+   real(8), intent(in) :: Tim ! total simulation time [fs]
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   character(*), intent(in) :: Filename, file_NRG, file_Numbers
+   type(Flag), intent(in) :: NumPar
+   !-----------------
+   character(10) plot_extension, path_sep
+   integer :: ext_ind   ! file extension index
+   integer :: i, j, Nat, shl, col_count, VB_count, leng
+   character(200) :: datafile, ymin, ymax, xmin, xmax
+   character(3) :: col
+   real(8) :: L_min, L_max, T_min, T_max, dt, x_tics
+   character(8) :: temp, time_order
+   logical :: x_log
+   !-----------------
+
+   plot_extension = trim(adjustl(NumPar%plot_extension))
+   path_sep = trim(adjustl(NumPar%path_sep))
+
+   ! Get index of file extension:
+   call get_extension_index(plot_extension, ext_ind)   ! below
+
+   !L_max = 10.0d0   ! maximal
+   L_min = 0.0d0      ! minimal
+   !write(ymax,'(i10)') ceiling(L_max)
+   write(ymin,'(i10)') floor(L_min)
+
+   ! Prepare grnplot script header:
+   if (NumPar%dt_flag <= 0) then ! linear time scale used:
+      T_min = 0.0d0
+      x_log = .false.
+      ! Define the time ticks:
+      call order_of_time((T_max - T_min), time_order, temp, x_tics)  ! module "Little_subroutines"
+   else ! log-scale
+      T_min = 0.01d0
+      x_log = .true.
+      x_tics = 10.0  ! for log scale, assume base 10
+   endif
+   T_max = Tim
+   write(xmin,'(f12.5)') T_min
+   write(xmax,'(i10)') ceiling(T_max)
+
+   ! File with the data:
+   datafile = trim(adjustl(file_NRG))
+   leng = LEN(trim(adjustl(datafile)))
+
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, x_tics, 'Energies', 'Time (fs)', 'Energy (eV)', &
+         trim(adjustl(datafile(1:leng-3)))//trim(adjustl(plot_extension)), path_sep, 2, &
+         set_x_log=x_log, set_y_log=.false., fontsize=14) ! below
+
+   Nat = size(Target_atoms)
+   col_count = 1  ! to start with
+   ! Prepare the plotting line:
+   if (path_sep .EQ. '\') then	! if it is Windows
+
+      ! Total:
+      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+                  trim(adjustl(ymin))//':] "'// &
+                  trim(adjustl(file_Numbers)) // '"u 1:4 w l lw LW title "Total" ,\'
+      ! Electrons:
+      write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:2 w l lw LW title "Electrons" ,\'
+      ! Atoms:
+      write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:3 w l lw LW title "Atoms" ,\'
+      ! Photons:
+      write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:4 w l lw LW title "Photons" ,\'
+      ! Valence:
+      VB_count = 5 + size(Target_atoms(1)%Ip)
+      write(col,'(i3)') VB_count ! add valence band
+      write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence holes" ,\'
+      ! Core holes:
+      col_count = 5
+      do i = 1, Nat   ! all atoms
+         shl = size(Target_atoms(i)%Ip)
+         do j = 1, shl
+            col_count = col_count + 1  ! column number to print
+            write(col,'(i3)') col_count
+
+            if ((i == 1) .and. (j == shl)) then    ! VB
+               !VB_count = col_count ! save column number for VB to plot before last line
+            elseif ((i == Nat) .and. (j == shl)) then    ! last one
+               write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" '
+
+               !write(col,'(i3)') VB_count ! add valence band
+               !write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence holes" ,\'
+            else
+               write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
+            endif
+         enddo ! j
+      enddo ! i
+
+   else ! It is linux
+      ! Total:
+      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+                  trim(adjustl(ymin))//':] \"'// &
+                  trim(adjustl(file_Numbers))//'\"u 1:4 w l lw \"$LW\" title "Total" ,\'
+      ! Electrons:
+      write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:2 w l lw \"$LW\" title "Electrons" ,\'
+      ! Atoms:
+      write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:3 w l lw \"$LW\" title "Atoms" ,\'
+      ! Photons:
+      write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:4 w l lw \"$LW\" title "Photons" ,\'
+      ! Valence:
+      VB_count = 5 + size(Target_atoms(1)%Ip)
+      write(col,'(i3)') VB_count ! add valence band
+      write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence holes\" ,\'
+      ! Core holes:
+      col_count = 5
+      do i = 1, Nat   ! all atoms
+         shl = size(Target_atoms(i)%Ip)
+         do j = 1, shl
+            col_count = col_count + 1  ! column number to print
+            if ((i == 1) .and. (j == shl)) then    ! VB
+               VB_count = col_count ! save column number for VB to plot before last line
+            elseif ((i == Nat) .and. (j == shl)) then    ! last one
+               write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" '
+
+               !write(col,'(i3)') VB_count ! add valence band
+               !write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence holes\" ,\'
+            else
+               write(FN, '(a)') '\"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
+                     trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
+            endif
+         enddo ! j
+      enddo ! i
+   endif
+
+   ! Prepare the ending:
+   call write_gnuplot_script_ending_new(FN, Filename, path_sep)  ! below
+
+end subroutine gnuplot_total_NRG
+
+
+
+subroutine gnuplot_total_numbers(FN, Tim, Target_atoms, Filename, file_data, NumPar)
+   integer, intent(in) :: FN  ! file with gnuplot script
+   real(8), intent(in) :: Tim ! total simulation time [fs]
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   character(*), intent(in) :: Filename, file_data
+   type(Flag), intent(in) :: NumPar
+   !-----------------
+   character(10) plot_extension, path_sep
+   integer :: ext_ind   ! file extension index
+   integer :: i, j, Nat, shl, col_count, VB_count, leng
+   character(200) :: datafile, ymin, ymax, xmin, xmax
+   character(3) :: col
+   real(8) :: L_min, L_max, T_min, T_max, dt, x_tics
+   character(8) :: temp, time_order
+   logical :: x_log
+   !-----------------
+
+   plot_extension = trim(adjustl(NumPar%plot_extension))
+   path_sep = trim(adjustl(NumPar%path_sep))
+
+   ! Get index of file extension:
+   call get_extension_index(plot_extension, ext_ind)   ! below
+
+   !L_max = 10.0d0   ! maximal
+   L_min = 0.0d0      ! minimal
+   !write(ymax,'(i10)') ceiling(L_max)
+   write(ymin,'(i10)') floor(L_min)
+
+   ! Prepare grnplot script header:
+   if (NumPar%dt_flag <= 0) then ! linear time scale used:
+      T_min = 0.0d0
+      x_log = .false.
+      ! Define the time ticks:
+      call order_of_time((T_max - T_min), time_order, temp, x_tics)  ! module "Little_subroutines"
+   else ! log-scale
+      T_min = 0.01d0
+      x_log = .true.
+      x_tics = 10.0  ! for log scale, assume base 10
+   endif
+   T_max = Tim
+   write(xmin,'(f12.5)') T_min
+   write(xmax,'(i10)') ceiling(T_max)
+
+   ! File with the data:
+   datafile = trim(adjustl(file_data))
+   leng = LEN(trim(adjustl(datafile)))
+
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, x_tics, 'Numbers', 'Time (fs)', 'Number (arb.units)', &
+         trim(adjustl(datafile(1:leng-3)))//trim(adjustl(plot_extension)), path_sep, 1, &
+         set_x_log=x_log, set_y_log=.false., fontsize=14) ! below
+
+   Nat = size(Target_atoms)
+   col_count = 1  ! to start with
+   ! Prepare the plotting line:
+   if (path_sep .EQ. '\') then	! if it is Windows
+      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+         trim(adjustl(ymin))//':] "'// &
+         trim(adjustl(datafile)) // '"u 1:2 w l lw LW title "Excited e-" ,\'
+
+      write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:3 w l lw LW title "Emitted e-" ,\'
+
+      write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:6 w l lw LW title "Photons" '
+
+   else ! It is linux
+      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+         trim(adjustl(ymin))//':] \"'// &
+         trim(adjustl(datafile)) // '\"u 1:2 w l lw \"$LW\" title \""Excited e-\" ,\'
+
+      write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:3 w l lw \"$LW\" title \"Emitted e-\" ,\'
+      write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:6 w l lw \"$LW\" title \"Photons\" '
+   endif
+
+   ! Prepare the ending:
+   call write_gnuplot_script_ending_new(FN, Filename, path_sep)  ! below
+
+end subroutine gnuplot_total_numbers
+
+
+
+
+!------------------------------
+! Electron, hole, photon MFPs; DOS:
 subroutine Gnuplot_electron_hole(NumPar, Target_atoms, File_names, Output_path)   ! From modlue "Gnuplotting_subs"
    type(Flag), intent(in) :: NumPar
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
-   type(All_names) :: File_names   ! all file names for printing out stuff
+   type(All_names), intent(in) :: File_names   ! all file names for printing out stuff
    character(*), intent(in) :: Output_path
    !----------------
    integer :: FN, ext_ind
-   character(200) :: Filename
    logical :: file_opened
+   character(200) :: Filename, File_short
+   character(10) :: call_slash, sh_cmd
+
+   ! Find the extension of the gnuplot scripts:
+   call cmd_vs_sh(numpar%path_sep, call_slash, sh_cmd)  ! module "Gnuplotting"
+
 
    !----------------
    ! 1) Plot electron MFPs:
-   Filename = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'Gnuplot_electron_MFP.cmd'
+   Filename = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'Gnuplot_electron_MFP'//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
    call gnuplot_electron_MFP(FN, Target_atoms, Filename, File_names%F(2), File_names%F(4), &
          NumPar%plot_extension, trim(adjustl(NumPar%path_sep)))  ! below
@@ -56,7 +338,7 @@ subroutine Gnuplot_electron_hole(NumPar, Target_atoms, File_names, Output_path) 
 
    !----------------
    ! 2) Plot hole MFPs:
-   Filename = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'Gnuplot_hole_MFP.cmd'
+   Filename = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'Gnuplot_hole_MFP'//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
    call gnuplot_hole_MFP(FN, Target_atoms, Filename, File_names%F(3), File_names%F(5), &
          NumPar%plot_extension, trim(adjustl(NumPar%path_sep)))  ! below
@@ -65,7 +347,7 @@ subroutine Gnuplot_electron_hole(NumPar, Target_atoms, File_names, Output_path) 
 
    !----------------
    ! 3) Plot photon MFPs:
-   Filename = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'Gnuplot_photon_MFP.cmd'
+   Filename = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'Gnuplot_photon_MFP'//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
    call gnuplot_photon_MFP(FN, Target_atoms, Filename, File_names%F(7), NumPar%plot_extension, trim(adjustl(NumPar%path_sep)))  ! below
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
@@ -73,7 +355,7 @@ subroutine Gnuplot_electron_hole(NumPar, Target_atoms, File_names, Output_path) 
 
    !----------------
    ! 4) Plot DOS things:
-   Filename = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'Gnuplot_DOS.cmd'
+   Filename = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'Gnuplot_DOS'//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
    call gnuplot_DOS(FN, Target_atoms, Filename, File_names%F(9), NumPar%plot_extension, trim(adjustl(NumPar%path_sep)))  ! below
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
@@ -175,7 +457,7 @@ subroutine gnuplot_electron_MFP(FN, Target_atoms, Filename, file_IMFP, file_EMFP
 
    ! Prepare grnplot script header:
    call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'Electron MFP', 'Electron energy (eV)', 'Mean free path (A)', &
-      'Electron_MFP.'//trim(adjustl(plot_extension)), path_sep, 1, set_x_log=.true., set_y_log=.true., fontsize=14) ! below
+      'Electron_MFPs.'//trim(adjustl(plot_extension)), path_sep, 1, set_x_log=.true., set_y_log=.true., fontsize=14) ! below
 
    Nat = size(Target_atoms)
    col_count = 1  ! to start with
@@ -282,7 +564,7 @@ subroutine gnuplot_hole_MFP(FN, Target_atoms, Filename, file_IMFP, file_EMFP, pl
 
    ! Prepare grnplot script header:
    call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'Valence hole MFP', 'Valence hole energy (eV)', 'Mean free path (A)', &
-      'Hole_MFP.'//trim(adjustl(plot_extension)), path_sep, 0, set_x_log=.false., set_y_log=.true., fontsize=14) ! below
+      'Hole_MFPs.'//trim(adjustl(plot_extension)), path_sep, 0, set_x_log=.false., set_y_log=.true., fontsize=14) ! below
 
    Nat = size(Target_atoms)
    col_count = 1  ! to start with
@@ -389,7 +671,7 @@ subroutine gnuplot_photon_MFP(FN, Target_atoms, Filename, file_IMFP, plot_extens
 
    ! Prepare grnplot script header:
    call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'Photon MFP', 'Photon energy (eV)', 'Mean free path (A)', &
-      'Photon_MFP.'//trim(adjustl(plot_extension)), path_sep, 1, set_x_log=.true., set_y_log=.true., fontsize=14) ! below
+      'Photon_MFPs.'//trim(adjustl(plot_extension)), path_sep, 1, set_x_log=.true., set_y_log=.true., fontsize=14) ! below
 
    Nat = size(Target_atoms)
    col_count = 1  ! to start with
@@ -467,16 +749,22 @@ subroutine Gnuplot_ion(NumPar, SHI, Target_atoms, File_names, Output_path_SHI)  
    type(Flag), intent(in) :: NumPar
    type(Ion), intent(in) :: SHI   ! declare SHI as an object with atributes "Ion"
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
-   type(All_names) :: File_names   ! all file names for printing out stuff
+   type(All_names), intent(in) :: File_names   ! all file names for printing out stuff
    character(*), intent(in) :: Output_path_SHI
    !----------------
    integer :: FN, ext_ind
    character(200) :: Filename
    logical :: file_opened
+   character(10) :: call_slash, sh_cmd
+
+   ! Find the extension of the gnuplot scripts:
+   call cmd_vs_sh(numpar%path_sep, call_slash, sh_cmd)  ! module "Gnuplotting"
+
 
    !----------------
    ! 1) Plot ion MFPs:
-   Filename = trim(adjustl(Output_path_SHI))//trim(adjustl(NumPar%path_sep))//'Gnuplot_'//trim(adjustl(SHI%Name))//'_MFP.cmd'
+   Filename = trim(adjustl(Output_path_SHI))//trim(adjustl(NumPar%path_sep))//'Gnuplot_'//trim(adjustl(File_names%F(6)))// &
+               '_MFP'//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
    call gnuplot_SHI_MFP(FN, SHI, Target_atoms, Filename, File_names%F(6), &
          NumPar%plot_extension, trim(adjustl(NumPar%path_sep)))  ! below
@@ -485,7 +773,8 @@ subroutine Gnuplot_ion(NumPar, SHI, Target_atoms, File_names, Output_path_SHI)  
 
    !----------------
    ! 2) Plot ion dEdx:
-   Filename = trim(adjustl(Output_path_SHI))//trim(adjustl(NumPar%path_sep))//'Gnuplot_'//trim(adjustl(SHI%Name))//'_Se.cmd'
+   Filename = trim(adjustl(Output_path_SHI))//trim(adjustl(NumPar%path_sep))//'Gnuplot_'//trim(adjustl(File_names%F(6)))// &
+               '_Se'//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
    call gnuplot_SHI_dEdx(FN, SHI, Target_atoms, Filename, File_names%F(6), &
          NumPar%plot_extension, trim(adjustl(NumPar%path_sep)))  ! below
@@ -494,7 +783,8 @@ subroutine Gnuplot_ion(NumPar, SHI, Target_atoms, File_names, Output_path_SHI)  
 
    !----------------
    ! 3) Plot ion range:
-   Filename = trim(adjustl(Output_path_SHI))//trim(adjustl(NumPar%path_sep))//'Gnuplot_'//trim(adjustl(SHI%Name))//'_Range.cmd'
+   Filename = trim(adjustl(Output_path_SHI))//trim(adjustl(NumPar%path_sep))//'Gnuplot_'//trim(adjustl(File_names%F(6)))// &
+               '_Range'//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
    call gnuplot_SHI_Range(FN, SHI, Target_atoms, Filename, File_names%F(6), &
          NumPar%plot_extension, trim(adjustl(NumPar%path_sep)))  ! below
@@ -504,7 +794,8 @@ subroutine Gnuplot_ion(NumPar, SHI, Target_atoms, File_names, Output_path_SHI)  
 
    !----------------
    ! 4) Plot ion effective charge:
-   Filename = trim(adjustl(Output_path_SHI))//trim(adjustl(NumPar%path_sep))//'Gnuplot_'//trim(adjustl(SHI%Name))//'_Zeff.cmd'
+   Filename = trim(adjustl(Output_path_SHI))//trim(adjustl(NumPar%path_sep))//'Gnuplot_'//trim(adjustl(File_names%F(6)))// &
+               '_Zeff'//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
    call gnuplot_SHI_Zeff(FN, SHI, Target_atoms, Filename, File_names%F(6), &
          NumPar%plot_extension, trim(adjustl(NumPar%path_sep)))  ! below
@@ -547,7 +838,8 @@ subroutine gnuplot_SHI_Zeff(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_
 
    ! Prepare grnplot script header:
    call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'SHI Se', 'Ion energy (MeV)', 'Effective charge (Z)', &
-      trim(adjustl(SHI%Name))//'_Zeff.'//trim(adjustl(plot_extension)), path_sep, 0, set_x_log=.true., set_y_log=.false., fontsize=14) ! below
+       trim(adjustl(file_ion_MFP))//'_Zeff.'//trim(adjustl(plot_extension)), path_sep, 0, &
+       set_x_log=.true., set_y_log=.false., fontsize=14) ! below
 
    Nat = size(Target_atoms)
    col_count = 1  ! to start with
@@ -596,7 +888,8 @@ subroutine gnuplot_SHI_Range(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot
 
    ! Prepare grnplot script header:
    call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'SHI Range', 'Residual range (A)', 'Stopping power, Se (eV/A)', &
-      trim(adjustl(SHI%Name))//'_Range.'//trim(adjustl(plot_extension)), path_sep, 0, set_x_log=.true., set_y_log=.false., fontsize=14) ! below
+       trim(adjustl(file_ion_MFP))//'_Range.'//trim(adjustl(plot_extension)), path_sep, 0, &
+       set_x_log=.true., set_y_log=.false., fontsize=14) ! below
 
    Nat = size(Target_atoms)
    col_count = 1  ! to start with
@@ -645,7 +938,8 @@ subroutine gnuplot_SHI_dEdx(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_
 
    ! Prepare grnplot script header:
    call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'SHI Se', 'Ion energy (MeV)', 'Stopping power, Se (eV/A)', &
-      trim(adjustl(SHI%Name))//'_Se.'//trim(adjustl(plot_extension)), path_sep, 0, set_x_log=.true., set_y_log=.false., fontsize=14) ! below
+       trim(adjustl(file_ion_MFP))//'_Se.'//trim(adjustl(plot_extension)), path_sep, 0, &
+       set_x_log=.true., set_y_log=.false., fontsize=14) ! below
 
    Nat = size(Target_atoms)
    col_count = 1  ! to start with
@@ -743,7 +1037,8 @@ subroutine gnuplot_SHI_MFP(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_e
 
    ! Prepare grnplot script header:
    call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'SHI MFP', 'Ion energy (MeV)', 'Ion mean free path (A)', &
-      trim(adjustl(SHI%Name))//'_MFP.'//trim(adjustl(plot_extension)), path_sep, 1, set_x_log=.true., set_y_log=.true., fontsize=14) ! below
+       trim(adjustl(file_ion_MFP))//'_MFP.'//trim(adjustl(plot_extension)), path_sep, 1, &
+       set_x_log=.true., set_y_log=.true., fontsize=14) ! below
 
    Nat = size(Target_atoms)
    col_count = 1  ! to start with
@@ -1062,6 +1357,65 @@ subroutine get_extension_index(text_ext, ind)
       ind = 2 ! exclude
    endselect
 end subroutine get_extension_index
+
+
+
+subroutine order_of_time(tim, text, gnu_text, x_tics)
+   real(8), intent(in) :: tim ! time to find its order
+   character(*), intent(out) :: text ! fs, ps, ns, mks, ms, s
+   character(*), intent(out), optional :: gnu_text ! culomn to set in gnuplot
+   real(8), intent(out), optional :: x_tics ! tics for gnuplot
+   integer :: time_ord
+   time_ord = find_order_of_number(tim) ! below
+   if (present(x_tics)) then
+      x_tics = 10.0d0**(time_ord) ! set tics for gnuplot
+      if (tim/dble(x_tics) > 0.5) then
+         x_tics = 10.0d0**(time_ord-1) ! set tics for gnuplot
+      else if (tim/dble(x_tics) > 0.2) then
+         x_tics = 0.5d0*10.0d0**(time_ord-1) ! set tics for gnuplot
+      else
+         x_tics = 10.0d0**(time_ord-2) ! set tics for gnuplot
+      endif
+   endif
+
+   if (time_ord > 1e15) then ! s
+      text = '(s)'
+      if (present(gnu_text)) gnu_text = '($1/1e15)'
+   else if (time_ord > 1e12) then ! ms
+      text = '(ms)'
+      if (present(gnu_text)) gnu_text = '($1/1e12)'
+   else if (time_ord > 1e9) then ! mks
+      text = '(mks)'
+      if (present(gnu_text)) gnu_text = '($1/1e9)'
+   else if (time_ord > 1e6) then ! ns
+      text = '(ns)'
+      if (present(gnu_text)) gnu_text = '($1/1e6)'
+   else if (time_ord > 1e3) then ! ps
+      text = '(ps)'
+      if (present(gnu_text)) gnu_text = '($1/1e3)'
+   else ! fs
+      text = '(fs)'
+      if (present(gnu_text)) gnu_text = '($1)'
+   endif
+end subroutine order_of_time
+
+
+
+pure function find_order_of_number_real(num)
+   integer find_order_of_number_real
+   real(8), intent(in) :: num
+   character(64) :: temp
+   write(temp,'(i8)') CEILING(num) ! make it a string
+   find_order_of_number_real = LEN(TRIM(adjustl(temp))) ! find how many characters in this string
+end function find_order_of_number_real
+
+pure function find_order_of_number_int(num)
+   integer find_order_of_number_int
+   integer, intent(in) :: num
+   character(64) :: temp
+   write(temp,'(i8)') num ! make it a string
+   find_order_of_number_int = LEN(TRIM(adjustl(temp))) ! find how many characters in this string
+end function find_order_of_number_int
 
 
 !===================================================
