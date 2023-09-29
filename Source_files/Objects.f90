@@ -119,18 +119,23 @@ type :: Flag
     logical :: include_photons  ! to include or not radiative decays of holes and further photons propagation
     logical :: plasmon_Emax     ! to use maximal plasmon energy as upper integration limit in cross-sections calculations
     integer :: CDF_elast_Zeff ! kind of effective charge of target atoms (1=1, 0=Barkas-like Zeff)
+    logical :: print_CDF    ! printout CDF file or not
+    logical :: do_gnuplot   ! make gnuplot scripts or not
+    character(15) :: plot_extension ! file extension for plots (made with gnuplot)
+    ! Flags for automatic recalcultion of MFPs:
+    logical :: redo_IMFP, redo_EMFP ! do we have to?
+    integer :: Last_mod_time_CDF, Last_mod_time_DSF ! Time when the CDF- and DSF-files were last modified
+    ! Printout for testing:
+    logical :: verbose, very_verbose
+    ! Parameters for MD (unfinished)
     real(8) :: MD_dt
     integer :: MD_grid
     integer :: Num_Z_points
     real(8) :: Zout_min
     real(8) :: Zout_max
     real(8) :: Zout_dz
-    ! Flags for automatic recalcultion of MFPs:
-    logical :: redo_IMFP, redo_EMFP ! do we have to?
-    integer :: Last_mod_time_CDF, Last_mod_time_DSF ! Time when the CDF- and DSF-files were last modified
-    ! Printout for testing:
-    logical :: verbose, very_verbose
-    logical :: print_CDF
+    ! Time grid:
+    real(8), dimension(:), allocatable :: time_grid ! grid_points in time
 end type Flag
 !==============================================
 

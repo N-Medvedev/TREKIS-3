@@ -130,6 +130,8 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    NumPar%plasmon_Emax = .false. ! do not include plasmon integration limit in inelastic CDF
    NumPar%field_include = .false.   ! no fields (bc NOT READY!)
    NumPar%print_CDF = .false. ! don't print CDF file out
+   NumPar%do_gnuplot = .true. ! gnuplot by default
+   NumPar%plot_extension = 'jpeg' ! default jpeg-files
 
    !----------------
    ! Reading the input file:
@@ -285,26 +287,29 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
 !    READ(FN,'(a)',IOSTAT=Reason) Temp_char  ! path to Gnuplot installed
 !    call read_file(Reason, i, read_well) ! reports if everything read well
 !    if (.not. read_well) goto 2013
-   Temp_char = '0'
-   if (trim(adjustl(Temp_char)) .EQ. '0') then ! no gmuplot installed, no need to create scripts
-      print*, 'No Gnuplot script will be created'
-   else 
-      allocate(File_names%F(10))
-      File_names%F(1) = Temp_char
-      print*, 'Gnuplot scripts will be created, calling Gnuplot from'
-      print*, trim(adjustl(File_names%F(1)))
-   endif
+!    Temp_char = '0'
+!    if (trim(adjustl(Temp_char)) .EQ. '0') then ! no gmuplot installed, no need to create scripts
+!       print*, 'No Gnuplot script will be created'
+!    else
+!       allocate(File_names%F(10))
+!       File_names%F(1) = Temp_char
+!       print*, 'Gnuplot scripts will be created, calling Gnuplot from'
+!       print*, trim(adjustl(File_names%F(1)))
+!    endif
    !------------------------------------------------------
    ! Read optional parameters:
    read_well = .true.   ! to start with
    RDID: do while (read_well)
-      read(FN,*,IOSTAT=Reason) text
+      read(FN,'(a)',IOSTAT=Reason) text
       call read_file(Reason, i, read_well, no_end=.true.)   ! below
       if (.not. read_well) exit RDID  ! end of file, stop reading
 
       call interpret_additional_data_INPUT(text, NumPar) ! below
    enddo RDID
-
+   ! If gnuplotting is required:
+   if (NumPar%do_gnuplot) then
+      allocate(File_names%F(100))
+   endif
 
    
    !------------------------------------------------------
@@ -365,8 +370,12 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    call reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_message, read_well)    ! read material DOS
    if (.not. read_well) goto 2015
 
-   open(25, file = trim(adjustl(Output_path))//'/'//'OUTPUT_'//trim(adjustl(Material_name))//'_DOS_analysis.dat')
-   write(25, *) 'E[eV]   k[1/m]   DOS[a.u.]    Int_DOS[a.u.]   Eff_mass[me]'
+
+
+   temp_char1 = 'OUTPUT_'//trim(adjustl(Material_name))//'_DOS_analysis.dat'
+   File_names%F(9) = trim(adjustl(temp_char1))  ! save for plotting later
+   open(25, file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char1)))
+   write(25, *) '#E[eV]   k[1/m]   DOS[a.u.]    Int_DOS[a.u.]   Eff_mass[me]'
    if (Target_atoms(1)%Ip(size(Target_atoms(1)%Ip)) .LT. 0.2d0) then      ! Metal: Use DOS from bottom of CB to calculate dispersion relation
         do i = 1, size(Mat_DOS%E)
             write(25,'(e,e,e,e,e)') Mat_DOS%E(i), Mat_DOS%k_inv(i), Mat_DOS%DOS_inv(i), Mat_DOS%int_DOS_inv(i), Mat_DOS%Eff_m_inv(i)
@@ -398,12 +407,44 @@ end subroutine Read_input_file
 
 
 
-subroutine interpret_additional_data_INPUT(text, NumPar)
-   character(*), intent(in) :: text ! text read from the file
+subroutine interpret_additional_data_INPUT(text_in, NumPar)
+   character(*), intent(in) :: text_in ! text read from the file
    type(Flag), intent(inout) :: NumPar ! numerical parameters
    !------------------------------------
+   character(100) :: text, text2, ch_temp
+   integer :: i, Reason
+   logical :: read_well
+
+   i = 0 ! to start with
+
+   ! Read from the variable, in case there are more then one flag in one line:
+   read(text_in, *, IOSTAT=Reason) text
+   call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
+   if (.not. read_well) then  ! nothing more to do, skip this line
+      return
+   endif
 
    select case (text)
+   case ('gnuplot', 'plot', 'gnu', 'GNUPLOT', 'PLOT', 'GNU')
+      NumPar%do_gnuplot = .true. ! use gnuplot to create plots
+
+      ! Try to read which file extension to use:
+      read(text_in, *, IOSTAT=Reason) text, text2
+      call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
+      if (.not. read_well) then  ! by default, use this extension
+         NumPar%plot_extension = 'jpeg'
+      else ! use the provided extension
+         NumPar%plot_extension = trim(adjustl(text2))
+      endif
+      ! Check, if gnuplot was switched off:
+      select case (trim(adjustl(NumPar%plot_extension)))
+      case ('NO', 'No', 'no')
+         NumPar%do_gnuplot = .false. ! no gnuplot to create plots
+         print*, 'No gnuplot scripts will be created'
+      case default
+         print*, "Gnuplot scripts will be created with extension '."//trim(adjustl(NumPar%plot_extension))//"'"
+      end select
+
    case ('print_CDF', 'Print_CDF', 'print_cdf', 'PRINT_CDF')
       NumPar%print_CDF = .true.
       print*, 'File with CDF parametres will be printed out'
