@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Medvedev"
+    given-names: "Nikita"
+    orcid: "https://orcid.org/0000-0003-0491-1090"
+  - family-names: "Ruslan"
+    given-names: "Rymzhanov"
+    orcid: "https://orcid.org/0000-0002-7404-9769"
+  - family-names: "Alexander"
+    given-names: "Volkov"
+    orcid: "https://orcid.org/0000-0002-9784-4001"
+title: TREKIS-3
+version: v29.09.2023
+date-released: 2023-09-30
+doi: 10.5281/zenodo.8394462
+url: "https://github.com/N-Medvedev/TREKIS-3"
