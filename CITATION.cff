@@ -4,11 +4,11 @@ authors:
   - family-names: "Medvedev"
     given-names: "Nikita"
     orcid: "https://orcid.org/0000-0003-0491-1090"
-  - family-names: "Ruslan"
-    given-names: "Rymzhanov"
+  - family-names: "Rymzhanov"
+    given-names: "Ruslan"
     orcid: "https://orcid.org/0000-0002-7404-9769"
-  - family-names: "Alexander"
-    given-names: "Volkov"
+  - family-names: "Volkov"
+    given-names: "Alexander"
     orcid: "https://orcid.org/0000-0002-9784-4001"
 title: TREKIS-3
 version: v29.09.2023
