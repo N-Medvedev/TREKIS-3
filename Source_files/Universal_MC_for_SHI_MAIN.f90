@@ -1,5 +1,5 @@
 !---------------------------------------------------------------
-! The code TREKIS-3:
+! The code TREKIS-3: https://doi.org/10.5281/zenodo.8394462
 ! Time Resolved Electron Kinetics in solids after SHI Impact
 ! was developed by
 ! N. Medvedev, R.A. Rymzhanov, A.E. Volkov

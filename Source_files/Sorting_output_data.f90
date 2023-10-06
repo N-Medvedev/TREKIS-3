@@ -29,7 +29,8 @@ subroutine TREKIS_title(FN)
    write(FN,'(a)') '*                                                      *'
    write(FN,'(a)') trim(adjustl(starline))
    write(FN,'(a)') 'Time-Resolved Electron Kinetics in SHI-Irradiated Solids'
-   write(FN,'(a)') 'Version: 3.1.1  (update 29.09.2023)     '
+   write(FN,'(a)') 'Version: 3.1.1  (update 06.10.2023)     '
+   write(FN,'(a)') 'DOI: https://doi.org/10.5281/zenodo.8394462'
    write(FN,'(a)') trim(adjustl(starline))
 end subroutine TREKIS_title
 
