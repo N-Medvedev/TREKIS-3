@@ -7,7 +7,7 @@ module Analytical_IMFPs
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
   use Reading_files_and_parameters, only : get_file_stat, Find_in_array_monoton, read_file_here, Linear_approx, read_SHI_MFP
-  use Cross_sections, only : Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, SHI_Total_IMFP
+  use Cross_sections, only : Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, SHI_Total_IMFP, construct_CDF
   use Dealing_with_EADL, only : Count_lines_in_file
 implicit none
 PRIVATE
@@ -965,10 +965,11 @@ subroutine All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar)
     type(All_MFP), dimension(:), allocatable, intent(inout) :: Total_el_MFPs   ! electron mean free paths for all shells
     type(Solid), intent(in) :: Matter ! properties of material
     type(Flag), intent(in) :: NumPar
-
+    !----------------------
     real(8) IMFP_calc, dEdx, Ele, dE(N), Emin
     integer i, j, k, Nshl, Nat, Va, Ord
     integer Num_th, my_id, OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
+    complex(8) :: complex_CDF ! constructed CDF
     
     Nat = size(Target_atoms)    ! number of atoms
     
@@ -999,6 +1000,12 @@ subroutine All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar)
              Total_el_MFPs(j)%ELMFP(k)%E(i) = Ele
              Total_el_MFPs(j)%ELMFP(k)%L(i) = IMFP_calc
              Total_el_MFPs(j)%ELMFP(k)%dEdx(i) = dEdx
+
+             ! test of CDF:
+!              if ((j == 1) .and. (k==Nshl)) then
+!                 call construct_CDF(Target_atoms(j)%Ritchi(k), Ele, 0.0d0, complex_CDF) ! module "Cross_sections"
+!              endif
+
           enddo ! k = 1, size(Target_atoms(j)%Ip)  ! for all shells of each atom:
         enddo ! j = 1,size(Target_atoms)  ! for all atoms:
         call progress(' Progress of calculation: ', i, N)

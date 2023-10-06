@@ -24,7 +24,7 @@ end interface Electron_energy_transfer
 !private  ! hides items not listed on public statement 
 public :: Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, &
          SHI_Total_IMFP, SHI_TotIMFP, SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF, &
-         NRG_transfer_elastic_atomic_OLD, get_single_pole, w_plasma, sumrules
+         NRG_transfer_elastic_atomic_OLD, get_single_pole, w_plasma, sumrules, construct_CDF
 
 
 contains
@@ -41,13 +41,12 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
    real(8) :: NVB, N_at_mol, Omega, ksum, fsum, contrib, Mean_Mass, E_debye, E_eistein
 
    N_at = size(Target_atoms)  ! number of kinds of atoms
+   N_at_mol = SUM(Target_atoms(:)%Pers)   ! number of atoms in a molecule
 
    !--------------------------
    ! 1) single-pole CDF for inelastic scattering
    if (NumPar%kind_of_CDF == 1) then
       if (NumPar%verbose) call print_time_step('Getting electornic single-pole CDF calculations:', msec=.true.)
-
-      N_at_mol = SUM(Target_atoms(:)%Pers)   ! number of atoms in a molecule
 
       ! For all atoms, define CDF for each shell
       do i = 1, N_at
@@ -1461,6 +1460,46 @@ subroutine SHI_Diff_cross_section(Ele, MSHI, Emax, hw, Target_atoms, Nat, Nshl, 
     
     nullify(Ee)
 end subroutine SHI_Diff_cross_section
+
+
+
+! Complex CDF producing Ritchie-Howie loss function:
+subroutine construct_CDF(Ritchi_CDF, hw, hq, complex_CDF)
+   type(CDF), intent(in), target :: Ritchi_CDF    ! CDF parameters
+   real(8), intent(in) ::  hw    ! transferred energy [eV]
+   real(8), intent(in) ::  hq    ! transferred momentum [sqrt(eV/J) /m] (not [kg*m/s] !)
+   complex(8), intent(out) :: complex_CDF ! constructed CDF
+   !----------------------
+   integer :: i, Nsiz
+   real(8), pointer :: A, G, E
+   real(8) :: Re_CDF, Im_CDF
+
+   ! How many oscillators:
+   Nsiz = size(Ritchi_CDF%A)
+
+   ! For all oscillators, define CDF:
+   complex_CDF = cmplx( dble(Nsiz) ,0.0d0) ! to start with
+   Re_CDF = dble(Nsiz)
+   Im_CDF = 0.0d0
+   do i = 1, Nsiz
+      ! Fitted coefficients of Ritchie-Howie CDF:
+      A => Ritchi_CDF%A(i)
+      E => Ritchi_CDF%E0(i)
+      G => Ritchi_CDF%Gamma(i)
+
+      complex_CDF = complex_CDF + A/(E**2 - A - hw**2 - g_CI*G*hw)
+
+      Re_CDF = Re_CDF + A * (E**2 - A - hw**2) / ( (E**2 - A - hw**2)**2 + (G*hw)**2)
+      Im_CDF = Im_CDF + A * G * hw**2 / ( (E**2 - A - hw**2)**2 + (G*hw)**2)
+
+      nullify(A, E, G)
+   enddo
+
+   print*, hw, hq, Re_CDF, Im_CDF, complex_CDF
+   !pause 'construct_CDF'
+end subroutine construct_CDF
+
+
 
 
 subroutine Imewq(hw, hq, Target_atoms, Nat, Nshl, ImE, Matter, Mat_DOS, NumPar, photon) ! constructs full Im(-1/e(w,q)) as a sum of Drude-like functions
