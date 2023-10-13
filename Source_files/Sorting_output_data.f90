@@ -14,6 +14,9 @@ private  ! hides items not listed on public statement
 
 public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time, print_parameters
 
+character(10), parameter :: m_Version = '3.1.1'
+character(12), parameter :: m_Update = '13.10.2023'
+
 contains
 
 
@@ -29,7 +32,7 @@ subroutine TREKIS_title(FN)
    write(FN,'(a)') '*                                                      *'
    write(FN,'(a)') trim(adjustl(starline))
    write(FN,'(a)') 'Time-Resolved Electron Kinetics in SHI-Irradiated Solids'
-   write(FN,'(a)') 'Version: 3.1.1  (update 06.10.2023)     '
+   write(FN,'(a)') 'Version:'//trim(adjustl(m_Version))//' (update '//trim(adjustl(m_Update))//')     '
    write(FN,'(a)') 'DOI: https://doi.org/10.5281/zenodo.8394462'
    write(FN,'(a)') trim(adjustl(starline))
 end subroutine TREKIS_title

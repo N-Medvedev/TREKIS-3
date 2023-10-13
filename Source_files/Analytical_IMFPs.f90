@@ -292,7 +292,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             write(*, '(a)') ' '
             open(newunit=FN, file=trim(adjustl(Input_files)), ACTION='READ')
         else    ! create and write to the file:
-            call All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar) ! calculate all IMFPs
+            call All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar, Mat_DOS) ! calculate all IMFPs
             open(newunit=FN, file=trim(adjustl(Input_files)))
             write(*,'(a,a,a)') 'Calculated attenuation lengths (IMFPs) of a photon in ', trim(adjustl(Material_name)), ' are storred in the file'
             write(*, '(a)') trim(adjustl(Input_files))
@@ -917,10 +917,11 @@ subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matt
     type(Solid), intent(in) :: Matter ! properties of material
     type(Flag), intent(in) :: NumPar
     character(8), intent(in) :: kind_of_particle
-
+    !-----------------------
     real(8) IMFP_calc, dEdx, Ele, dE(N), Emin
     integer i, j, k, Nshl, Nat, Va, Ord
     integer Num_th, my_id, OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
+    !complex(8) :: complex_CDF ! constructed CDF
     
     Nat = size(Target_atoms)    ! number of atoms
     
@@ -950,6 +951,7 @@ subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matt
              Total_el_MFPs(j)%ELMFP(k)%E(i) = Ele
              Total_el_MFPs(j)%ELMFP(k)%L(i) = IMFP_calc
              Total_el_MFPs(j)%ELMFP(k)%dEdx(i) = dEdx
+
           enddo ! k = 1, size(Target_atoms(j)%Ip)  ! for all shells of each atom:
         enddo ! j = 1,size(Target_atoms)  ! for all atoms:
         call progress(' Progress of calculation: ', i, N)
@@ -959,12 +961,13 @@ subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matt
 end subroutine All_shells_Electron_MFP
 
 
-subroutine All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar) ! calculate all IMFPs
+subroutine All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar, Mat_DOS) ! calculate all IMFPs
     integer, intent(in) :: N  ! number of energy points
     type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
     type(All_MFP), dimension(:), allocatable, intent(inout) :: Total_el_MFPs   ! electron mean free paths for all shells
     type(Solid), intent(in) :: Matter ! properties of material
     type(Flag), intent(in) :: NumPar
+    type(Density_of_states), intent(in) :: Mat_DOS ! unused here, but needs to be passed to further subroutines
     !----------------------
     real(8) IMFP_calc, dEdx, Ele, dE(N), Emin
     integer i, j, k, Nshl, Nat, Va, Ord
@@ -988,7 +991,7 @@ subroutine All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar)
 
 
 !$omp parallel &
-!$omp private (i, j, k, Ele, IMFP_calc, dEdx)
+!$omp private (i, j, k, Ele, IMFP_calc, dEdx, complex_CDF)
 !$omp do schedule(dynamic)
     do i = 1, N
         Ele = dE(i)
@@ -996,19 +999,20 @@ subroutine All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar)
         do j = 1, Nat  ! for all atoms:
           Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
           do k = 1, Nshl  ! for all shells of each atom:
-             call Tot_Phot_IMFP(Ele, Target_atoms, j, k, IMFP_calc, dEdx, Matter, NumPar) ! from module "Cross_sections"
+             call Tot_Phot_IMFP(Ele, Target_atoms, j, k, IMFP_calc, dEdx, Matter, NumPar, Mat_DOS) ! from module "Cross_sections"
              Total_el_MFPs(j)%ELMFP(k)%E(i) = Ele
              Total_el_MFPs(j)%ELMFP(k)%L(i) = IMFP_calc
              Total_el_MFPs(j)%ELMFP(k)%dEdx(i) = dEdx
 
+             !print*, 'All_shells_Photon_MFP', j, k
              ! test of CDF:
-!              if ((j == 1) .and. (k==Nshl)) then
-!                 call construct_CDF(Target_atoms(j)%Ritchi(k), Ele, 0.0d0, complex_CDF) ! module "Cross_sections"
-!              endif
+              if ((j == 1) .and. (k==Nshl)) then ! VB
+                 call construct_CDF(complex_CDF, Target_atoms, j, k, Mat_DOS, Matter, NumPar, Ele, 0.0d0, photon=.true.) ! module "Cross_sections"
+              endif
 
           enddo ! k = 1, size(Target_atoms(j)%Ip)  ! for all shells of each atom:
         enddo ! j = 1,size(Target_atoms)  ! for all atoms:
-        call progress(' Progress of calculation: ', i, N)
+        !call progress(' Progress of calculation: ', i, N)
     enddo
 !$omp end do
 !$omp end parallel
