@@ -130,6 +130,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    NumPar%plasmon_Emax = .false. ! do not include plasmon integration limit in inelastic CDF
    NumPar%field_include = .false.   ! no fields (bc NOT READY!)
    NumPar%print_CDF = .false. ! don't print CDF file out
+   NumPar%print_CDF_optical = .false.  ! don't print optical CDF
    NumPar%do_gnuplot = .true. ! gnuplot by default
    NumPar%plot_extension = 'jpeg' ! default jpeg-files
 
@@ -448,6 +449,10 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
    case ('print_CDF', 'Print_CDF', 'print_cdf', 'PRINT_CDF')
       NumPar%print_CDF = .true.
       print*, 'File with CDF parametres will be printed out'
+
+   case ('print_optical', 'Print_optical', 'Print_Optical', 'print_optical_cdf', 'PRINT_OPTICAL_CDF')
+      NumPar%print_CDF_optical = .true.
+      print*, 'File with optical CDF will be printed out'
 
    case ('Verbose', 'verbose', 'VERBOSE')
       NumPar%verbose = .true.

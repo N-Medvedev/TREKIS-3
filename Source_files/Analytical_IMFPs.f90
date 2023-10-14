@@ -7,18 +7,85 @@ module Analytical_IMFPs
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
   use Reading_files_and_parameters, only : get_file_stat, Find_in_array_monoton, read_file_here, Linear_approx, read_SHI_MFP
-  use Cross_sections, only : Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, SHI_Total_IMFP, construct_CDF
+  use Cross_sections, only : Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, SHI_Total_IMFP, construct_CDF, Total_copmlex_CDF
   use Dealing_with_EADL, only : Count_lines_in_file
 implicit none
 PRIVATE
 
+! Interface to automatically chose from the bubble array-sorting subroutines
+interface sort_array
+   module procedure sort_array_r ! for real arrays
+   module procedure sort_array_c ! for complex arrays
+end interface sort_array
 
-public :: Analytical_electron_dEdx, Analytical_ion_dEdx, Interpolate
+interface find_order_of_number
+   module procedure find_order_of_number_real
+   module procedure find_order_of_number_int
+end interface find_order_of_number
+
+
+public :: Analytical_electron_dEdx, Analytical_ion_dEdx, Interpolate, printout_optical_CDF
 
 
 
 contains
 
+
+! Printout optical CDF reconstructed from Titchie-Howie loss-function:
+subroutine printout_optical_CDF(Output_path, Target_atoms, Matter, NumPar, Mat_DOS)
+   character(100), intent(in) :: Output_path   ! path to the folder where the file is/will be storred
+   type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
+   type(Solid), intent(in) :: Matter   ! material properties
+   type(Flag), intent(in) :: NumPar ! numerical parameters
+   type(Density_of_states), intent(in) :: Mat_DOS
+   !------------------------
+   real(8), dimension(:), allocatable :: Temp_grid
+   complex(8) :: complex_CDF ! constructed CDF
+   real(8) :: Ele
+   integer :: i, N, FN
+   character(250) :: Output_file, temp_char1, KCS
+
+
+    ! Make energy grid for printing out optical CDF:
+    call get_grid_4CS(N, Temp_grid, Target_atoms, 0.001d0, 100.0d0-0.1d0, rescale_dE=0.1d0)  ! below
+
+    ! if user requested, construct and printout optical CDF from the Ritchie-Howie fitted loss function:
+    if (NumPar%print_CDF_optical) then
+        KCS = ''
+        select case (NumPar%kind_of_CDF)
+        case (0)    ! Ritchie-Howie
+            KCS = 'Ritchie_CDF'
+        case (1)    ! single-pole CDF
+            KCS = 'single_pole_CDF'
+        endselect
+
+        write(temp_char1, '(a)') 'OUTPUT_Optical_CDF_from_'//trim(adjustl(KCS))//'.dat'
+        Output_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char1))
+
+        ! Prepare output file:
+        FN = 201
+        open(FN, file=trim(adjustl(Output_file)))
+        write(FN, '(a)') 'Energy(eV)    Re(CDF) Im(CDF) n   k'
+
+        ! Write the total CDF into it:
+        do i = 1, N
+            Ele = Temp_grid(i)  ! energy grid [eV]
+            ! Reconstruct CDF:
+            call Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, Ele, 0.0d0, &
+                                        complex_CDF, photon=.true.) ! module "Cross_sections"
+            ! Printout into the file:
+            write(FN, '(f16.5, es25.6, es25.6, es25.6, es25.6)') Ele, dble(complex_CDF), aimag(complex_CDF), &
+                                        dble(sqrt(complex_CDF)), aimag(sqrt(complex_CDF))
+        enddo
+
+        ! Clean up:
+        close(FN)
+    endif ! (NumPar%print_CDF_optical)
+end subroutine printout_optical_CDF
+
+
+
+!EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
 ! Calculates electron mean free paths with parallelization via openmp:
 subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_el_MFPs, &
                         Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names)
@@ -38,11 +105,11 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     character(8), intent(in) :: kind_of_particle    
         
     integer :: FN, FN1, FN2, FN3, FN4     ! file numbers where to save the output
-    integer :: N ! = 300       ! how many points for IMFP
-    integer :: Nelast ! = 318  ! how many point for EMFP
+    integer :: N, Nelast, Nsiz
     integer temp(1)
     real(8) Ele, IMFP_calc, dEdx, dEdx1, dEdx0, dE, Emin, Emax, L_tot, vel, Mass, InelMFP, ElasMFP, e_range
     real(8), dimension(:,:), allocatable :: Temp_MFP
+    real(8), dimension(:), allocatable :: Temp_grid
     integer Num_th, my_id, OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS, IMFP_last_modified
     integer i, j, k, Nat, Nshl, Reason, Va, Ord, Mnum, MFPnum
     character(200) Input_files, Input_elastic_file, File_el_range, File_hole_range
@@ -59,70 +126,22 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     if (kind_of_particle .EQ. 'Electron') then ! it's an electrons
         Emax = 175.6d6*2.0d0/1836.0d0   ! [eV] ~maximum energy where relativism still can be neglected
     else if (kind_of_particle .EQ. 'Hole') then ! it's a hole
-        Emax = Maxval(Mat_DOS%E(:)) + 10.0d0 ! [eV] only within the width of VB (or a bit more, just in case...)
+        Emax = Maxval(Mat_DOS%E(:)) + 1.0d0 ! [eV] only within the width of VB (or a bit more, just in case...)
     else ! it's a photon
         Emax = 175.6d6*2.0d0/1836.0d0   ! [eV] excluding Bremsstrahlung, photon can't be more energetic than this
     endif   
-    N = 0
-    Ord = 0 ! start with 1
-    Va = int(Emin)
-    dE = Emin
-    do while (dE .LT. Emax)
-        N = N + 1
-        if (Va .GE. 100) then
-            Va = Va - 90
-            Ord = Ord + 1
-        endif
-        dE = dE + 10.0d0**Ord
-        Va = Va + 1
-    enddo   ! while (dE .LT. Emax)
-    N = N + 1
-    
-    elast:if (kind_of_particle .NE. 'Photon') then ! elastic only for massive particles:
-        Emin = 1.0d0    ! [eV] we start with this minimum
-        Nelast = 0
-        Ord = -2 ! start with 1
-        Va = int(Emin)
-        dE = 10.0d0**Ord
-        do while (dE .LT. Emax)
-            Nelast = Nelast + 1
-            if (dE .LE. 1.0d0) then
-                if (Va .GE. 10) then
-                    Va = Va - 9
-                    Ord = Ord + 1
-                endif
-            else
-                if (Va .GE. 100) then
-                    Va = Va - 90
-                    Ord = Ord + 1
-                endif
-            endif
-            dE = dE + 10.0d0**Ord
-            Va = Va + 1
-        enddo   ! while (dE .LT. Emax)
-        Nelast = Nelast + 1 
-        if (.not. allocated(Elastic_MFP%Total%E)) then
-            allocate(Elastic_MFP%Total%E(Nelast))  ! [eV] energies for MFP
-            Elastic_MFP%Total%E = 0.0d0   ! just to start
-        endif
-        if (.not. allocated(Elastic_MFP%Total%L)) then
-            allocate(Elastic_MFP%Total%L(Nelast))  ! [A] MFP itself
-            Elastic_MFP%Total%L = 1.0d24
-        endif
-        if (.not. allocated(Elastic_MFP%Total%dEdx)) then
-            allocate(Elastic_MFP%Total%dEdx(Nelast))  ! [eV/A] mean energy loss
-            Elastic_MFP%Total%dEdx = 0.0d0
-        endif
-    endif elast
-        
+
+    ! Make an energy grid for inelastic CS, taking into account finer resolution around ionization potentials:
+    ! 1) For inelastic scttering grid:
+    call get_grid_4CS(N, Temp_grid, Target_atoms, 0.1d0, Emax)  ! below
     if (.not. allocated(Total_el_MFPs)) allocate(Total_el_MFPs(Nat)) ! how many atoms    
     do j = 1, Nat   ! declair variables if they are not yet
         Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
         if (.not. allocated(Total_el_MFPs(j)%ELMFP)) allocate(Total_el_MFPs(j)%ELMFP(Nshl)) ! how many shells
         do k = 1, Nshl
             if (.not. allocated(Total_el_MFPs(j)%ELMFP(k)%E)) then
-                allocate(Total_el_MFPs(j)%ELMFP(k)%E(N))    !
-                Total_el_MFPs(j)%ELMFP(k)%E = 0.0d0
+                allocate(Total_el_MFPs(j)%ELMFP(k)%E(N), source = Temp_grid)    ! we already know the grid, reuse it
+                !Total_el_MFPs(j)%ELMFP(k)%E = 0.0d0
             endif
             if (.not. allocated(Total_el_MFPs(j)%ELMFP(k)%L)) then
                 allocate(Total_el_MFPs(j)%ELMFP(k)%L(N))
@@ -134,9 +153,24 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             endif
         enddo
     enddo
-    
     allocate(temp_MFP(2,N))
+
+    ! 2) For elastic scttering grid:
+    if (kind_of_particle .NE. 'Photon') then ! elastic only for massive particles:
+        ! Set the grid for electron energies in ELASTIC cross-section:
+        call get_grid_4CS(Nelast, Elastic_MFP%Total%E, Target_atoms, 0.01d0, Emax)  ! below
+
+        if (.not. allocated(Elastic_MFP%Total%L)) then
+            allocate(Elastic_MFP%Total%L(Nelast))  ! [A] MFP itself
+            Elastic_MFP%Total%L = 1.0d24
+        endif
+        if (.not. allocated(Elastic_MFP%Total%dEdx)) then
+            allocate(Elastic_MFP%Total%dEdx(Nelast))  ! [eV/A] mean energy loss
+            Elastic_MFP%Total%dEdx = 0.0d0
+        endif
+    endif
     
+
     ! Which cross sections we use - CDF vs BEB:
     temp = 0
 
@@ -199,7 +233,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         if (allocated(File_names%F)) File_names%F(2) = trim(adjustl(temp_char1)) ! save for later use
         Input_files = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char1))
 
-        ! IMFP files:
+        ! IMFP files for electron:
         FN = 201
         inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
 
@@ -207,14 +241,26 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         if (file_exist) then
             call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
             !print*, 'IMFP file last modified on:', IMFP_last_modified
-            if (IMFP_last_modified < NumPar%Last_mod_time_CDF) NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
+            if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
+                print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+            endif
+
+            ! Check if the file is consistent with the grid set:
+            open(FN, file=trim(adjustl(Input_files)), action='read')
+            call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
+            if (Nsiz /= N) then
+                NumPar%redo_IMFP = .true. ! Grid mismatch, recalculate IMFPs
+                print*, 'Energy grid mismatch in MFP file => recalculating MFP'
+            endif
+            close(FN)
         endif
 
         if (file_exist .and. .not.NumPar%redo_IMFP) then    ! read from the file:
             write(*,'(a,a,a)') 'IMFPs of an electron in ', trim(adjustl(Material_name)), ' are already in the file:'
             write(*, '(a)') trim(adjustl(Input_files))
             write(*, '(a)') ' '
-            open(FN, file=trim(adjustl(Input_files)), ACTION='READ')
+            open(FN, file=trim(adjustl(Input_files)), action='read')
         else    ! create and write to the file:
             call All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, kind_of_particle) ! calculate all IMFPs
             open(FN, file=trim(adjustl(Input_files)))
@@ -283,8 +329,20 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         if (file_exist) then
             call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
             !print*, 'IMFP file last modified on:', IMFP_last_modified
-            if (IMFP_last_modified < NumPar%Last_mod_time_CDF) NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
+            if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
+                print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+            endif
+            ! Check if the file is consistent with the grid set:
+            open(newunit=FN, file=trim(adjustl(Input_files)), ACTION='READ')
+            call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
+            if (Nsiz /= N) then
+                NumPar%redo_IMFP = .true. ! Grid mismatch, recalculate IMFPs
+                print*, 'Energy grid mismatch in MFP file => recalculating MFP'
+            endif
+            close(FN)
         endif
+
 
         if (file_exist .and. .not.NumPar%redo_IMFP) then    ! read from the file:
             write(*,'(a,a,a)') 'IMFPs of a photon in ', trim(adjustl(Material_name)), ' are already in the file:'
@@ -361,7 +419,10 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             if (file_exist) then
                 call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
                 !print*, 'IMFP file last modified on:', IMFP_last_modified
-                if (IMFP_last_modified < NumPar%Last_mod_time_DSF) NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                if (IMFP_last_modified < NumPar%Last_mod_time_DSF) then
+                    NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                    print*, 'File with DSF was modified more recently than the MFP => recalculating MFP'
+                endif
             endif
             
             if (file_exist .and. .not.NumPar%redo_EMFP) then    ! read from the file:
@@ -453,11 +514,22 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 if (file_exist) then
                     call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
                     !print*, 'IMFP file last modified on:', IMFP_last_modified
-                    if (IMFP_last_modified < NumPar%Last_mod_time_CDF) NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                    if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                        NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                        print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+                    endif
+                    ! Check if the file is consistent with the grid set:
+                    open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                    call count_lines_in_file(FN2, Nsiz) ! module "Dealing_with_EADL"
+                    if (Nsiz /= Nelast) then
+                        NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
+                        print*, 'Energy grid mismatch in MFP file => recalculating MFP'
+                    endif
+                    close(FN2)
                 endif
 
                 if (file_exist .and. .not.NumPar%redo_EMFP) then    ! read from the file:
-                    write(*,'(a,a,a)') 'Calculated with'//trim(adjustl(KCS(2:)))//'EMFPs of an electron in ', &
+                    write(*,'(a,a,a)') 'Calculated with '//trim(adjustl(KCS(2:)))//' EMFPs of an electron in ', &
                         trim(adjustl(Material_name)), ' are already in the file:'
                     write(*, '(a)') trim(adjustl(Input_elastic_file))
                     write(*, '(a)') ' '
@@ -491,7 +563,18 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             if (file_exist) then
                 call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
                 !print*, 'IMFP file last modified on:', IMFP_last_modified
-                if (IMFP_last_modified < NumPar%Last_mod_time_CDF) NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                    NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                    print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+                endif
+                ! Check if the file is consistent with the grid set:
+                open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
+                if (Nsiz /= Nelast) then
+                    NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
+                    print*, 'Energy grid mismatch in MFP file => recalculating MFP'
+                endif
+                close(FN2)
             endif
 
             if (file_exist .and. .not.NumPar%redo_EMFP) then    ! read from the file:
@@ -574,7 +657,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 !1.0d0/(1.0d0/Elastic_MFP%Emit%L(i) + 1.0d0/Elastic_MFP%Absorb%L(i))
             enddo
             !pause 'DSF Test VB hole'
-         case (1) ! Calculate or read CDF elastic MFP
+         case (1) ! Calculate elastic MFP
             KCS = ''
             select case (NumPar%kind_of_CDF_ph)
             case (0)    ! Ritchie-Howie
@@ -597,6 +680,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             open(FN2, file=trim(adjustl(Input_elastic_file)))
             write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are storred in the file'
             write(*, '(a)') trim(adjustl(Input_elastic_file))
+            write(*, '(a)') ' '
          case (0) ! Mott cross-sections
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
 
@@ -611,8 +695,20 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             if (file_exist) then
                 call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
                 !print*, 'IMFP file last modified on:', IMFP_last_modified
-                if (IMFP_last_modified < NumPar%Last_mod_time_CDF) NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                    NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                    print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+                endif
+                ! Check if the file is consistent with the grid set:
+                open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
+                if (Nsiz /= Nelast) then
+                    NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
+                    print*, 'Energy grid mismatch in MFP file => recalculating MFP'
+                endif
+                close(FN2)
             endif
+
 
             if (file_exist .and. .not.NumPar%redo_EMFP) then    ! read from the file:
                 write(*,'(a,a,a)') 'Mott EMFPs of a hole in ', trim(adjustl(Material_name)), ' are already in the file:'
@@ -870,34 +966,37 @@ subroutine All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elas
     integer i, Va, Ord
     real(8) Ele, EMFP, dEdx, Emin, dE(Nelast)
 
-    Emin = 1.0d0    ! [eV] we start with this minimum
-    Ord = -2 ! start with 1
-    Va = int(Emin)
-    dE(1) = 10.0d0**Ord
-    do i = 1, Nelast-1    
-        if (dE(i) .LE. 1.0d0) then
-            if (Va .GE. 10) then
-                Va = Va - 9
-                Ord = Ord + 1
-            endif
-        else
-            if (Va .GE. 100) then
-                Va = Va - 90
-                Ord = Ord + 1
-            endif
-        endif
-        dE(i+1) = dE(i) + 10.0d0**Ord
-        Va = Va + 1
-    enddo   ! while (dE .LT. Emax)
+!     Emin = 1.0d0    ! [eV] we start with this minimum
+!     Ord = -2 ! start with 1
+!     Va = int(Emin)
+!     dE(1) = 10.0d0**Ord
+!     do i = 1, Nelast-1
+!         if (dE(i) .LE. 1.0d0) then
+!             if (Va .GE. 10) then
+!                 Va = Va - 9
+!                 Ord = Ord + 1
+!             endif
+!         else
+!             if (Va .GE. 100) then
+!                 Va = Va - 90
+!                 Ord = Ord + 1
+!             endif
+!         endif
+!         dE(i+1) = dE(i) + 10.0d0**Ord
+!         Va = Va + 1
+!     enddo   ! while (dE .LT. Emax)
+
 
 if (.not.present(dont_do)) then ! only do it when we have the CDF
 !$omp parallel &
 !$omp private (i, Ele, EMFP, dEdx)
 !$omp do schedule(dynamic)
     do i = 1, Nelast
-        Ele = dE(i)
+        !Ele = dE(i)
+        Ele = Elastic_MFP%E(i)
+        !print*, 'All_elastic_scattering', i, Ele
         call Elastic_cross_section(Ele, CDF_Phonon, Target_atoms, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle) ! from module Cross_sections
-        Elastic_MFP%E(i) = Ele      ! [eV] energy
+        !Elastic_MFP%E(i) = Ele      ! [eV] energy; Grid was already preset, reuse it!
         Elastic_MFP%L(i) = EMFP     ! [A] elastic mean free path
         Elastic_MFP%dEdx(i) = dEdx  ! [eV/A] energy loss
         call progress(' Progress of calculation: ', i, Nelast)
@@ -925,30 +1024,31 @@ subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matt
     
     Nat = size(Target_atoms)    ! number of atoms
     
-    Emin = 1.0d0    ! [eV] we start with this minimum
-    Ord = 0 ! start with 1
-    Va = int(Emin)
-    dE(1) = Emin
-    do i = 1, N-1
-        if (Va .GE. 100) then
-            Va = Va - 90
-            Ord = Ord + 1
-        endif
-        dE(i+1) = dE(i) + 10.0d0**Ord
-        Va = Va + 1
-    enddo
+!     Emin = 1.0d0    ! [eV] we start with this minimum
+!     Ord = 0 ! start with 1
+!     Va = int(Emin)
+!     dE(1) = Emin
+!     do i = 1, N-1
+!         if (Va .GE. 100) then
+!             Va = Va - 90
+!             Ord = Ord + 1
+!         endif
+!         dE(i+1) = dE(i) + 10.0d0**Ord
+!         Va = Va + 1
+!     enddo
 
 !$omp parallel &
 !$omp private (i, j, k, Ele, IMFP_calc, dEdx)
 !$omp do schedule(dynamic)
     do i = 1, N
-        Ele = dE(i)
+        !Ele = dE(i)
+        Ele = Total_el_MFPs(1)%ELMFP(1)%E(i)
         !my_id = 1 + OMP_GET_THREAD_NUM() ! identify which thread it is
         do j = 1, Nat  ! for all atoms:
           Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
           do k = 1, Nshl  ! for all shells of each atom:
              call TotIMFP(Ele, Target_atoms, j, k, IMFP_calc, dEdx, Matter, Mat_DOS, NumPar, kind_of_particle) ! from module "Cross_sections"
-             Total_el_MFPs(j)%ELMFP(k)%E(i) = Ele
+             !Total_el_MFPs(j)%ELMFP(k)%E(i) = Ele
              Total_el_MFPs(j)%ELMFP(k)%L(i) = IMFP_calc
              Total_el_MFPs(j)%ELMFP(k)%dEdx(i) = dEdx
 
@@ -976,31 +1076,32 @@ subroutine All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar,
     
     Nat = size(Target_atoms)    ! number of atoms
     
-    Emin = 1.0d0    ! [eV] we start with this minimum
-    Ord = 0 ! start with 1
-    Va = int(Emin)
-    dE(1) = Emin
-    do i = 1, N-1
-        if (Va .GE. 100) then
-            Va = Va - 90
-            Ord = Ord + 1
-        endif
-        dE(i+1) = dE(i) + 10.0d0**Ord
-        Va = Va + 1
-    enddo
+!     Emin = 1.0d0    ! [eV] we start with this minimum
+!     Ord = 0 ! start with 1
+!     Va = int(Emin)
+!     dE(1) = Emin
+!     do i = 1, N-1
+!         if (Va .GE. 100) then
+!             Va = Va - 90
+!             Ord = Ord + 1
+!         endif
+!         dE(i+1) = dE(i) + 10.0d0**Ord
+!         Va = Va + 1
+!     enddo
 
 
 !$omp parallel &
 !$omp private (i, j, k, Ele, IMFP_calc, dEdx, complex_CDF)
 !$omp do schedule(dynamic)
     do i = 1, N
-        Ele = dE(i)
+        !Ele = dE(i)
+        Ele = Total_el_MFPs(1)%ELMFP(1)%E(i)
         !my_id = 1 + OMP_GET_THREAD_NUM() ! identify which thread it is
         do j = 1, Nat  ! for all atoms:
           Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
           do k = 1, Nshl  ! for all shells of each atom:
              call Tot_Phot_IMFP(Ele, Target_atoms, j, k, IMFP_calc, dEdx, Matter, NumPar, Mat_DOS) ! from module "Cross_sections"
-             Total_el_MFPs(j)%ELMFP(k)%E(i) = Ele
+             !Total_el_MFPs(j)%ELMFP(k)%E(i) = Ele
              Total_el_MFPs(j)%ELMFP(k)%L(i) = IMFP_calc
              Total_el_MFPs(j)%ELMFP(k)%dEdx(i) = dEdx
 
@@ -1032,9 +1133,9 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Flag), intent(inout) :: NumPar
     !------------------------------
-    real(8), dimension(:), allocatable :: dEdx_tot
+    real(8), dimension(:), allocatable :: dEdx_tot, Temp_grid
     real(8) SHI_E, Emin, Emax, dE
-    integer N, Ord, Va, IMFP_last_modified
+    integer N, Ord, Va, IMFP_last_modified, Nsiz
     integer i, j, k, Nat, Nshl, FN, FN2, FN3
     character(100) Input_files, Input_files11, Input_files2, Input_files3, Path_name, command, charge_name, charge_kind, CS_name, ch_temp
     logical file_exist, file_exist2
@@ -1046,30 +1147,31 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
     ! How many energy points will be here:
     Emin = real(CEILING(((SHI%Mass*g_Mp + g_me)*(SHI%Mass*g_Mp + g_me)/(SHI%Mass*g_Mp*g_me)*Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))/4.0d0)))  ! [eV]
     Emax = 175.6d6/2.0d0*SHI%Mass ! [eV]  maximal energy that still has no relativism
-    dE = Emin
-    call Find_order_of_magn(Emin, i, j)    ! order of magnitude
-    dE = j*10**i  ! start with this value
-    Va = j
-    Ord = i
-    N = 0
-    do while (dE .LT. Emax)
-        N = N + 1
-        if (Va .GE. 10) then 
-            Va = Va - 9
-            Ord = Ord + 1
-        endif
-        dE = dE + 10.0d0**Ord
-        Va = Va + 1
-    enddo   ! while (dE .LT. Emax)
-    N = N + 2
+!     dE = Emin
+!     call Find_order_of_magn(Emin, i, j)    ! order of magnitude
+!     dE = j*10**i  ! start with this value
+!     Va = j
+!     Ord = i
+!     N = 0
+!     do while (dE .LT. Emax)
+!         N = N + 1
+!         if (Va .GE. 10) then
+!             Va = Va - 9
+!             Ord = Ord + 1
+!         endif
+!         dE = dE + 10.0d0**Ord
+!         Va = Va + 1
+!     enddo   ! while (dE .LT. Emax)
+!     N = N + 2
+    call get_grid_4CS(N, Temp_grid, Target_atoms, Emin, Emax)  ! below
     
     do j = 1, Nat   ! declair variables if they are not yet
         Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
         if (.not. allocated(SHI_MFP(j)%ELMFP)) allocate(SHI_MFP(j)%ELMFP(Nshl)) ! how many shells
         do k = 1, Nshl
             if (.not. allocated(SHI_MFP(j)%ELMFP(k)%E)) then    ! energy array
-                allocate(SHI_MFP(j)%ELMFP(k)%E(N))
-                SHI_MFP(j)%ELMFP(k)%E = 0.0d0
+                allocate(SHI_MFP(j)%ELMFP(k)%E(N), source = Temp_grid)  ! grid already constructed, reuse it
+                !SHI_MFP(j)%ELMFP(k)%E = 0.0d0
             endif
             if (.not. allocated(SHI_MFP(j)%ELMFP(k)%L)) then    ! mean free path array
                 allocate(SHI_MFP(j)%ELMFP(k)%L(N))
@@ -1136,7 +1238,19 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
     if (file_exist) then
         call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
         !print*, 'IMFP file last modified on:', IMFP_last_modified
-        if (IMFP_last_modified < NumPar%Last_mod_time_CDF) NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
+        if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+            NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
+            print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+        endif
+        ! Check if the file is consistent with the grid set:
+        FN = 200
+        open(FN, file=trim(adjustl(Input_files)))   ! just to check the energy grid inside
+        call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
+        if (Nsiz /= N) then
+            NumPar%redo_IMFP = .true. ! Grid mismatch, recalculate IMFPs
+            print*, 'Energy grid mismatch in MFP file => recalculating MFP'
+        endif
+        close(FN)
     endif
 
     if (file_exist .and. .not.NumPar%redo_IMFP) then
@@ -1240,8 +1354,8 @@ subroutine Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin
    real(8), dimension(:), allocatable, optional, intent(out) :: dEdx_tot    ! total ion energy loss
    type(Density_of_states), intent(in) :: Mat_DOS
    type(Flag), intent(in) :: NumPar
-   
-   integer Nat, Nshl, j, i, k, Va, Ord, FN, FN2, FN3
+   !-------------------------------
+   integer Nat, Nshl, j, i, k, Va, Ord, FN, FN2, FN3, N_grid
    integer Num_th, my_id, OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
    real(8), dimension(N, size(Target_atoms), size(Target_atoms(1)%Ip)) :: SHI_IMFP, SHI_dEdx
    real(8), dimension(N) :: E, Zeff  ! SHI inverse mean free path [1/A], and dEdx [eV/A], Zeff
@@ -1250,22 +1364,27 @@ subroutine Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin
    real(8), pointer :: Z
    type(Ion) :: SHI_1
    real(8), dimension(N) :: dE  ! energy grid [eV]
+   real(8), dimension(:), allocatable :: Temp_grid
 
    Nat = size(Target_atoms) ! how many atoms
    
-   dE = 0.0d0
-   call Find_order_of_magn(Emin, i, j)    ! order of magnitude
-   dE(1) = j*10**i  ! start with this value
-   Va = j
-   Ord = i
-   do k = 1, N-1
-       if (Va .GE. 10) then 
-           Va = Va - 9
-           Ord = Ord + 1
-       endif
-       dE(k+1) = dE(k) + 10.0d0**Ord
-       Va = Va + 1
-   enddo   ! while (dE .LT. Emax)   
+!    dE = 0.0d0
+!    call Find_order_of_magn(Emin, i, j)    ! order of magnitude
+!    dE(1) = j*10**i  ! start with this value
+!    Va = j
+!    Ord = i
+!    do k = 1, N-1
+!        if (Va .GE. 10) then
+!            Va = Va - 9
+!            Ord = Ord + 1
+!        endif
+!        dE(k+1) = dE(k) + 10.0d0**Ord
+!        Va = Va + 1
+!    enddo   ! while (dE .LT. Emax)
+   call get_grid_4CS(N_grid, Temp_grid, Target_atoms, Emin, Emax)  ! below
+   if (size(dE) /= size(Temp_grid)) print*, 'Error: grid mismatch in Analytical_SHI_dEdx'
+   dE = Temp_grid
+
    
    SHI_dEdx = 0.0d0
    E = 0.0d0
@@ -1429,5 +1548,284 @@ subroutine progress(string,ndone,ntotal)
         return
     endif
 end subroutine progress
+
+
+
+!GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+! Define a fine grid for MFPs:
+subroutine get_grid_4CS(N, grid_array, Target_atoms, Emin_in, Emax_in, rescale_dE)
+   integer, intent(out) :: N ! number of grid points (array size to be defined)
+   real(8), intent(out), dimension(:), allocatable :: grid_array ! array of these grid points
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
+   real(8), intent(in), optional :: Emin_in, Emax_in    ! start and end of the grid [eV]
+   real(8), optional :: rescale_dE   ! scaling factor for dE
+   !-----------------------------
+   real(8), dimension(:), allocatable :: special_point
+   real(8) :: Emin, Emax, E_sp_eps, scale_dE
+   integer :: i, NP
+
+   ! Initial definitions:
+   if (present(Emin_in)) then
+      Emin = Emin_in   ! [eV] we start with this given minimum
+   else ! default value
+      Emin = 0.01d0
+   endif
+
+   if (present(Emax_in)) then
+      Emax = Emax_in   ! [eV] defaul value, may be changed if needed
+   else ! default value
+      Emax = 2.0d5   ! [eV] defaul value, may be changed if needed
+   endif
+
+   if (present(rescale_dE)) then    ! rescale (refine) grid by this value
+      scale_dE = rescale_dE
+   else ! no rescaling, default grid
+      scale_dE = 1.0d0
+   endif
+
+   E_sp_eps = 1.0d-3 ! how close a grid point should be around a special point
+
+   ! Get the special points associated with the ionization potentials of all shells:
+   call define_special_points(Target_atoms, special_point)  ! below
+
+   ! Count how many points, to allocate the grid:
+   call go_thru_grid(Emin, Emax, E_sp_eps, special_point, scale_dE, Ngrid=N)   ! below
+
+   ! Save the grid:
+   allocate(grid_array(N), source = 0.0d0)
+   call go_thru_grid(Emin, Emax, E_sp_eps, special_point, scale_dE, array=grid_array)   ! below
+
+!    do i = 1, size(grid_array)
+!       print*, i, grid_array(i)
+!    enddo
+!    pause 'get_grid_4CS'
+
+    if (allocated(special_point)) deallocate(special_point)
+end subroutine get_grid_4CS
+
+
+subroutine go_thru_grid(Emin, Emax, E_sp_eps, special_point, scale_dE, Ngrid, array)
+   real(8), intent(in) :: Emin, Emax, E_sp_eps   ! grid start and end; precision around a special point
+   real(8), dimension(:), intent(in) :: special_point
+   real(8), intent(in) :: scale_dE   ! scaling factor for dE
+   integer, intent(inout), optional :: Ngrid ! number of grid points
+   real(8), dimension(:), intent(inout), optional :: array ! save grid
+   !--------------
+   integer :: SP_count, N
+   real(8) :: E_cur, dE, dE_min
+   logical :: point_is_here
+
+   SP_count = 1
+   N = 0
+   dE_min = 0.01d0 * scale_dE
+   E_cur = Emin - dE_min  ! start from min
+   do while (E_cur < Emax)
+      N = N + 1   ! count points
+      if (E_cur < 0.1d0-(dE_min)*0.5d0) then
+         dE = dE_min
+      elseif (E_cur < 1.0d0-dE_min*0.5d0) then
+         !dE = 0.1d0
+         dE = dE_min * 10.0d0
+      else if (E_cur < 100.0d0-dE_min*0.5d0) then
+         !dE = 1.0d0
+         dE = dE_min * 100.0d0
+      else
+         dE = 10.0d0**(find_order_of_number(E_cur)-2) ! below
+      endif
+      E_cur = E_cur + dE
+
+      ! save grid points:
+      if (present(array)) then
+         if (N <= size(array)) then
+            array(N) = E_cur
+         else
+            print*, 'Mismatch #1 of array size in go_thru_grid:', N, size(array)
+            return
+         endif
+      endif
+
+      ! Check if the special points are still there:
+      point_is_here = .false. ! by default
+      if (SP_count <= size(special_point)) then ! there may be a specila point:
+         if ( (E_cur >= special_point(SP_count)) .and. ((E_cur-dE) < special_point(SP_count)) ) then ! special point inside interval
+            SP_count = SP_count + 1 ! this special point is done, do the next one
+            point_is_here = .true.
+         endif
+      endif
+
+      ! Save grid point:
+      if (point_is_here) then
+         if (present(array)) then
+            if (N+2 <= size(array)) then
+               ! add two points:
+               ! 1) below the special point:
+               N = N + 1
+               array(N) = special_point(SP_count-1) - E_sp_eps
+               ! 2) above the special point:
+               N = N + 1
+               array(N) = special_point(SP_count-1) + E_sp_eps
+            else
+               print*, 'Mismatch #2 of array size in go_thru_grid', N, size(array)
+               return
+            endif
+         else
+            ! add 2 extra points around the special point
+            N = N + 2
+         endif
+      endif
+
+   enddo ! while (E_cur .LT. Emax)
+
+   ! prepare output:
+   if (present(Ngrid)) Ngrid = N ! save grid size
+
+   if (present(array)) then   ! make sure the array is sorted increasing
+      call sort_array(array)  ! below
+   endif
+end subroutine go_thru_grid
+
+
+
+subroutine define_special_points(Target_atoms, special_point)
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
+   real(8), dimension(:), allocatable :: special_point
+   !-----------------------------
+   integer :: Nsiz, i, k, sh, coun
+
+   ! Count how many Ip's are there:
+   Nsiz = 0
+   do i = 1, size(Target_atoms)  ! for all elements
+      Nsiz = Nsiz + size(Target_atoms(i)%Ip)
+   enddo
+
+   ! allocate and set special_points:
+   allocate(special_point(Nsiz), source = 0.0d0)
+
+   ! Copy the special points (ionization potentials):
+   coun = 0
+   do i = 1, size(Target_atoms)  ! for all elements
+      sh = size(Target_atoms(i)%Ip)
+      do k = 1, sh
+         coun = coun + 1
+         special_point(coun) = Target_atoms(i)%Ip(k)
+      enddo
+   enddo
+
+   ! Sort the array increasing:
+   call sort_array(special_point)   ! below
+
+   ! Exclude copies of points, if any:
+   call exclude_doubles(special_point) ! below
+
+!    do i = 1, size(special_point)  ! for all elements
+!       print*, i, special_point(i)
+!    enddo
+end subroutine define_special_points
+
+
+pure subroutine exclude_doubles(array)
+   real(8), dimension(:), allocatable, intent(inout) :: array
+   !-----------
+   real(8), dimension(:), allocatable :: array_copy
+   integer, dimension(:), allocatable :: ind
+   integer :: i, k, Nsiz, Ndub, coun, coun_ind
+
+   Nsiz = size(array)
+   allocate(array_copy(Nsiz), source = array)   ! copy array
+   allocate(ind(Nsiz), source = 0)  ! indices of the points with doubles, to exclude
+
+   ! Mark doubles:
+   coun_ind = 0
+   do i = 1, Nsiz-1
+      do k = i+1, Nsiz
+         if (array(i) == array(k)) then ! exclude this point
+            coun_ind = coun_ind + 1
+            ind(coun_ind) = min(i,k) ! this element to be excluded
+         endif
+      enddo
+   enddo
+
+   ! count doubles:
+   Ndub = count(ind > 0)
+
+   ! exclude doubles:
+   deallocate(array)
+   allocate(array(Nsiz-Ndub), source = 0.0d0)   ! make it smaller, excluding doubles
+   coun = 0
+   coun_ind = 1
+   do i = 1, Nsiz
+      if (i == ind(coun_ind)) then  ! it's a double, exclude
+         coun_ind = coun_ind + 1
+      else  ! it's not a double, save
+         coun = coun + 1
+         array(coun) = array_copy(i)
+      endif
+   enddo
+
+   ! Clean up:
+   deallocate(array_copy, ind)
+end subroutine exclude_doubles
+
+
+
+subroutine sort_array_r(array_in)  ! bubble sorting algorithm for real 1d array
+   real(8), dimension(:), intent(inout) :: array_in
+   real(8) :: temp
+   integer N,i,j
+   logical :: swapped
+   N = size(array_in)
+   do j = N-1, 1, -1
+      swapped = .false. ! nothing swapped at the start
+      do i = 1, j
+         if (array_in(i) > array_in(i+1)) then ! swap elements
+            temp = array_in(i)
+            array_in(i) = array_in(i+1)
+            array_in(i+1) = temp
+            swapped = .true.  ! at least one pair of elements needed swapping
+         end if
+      enddo
+      if (.not. swapped) exit
+   enddo
+end subroutine sort_array_r
+
+subroutine sort_array_c(array_in)  ! bubble sorting algorithm for complex 1d array (sorted by real part)
+   complex, dimension(:), intent(inout) :: array_in
+   complex :: temp
+   integer N,i,j
+   logical :: swapped
+   N = size(array_in)
+   do j = N-1, 1, -1
+      swapped = .false. ! nothing swapped at the start
+      do i = 1, j
+         if (real(array_in(i)) > real(array_in(i+1))) then ! swap elements
+            temp = array_in(i)
+            array_in(i) = array_in(i+1)
+            array_in(i+1) = temp
+            swapped = .true.  ! at least one pair of elements needed swapping
+         end if
+      enddo
+      if (.not. swapped) exit
+   enddo
+end subroutine sort_array_c
+
+
+
+pure function find_order_of_number_real(num)
+   integer find_order_of_number_real
+   real(8), intent(in) :: num
+   character(64) :: temp
+   write(temp,'(i8)') CEILING(num) ! make it a string
+   find_order_of_number_real = LEN(TRIM(adjustl(temp))) ! find how many characters in this string
+end function find_order_of_number_real
+
+pure function find_order_of_number_int(num)
+   integer find_order_of_number_int
+   integer, intent(in) :: num
+   character(64) :: temp
+   write(temp,'(i8)') num ! make it a string
+   find_order_of_number_int = LEN(TRIM(adjustl(temp))) ! find how many characters in this string
+end function find_order_of_number_int
+
+
 
 end module Analytical_IMFPs

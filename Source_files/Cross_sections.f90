@@ -24,7 +24,7 @@ end interface Electron_energy_transfer
 !private  ! hides items not listed on public statement 
 public :: Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, &
          SHI_Total_IMFP, SHI_TotIMFP, SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF, &
-         NRG_transfer_elastic_atomic_OLD, get_single_pole, w_plasma, sumrules, construct_CDF
+         NRG_transfer_elastic_atomic_OLD, get_single_pole, w_plasma, sumrules, construct_CDF, Total_copmlex_CDF
 
 
 contains
@@ -32,6 +32,7 @@ contains
 
 !---------------------------
 !Ritchie-Howie CDF subroutines:
+
 
 ! Complex CDF producing Ritchie-Howie loss function:
 subroutine Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, complex_CDF, photon)
@@ -46,7 +47,7 @@ subroutine Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, comp
    !----------------------
    logical :: it_is_photon
    integer :: Nat, Nshl, i, j
-   real(8) :: ImE, ReE, den
+   real(8) :: ImE, ReE, den, ReL, ImL
    complex(8) :: Part_CDF
 
    if (present(photon)) then ! it may be a photon
@@ -58,31 +59,49 @@ subroutine Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, comp
    endif
 
    Nat = size(Target_atoms)    ! number of atoms
-   Part_CDF = dcmplx(0.0d0,0.0d0)   ! to start with
    complex_CDF = dcmplx(0.0d0,0.0d0)   ! to start with
 
    ! Get CDF for all shells of all elements:
+   ReE = 0.0d0   ! to start with
+   ImE = 0.0d0   ! to start with
    do i = 1, Nat ! for all atoms
       Nshl = size(Target_atoms(i)%Ip)    ! number of shells of the current atom i
       do j = 1, Nshl ! for all shells
+         Part_CDF = dcmplx(0.0d0,0.0d0)   ! to restart
+
          ! Get CDF corresponding to Ritchie-Howie loss function for this shell:
+         ! 1) Get real and imaginary parts of the loss function:
          if (it_is_photon) then
-            call construct_CDF(Part_CDF, Target_atoms, Nat, Nshl, Mat_DOS, Matter, NumPar, hw, hq, photon=.true.) ! below
+            call construct_CDF(Part_CDF, Target_atoms, i, j, Mat_DOS, Matter, NumPar, hw, hq, photon=.true., ReL=ReL, ImL=ImL) ! below
          else
-            call construct_CDF(Part_CDF, Target_atoms, Nat, Nshl, Mat_DOS, Matter, NumPar, hw, hq) ! below
+            call construct_CDF(Part_CDF, Target_atoms, i, j, Mat_DOS, Matter, NumPar, hw, hq, ReL=ReL, ImL=ImL) ! below
          endif
-         complex_CDF = complex_CDF + Part_CDF   ! total CDF
+
+         ! 2) Sum them up:
+         ReE = ReE + (1.0d0 + ReL)  ! without unity, to be added later to the total CDF
+         ImE = ImE + ImL            ! complete
+
+         ! VB test:
+         !if ((i == 1) .and. (j == Nshl)) then
+         !   write(*,'(es24.6,es24.6,es24.6,es24.6,es24.6,es24.6)') hw, dble(Part_CDF), aimag(Part_CDF), &
+         !                        dble(sqrt(Part_CDF)), aimag(sqrt(Part_CDF))
+         !endif
       enddo ! j
    enddo ! i
 
-!    write(*,'(es24.6,es24.6,es24.6,es24.6,es24.6,es24.6)') hw, dble(complex_CDF), aimag(complex_CDF), &
-!                                  dble(sqrt(complex_CDF)), aimag(sqrt(complex_CDF))
-   !pause 'construct_CDF'
+   ! Combine all into full Re(-1/e(w,q)) = -(1 - sum(ReE_i)):
+   ReE = -(1.0d0 - ReE)
+   den = ReE**2 + ImE**2   ! denominator in both, real and imaginary parts
+   if (abs(den) > 1.0d-12) then
+      complex_CDF = dcmplx(-ReE/den, ImE/den)   ! partial complex CDF for this shell, reconstructed from Ritchie-Howie loss function
+   else  ! no CDF
+      complex_CDF = dcmplx(1.0d0, 0.0d0)
+   endif
 end subroutine Total_copmlex_CDF
 
 
 ! CDF corresponding to Ritchie-Howie loss function for a single given shell:
-subroutine construct_CDF(Part_CDF, Target_atoms, Nat, Nshl, Mat_DOS, Matter, NumPar, hw, hq, photon)
+subroutine construct_CDF(Part_CDF, Target_atoms, Nat, Nshl, Mat_DOS, Matter, NumPar, hw, hq, photon, ReL, ImL)
    complex(8), intent(out) :: Part_CDF ! constructed CDF
    type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
    integer, intent(in) :: Nat, Nshl    ! number of atom, and number of shell
@@ -92,6 +111,7 @@ subroutine construct_CDF(Part_CDF, Target_atoms, Nat, Nshl, Mat_DOS, Matter, Num
    real(8), intent(in) ::  hw    ! transferred energy [eV]
    real(8), intent(in) ::  hq    ! transferred momentum [sqrt(eV/J)/m] (not [kg*m/s] !)
    logical, intent(in), optional :: photon
+   real(8), intent(out), optional :: ReL, ImL   ! real and imaginary parts of the loss function, if required
    !-----------------------
    real(8) :: ImE, ReE, den
    logical :: it_is_photon, this_shell_contributes
@@ -102,7 +122,7 @@ subroutine construct_CDF(Part_CDF, Target_atoms, Nat, Nshl, Mat_DOS, Matter, Num
       it_is_photon = .false.
    endif
 
-   Part_CDF = dcmplx(0.0d0,0.0d0)  ! to start with
+   Part_CDF = dcmplx(1.0d0,0.0d0)  ! to start with
    this_shell_contributes = .true. ! default
 
    ! For core shells, there is no CDF below the ionization potential:
@@ -132,11 +152,17 @@ subroutine construct_CDF(Part_CDF, Target_atoms, Nat, Nshl, Mat_DOS, Matter, Num
 
       ! 3) Construct the CDF from Re(-1/e) and Im(-1/e):
       den = ReE**2 + ImE**2   ! denominator in both, real and imaginary parts
-      Part_CDF = dcmplx(-ReE/den, ImE/den)   ! partial complex CDF for this shell, reconstructed from Ritchie-Howie loss function
+      if (abs(den) > 1.0d-12) then
+         Part_CDF = dcmplx(-ReE/den, ImE/den)   ! partial complex CDF for this shell, reconstructed from Ritchie-Howie loss function
+      else  ! no CDF
+         Part_CDF = dcmplx(1.0d0, 0.0d0)
+      endif
+      if (present(ReL)) ReL = ReE
+      if (present(ImL)) ImL = ImE
+   else
+      if (present(ReL)) ReL = -1.0d0
+      if (present(ImL)) ImL = 0.0d0
    endif
-
-   write(*,'(es24.6,es24.6,es24.6,es24.6,es24.6,es24.6)') hw, dble(Part_CDF), aimag(Part_CDF), &
-                                 dble(sqrt(Part_CDF)), aimag(sqrt(Part_CDF))
 end subroutine construct_CDF
 
 
@@ -802,7 +828,7 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
 !           pause 
 !        endif
        
-       if (Ltot1 < 1.0d-10) then
+       if (Ltot1 < 1.0d-15) then
            Sigma = 1.0d20
            dEdx = 0.0d0 !*dE ! energy losses [eV/A]
        else

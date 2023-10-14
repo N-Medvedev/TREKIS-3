@@ -14,8 +14,8 @@ private  ! hides items not listed on public statement
 
 public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time, print_parameters
 
-character(10), parameter :: m_Version = '3.1.1'
-character(12), parameter :: m_Update = '13.10.2023'
+character(10), parameter :: m_Version = '3.1.2'
+character(12), parameter :: m_Update = '14.10.2023'
 
 contains
 
@@ -287,8 +287,13 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
         Mean_Mass = SUM(Target_atoms(:)%Pers * Target_atoms(:)%Mass)*g_Mp / N_at_mol  ! average atomic mass
         Omega = w_plasma( 1d6*Matter%At_dens/N_at_mol, Mass=Mean_Mass )  ! module "Cross_sections"
         call sumrules(CDF_Phonon%A, CDF_Phonon%E0, CDF_Phonon%Gamma, ksum, fsum, 1.0d-8, Omega) ! module "Cross_sections"
-        write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2,f9.2)') 'Phonons', &
+        if (ksum > 1.0d-2) then
+            write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2, f9.2)') 'Phonons', &
                         '       ', N_at_mol, 0.0d0, 0.0d0, 0.0d0, 0.0d0, ksum, fsum
+        else ! print too small values
+            write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, es12.2, es12.2)') 'Phonons', &
+                        '       ', N_at_mol, 0.0d0, 0.0d0, 0.0d0, 0.0d0, ksum, fsum
+        endif
         !print*, 'print_parameters', CDF_Phonon%A(1), CDF_Phonon%E0(1), CDF_Phonon%Gamma(1), ksum, fsum, Mean_Mass, N_at_mol, Omega, Matter%At_dens
     endif
 

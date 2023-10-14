@@ -119,7 +119,8 @@ type :: Flag
     logical :: include_photons  ! to include or not radiative decays of holes and further photons propagation
     logical :: plasmon_Emax     ! to use maximal plasmon energy as upper integration limit in cross-sections calculations
     integer :: CDF_elast_Zeff ! kind of effective charge of target atoms (1=1, 0=Barkas-like Zeff)
-    logical :: print_CDF    ! printout CDF file or not
+    logical :: print_CDF    ! printout CDF coefficients file or not
+    logical :: print_CDF_optical    ! printout optical limit of the CDF function file or not
     logical :: do_gnuplot   ! make gnuplot scripts or not
     character(15) :: plot_extension ! file extension for plots (made with gnuplot)
     ! Flags for automatic recalcultion of MFPs:
