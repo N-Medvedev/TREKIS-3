@@ -112,7 +112,7 @@ call OMP_SET_NUM_THREADS(Num_th)    ! start using threads with openmp: Num_th is
 call get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_message)   ! module "Cross_sections"
 if (Error_message%Err) goto 2012  ! if we couldn't get the cross section, cannot continue
 
-! Optical CDF, to print on the same grid as the electron elastic MFP:
+! Optical CDF for reconstructed CDF from Ritchie-Howie fitted loss function:
 call printout_optical_CDF(Output_path, Target_atoms, Matter, NumPar, Mat_DOS)  ! module "Cross_sections"
 
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII

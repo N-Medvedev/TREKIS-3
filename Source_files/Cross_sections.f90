@@ -35,7 +35,7 @@ contains
 
 
 ! Complex CDF producing Ritchie-Howie loss function:
-subroutine Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, complex_CDF, photon)
+subroutine Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, complex_CDF, photon, Shell_CDF)
    type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
    type(Density_of_states), intent(in) :: Mat_DOS  ! DOS
    type(Solid), intent(in) :: Matter   ! material properties
@@ -44,8 +44,9 @@ subroutine Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, comp
    real(8), intent(in) ::  hq    ! transferred momentum [sqrt(eV/J)/m] (not [kg*m/s] !)
    complex(8), intent(out) :: complex_CDF ! constructed CDF
    logical, intent(in), optional :: photon
+   type(Recon_CDF), dimension(:), intent(inout), optional :: Shell_CDF   ! shell-resolved CDFf
    !----------------------
-   logical :: it_is_photon
+   logical :: it_is_photon, it_contributes
    integer :: Nat, Nshl, i, j
    real(8) :: ImE, ReE, den, ReL, ImL
    complex(8) :: Part_CDF
@@ -77,6 +78,31 @@ subroutine Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, comp
             call construct_CDF(Part_CDF, Target_atoms, i, j, Mat_DOS, Matter, NumPar, hw, hq, ReL=ReL, ImL=ImL) ! below
          endif
 
+         ! Save individual shell CDF:
+         if (present(Shell_CDF)) then ! save for each shell separately
+            if ((i /= 1) .or. (j /= size(Target_atoms(1)%Ip))) then ! not VB, core shell:
+               if (hw <= Target_atoms(i)%Ip(j) ) then  ! energy below Ip, no CDF contribution
+                  it_contributes = .false.
+               else  ! it can contribute
+                  it_contributes = .true.
+               endif
+            else  ! VB always contributes to CDF
+               it_contributes = .true.
+            endif
+
+            if (it_contributes) then
+               den = ReL**2 + ImL**2   ! denominator in both, real and imaginary parts
+               if (abs(den) > 1.0d-12) then
+                  Shell_CDF(i)%CDF(j) = dcmplx(-ReL/den, ImL/den)
+               else  ! no CDF for this shell at this energy
+                  Shell_CDF(i)%CDF(j) = dcmplx(1.0d0, 0.0d0)
+               endif
+            else  ! make fully screened charge on this shell
+               !Shell_CDF(i)%CDF(j) = dcmplx(1.0d0/(1.0d0 + Target_atoms(i)%Nel(j)), 0.0d0)
+               Shell_CDF(i)%CDF(j) = cmplx(1.0d25, 0.0d0)
+            endif
+         endif
+
          ! 2) Sum them up:
          ReE = ReE + (1.0d0 + ReL)  ! without unity, to be added later to the total CDF
          ImE = ImE + ImL            ! complete
@@ -97,6 +123,8 @@ subroutine Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, comp
    else  ! no CDF
       complex_CDF = dcmplx(1.0d0, 0.0d0)
    endif
+
+
 end subroutine Total_copmlex_CDF
 
 
@@ -1612,10 +1640,10 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     endif
 
     ! Target mean atomic charge:
-    if (NumPar%CDF_elast_Zeff /= 1) then   ! Barkas-like charge
+    if (NumPar%CDF_elast_Zeff == 0) then   ! Barkas-like charge
         Zt = SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
         Zeff = 1.0d0 + Equilibrium_charge_Target(Ee, g_me, Zt, (Zt-1.0e0), 0, 1.0e0) ! Equilibrium charge, see below
-    else  ! one, as used in old CDF expression
+    else  ! one, as used in old CDF expression, and in case CDF screening is used - no need for effective charge
         Zeff = 1.0d0    ! electron charge
     endif
         
@@ -1631,16 +1659,16 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     Ltot1 = 0.0d0
     Ltot0 = 0.0d0
     L_cur = 1.0d10
-    call Diff_cross_section_phonon(Ele, E, NumPar, Matter, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0)  ! below
+    call Diff_cross_section_phonon(Ele, E, NumPar, Matter, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS)  ! below
     ddEdx = 0.0e0
     do while (L_cur .GT. L_need)
         dE = (1.0d0/(E+1.0d0) + E)/real(n)
         ! If it's Simpson integration:
         a =  E + dE/2.0d0
-        call Diff_cross_section_phonon(Ele, a, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0) ! below
+        call Diff_cross_section_phonon(Ele, a, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS) ! below
         temp1 = dL
         b = E + dE
-        call Diff_cross_section_phonon(Ele, b, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0) ! below
+        call Diff_cross_section_phonon(Ele, b, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS) ! below
         temp2 = dE/6.0d0*(Ltot0 + 4.0d0*temp1 + dL)
         Ltot1 = Ltot1 + temp2
         ddEdx = ddEdx + E*temp2
@@ -2065,12 +2093,15 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
    if (NumPar%kind_of_EMFP .EQ. 1) then   ! CDF cross section
 
       ! Target mean atomic charge:
-      if (numpar%CDF_elast_Zeff /= 1) then   ! Barkas-like charge
-         Zt = SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
+      Zt = SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
+      select case(numpar%CDF_elast_Zeff)
+      case (0) ! Barkas-like charge
          Zeff = 1.0d0 + Equilibrium_charge_Target(Ee, g_me, Zt, (Zt-1.0e0), 0, 1.0d0) ! Equilibrium charge, see below
-      else  ! one, as used in old CDF expression
+      case (1) ! one, as used in old CDF expression : Fourier of the unscreened Coulomb with charge Z=1
          Zeff = 1.0d0    ! electron charge
-      endif
+      case default ! full charge will be screened with the electronic CDF(q,w) inside the cross section
+         Zeff = 1.0d0    ! so no additional multiplication needed here
+      end select
 
       if (present(prefact)) then
          call Tot_EMFP(Ee, Target_atoms, CDF_Phonon, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff, prefact) ! below
@@ -2156,17 +2187,17 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
     E = Emin    ! to start integration
     Ltot1 = 0.0d0
     Ltot0 = 0.0d0
-    call Diff_cross_section_phonon(Ele, E, NumPar, Matter, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0)  ! below
+    call Diff_cross_section_phonon(Ele, E, NumPar, Matter, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS)  ! below
     ddEdx = 0.0e0
     do while (abs(E) .LE. abs(Emax)) ! integration
         dE = (1.0d0/(E+1.0d0) + E)/dble(n)
         dE = pref * dE  ! if user requested a prefactor
         ! If it's Simpson integration:
         a =  E + dE/2.0d0
-        call Diff_cross_section_phonon(Ele, a, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0) ! below
+        call Diff_cross_section_phonon(Ele, a, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS) ! below
         temp1 = dL
         b = E + dE
-        call Diff_cross_section_phonon(Ele, b, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0) ! below
+        call Diff_cross_section_phonon(Ele, b, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS) ! below
         temp2 = abs(dE)/6.0d0*(Ltot0 + 4.0d0*temp1 + dL)
         Ltot1 = Ltot1 + temp2
         ddEdx = ddEdx + E*temp2
@@ -2193,7 +2224,7 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
 end subroutine Tot_EMFP
 
 
-subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_IMFP, Mtarget, Mass, Ttarget, pref)
+subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_IMFP, Mtarget, Mass, Ttarget, pref, Target_atoms, Mat_DOS)
     real(8), intent(in), target :: Ele  ! SHI energy [eV]
     REAL(8), INTENT(in), target :: hw   ! transferred energy [eV]
     type(Flag), intent(in) :: NumPar
@@ -2203,13 +2234,28 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
     real(8), intent(in) :: Mtarget, Mass  ! average mass of atoms of the target [kg]
     real(8), intent(in) :: Ttarget      ! temperature of the sample [K]
     real(8), intent(in) :: pref  ! prefactor defined by the user (e.g., for negative energies)
+    type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
+    type(Density_of_states), intent(in) :: Mat_DOS ! DOS
     !---------------------------
-    integer i, n
+    integer i, n, Nat, Nsh
     real(8), pointer :: Ee, dE
     real(8) dLs, qmin, qmax, hq, ddq, dq, Ime, dLs0, dL, hq0, dq_save
-    real(8) a, b, x, temp1, temp2, eps
+    real(8) a, b, x, temp1, temp2, eps, Pot, screening
+    complex(8) :: complex_CDF
+    type(Recon_CDF), dimension(:), allocatable :: Shell_CDF   ! shell-resolved CDFf
+
     Ee => Ele        ! energy [eV]
     dE => hw         ! transferred energy [eV]
+
+    ! Prepare CDF calculations:
+    if (NumPar%CDF_elast_Zeff == 2) then
+      Nat = size(Target_atoms)
+      allocate(Shell_CDF(Nat))
+      do i = 1, Nat
+         Nsh = size(Target_atoms(i)%Ip)
+         allocate(Shell_CDF(i)%CDF(Nsh))
+      enddo
+   endif
 
     eps = 1.0d-12
     if (abs(dE) < eps)  then
@@ -2236,17 +2282,72 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
         b = hq + dq
         call Imewq_phonon(NumPar, Matter, hw, b, CDF_Phonon, ImE, Mtarget)
         dL = ImE
-        dLs = dLs + dq/6.0d0*(dLs0 + 4.0d0*temp1 + dL)/hq
+
+        ! Define Fourier of the interaction potential:
+        if (NumPar%CDF_elast_Zeff == 2) then ! dynamical screening of the nucleus by electrons
+            ! Get the CDF for given hq and hw:
+            call Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, complex_CDF, Shell_CDF=Shell_CDF)  ! above
+            ! Combine screenings from each shell into final expression: (Z + Ne*(1/CDF-1))^2:
+            call get_screening(Shell_CDF, Target_atoms, screening)   ! below
+            !write(*,'(f16.5, es22.6, f16.6, f22.9)') hw, hq, complex_CDF
+        else   ! no screening, effective charge is used instead
+            screening = 1.0d0
+        endif
+
+        Pot = screening / hq
+
+        ! Combine potenital with the loss function, and integrate:
+        dLs = dLs + dq/6.0d0*(dLs0 + 4.0d0*temp1 + dL) * Pot
         dLs0 = dL
         hq = hq + dq
-        
+
+        ! Test:
+        !if ((abs(hq) >= abs(qmax))) write(*,'(f15.3, es20.3, es20.3, f15.6)') Ele, hw, hq, sqrt(screening)
+
 !         if ( (abs(Ele-1.0d0) < 1.0d-2) .and. ( abs(hw - 0.1d0) < 0.01d0) ) &
 !            print*, 'Diff_cross_section_phonon', Ele, hw, g_h*g_h*hq*hq/(2.0d0*Mtarget), dL
     enddo    
     Diff_IMFP = 1.0d0/(g_Pi*g_a0*Ele)*dLs/(1-exp(-hw/Ttarget*g_kb))
-    nullify(Ee)
-    nullify(dE)
+
+    ! Clean up:
+    nullify(Ee, dE)
+    if (allocated(Shell_CDF)) deallocate(Shell_CDF)
 end subroutine Diff_cross_section_phonon
+
+
+subroutine get_screening(Shell_CDF, Target_atoms, screening)
+   type(Recon_CDF), dimension(:), intent(in) :: Shell_CDF   ! shell-resolved CDFf
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
+   real(8), intent(out) :: screening   ! (Z/CDF_e(w,q))^2
+   !-----------------
+   real(8) :: Nel, pers, contrib, Zi, N_el, Zmol, screen_contrib
+   integer :: i, Nat, j, Nsh
+
+   Zmol = SUM( target_atoms(:)%Zat * target_atoms(:)%Pers ) ! full nuclear charge per molecule
+
+   Nat = size(target_atoms)   ! number of kinds of atoms
+   screen_contrib = 0.0d0 ! to start with
+   do i = 1, Nat  ! for each atom
+      Nsh = size(target_atoms(i)%Nel)  ! number of shells in this atom
+      ! Now add screening terms from each shell:
+      do j = 1, Nsh  ! for each shell
+         Nel = target_atoms(i)%Nel(j)  ! number of electrons in this shell
+         if ((i /= 1) .or. (j /= size(Target_atoms(1)%Ip))) then ! not VB, core shell
+            N_el = Nel * target_atoms(i)%Pers
+         else  ! VB, normalization of CDF_VB is per molecule
+            N_el = Nel
+         endif
+         screen_contrib = screen_contrib + N_el*(1.0d0/abs(Shell_CDF(i)%CDF(j)) - 1.0d0)
+      enddo ! j
+   enddo ! i
+
+   ! Combine terms:
+   pers = dble(SUM(target_atoms(:)%Pers))  ! total number of atoms per molecule of the compound
+   screening = (Zmol + screen_contrib) !/pers  ! ~(Z/CDF_e) per atom or molecule (?)
+
+   ! Square it (Z/CDF_e)^2:
+   screening = screening**2
+end subroutine get_screening
 
 
 subroutine Imewq_phonon(NumPar, Matter, hw, hq, CDF_Phonon, ImE, Mtarget) ! constructs full Im(-1/e(w,q)) as a sum of Drude-like functions

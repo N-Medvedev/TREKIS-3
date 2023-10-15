@@ -214,6 +214,11 @@ type :: Atom ! atom as an object contains the following info:
 end type Atom
 !==============================================
 
+
+type :: Recon_CDF
+   complex(8), dimension(:), allocatable :: CDF ! Complex dielectric function
+endtype Recon_CDF
+
 !==============================================
 ! For reading atomic data from our periodic table:
 type Atomic_data    ! our internal atomic database "INPUT_atomic_data.dat"

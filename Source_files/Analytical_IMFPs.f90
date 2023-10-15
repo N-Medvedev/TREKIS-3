@@ -31,7 +31,7 @@ public :: Analytical_electron_dEdx, Analytical_ion_dEdx, Interpolate, printout_o
 contains
 
 
-! Printout optical CDF reconstructed from Titchie-Howie loss-function:
+! Printout optical CDF reconstructed from Ritchie-Howie loss-function:
 subroutine printout_optical_CDF(Output_path, Target_atoms, Matter, NumPar, Mat_DOS)
    character(100), intent(in) :: Output_path   ! path to the folder where the file is/will be storred
    type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
@@ -489,6 +489,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
 
             !print*, 'Phonon CDF:', allocated(CDF_Phonon%A)
             if (allocated(CDF_Phonon%A)) then
+                ! Info about cross section model:
                 KCS = ''
                 select case (NumPar%kind_of_CDF_ph)
                 case (0)    ! Ritchie-Howie
@@ -497,7 +498,18 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                     KCS = '_spCDF'
                 endselect
 
+                ! Add info about tempreature:
                 write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
+
+                ! Add info about effective charge:
+                select case(NumPar%CDF_elast_Zeff)
+                case default
+                    temp_char1 = 'Zeff_'//trim(adjustl(temp_char1))
+                case (1)
+                    temp_char1 = 'Z=1_'//trim(adjustl(temp_char1))
+                case (2)
+                    temp_char1 = 'Z_CDFe_'//trim(adjustl(temp_char1))
+                endselect
 
                 temp_char2 = 'OUTPUT_Electron_EMFPs'//trim(adjustl(KCS))//'_'//trim(adjustl(temp_char1))//'.dat'
                 Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
@@ -535,10 +547,11 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                     write(*, '(a)') ' '
                     open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
                 else    ! create and write to the file:
-                    call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
+                    call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, &
+                                                NumPar, Mat_DOS, kind_of_particle)
                     open(FN2, file=trim(adjustl(Input_elastic_file)))
-                    write(*,'(a,a,a)') 'Elastic mean free paths of an electron calculated with'//trim(adjustl(KCS(2:)))//'phonon peaks in ', &
-                        trim(adjustl(Material_name)), ' are storred in the file'
+                    write(*,'(a,a,a)') 'Elastic mean free paths of an electron calculated with '//trim(adjustl(KCS(2:)))// &
+                        ' phonon peaks in ', trim(adjustl(Material_name)), ' are storred in the file'
                     write(*, '(a)') trim(adjustl(Input_elastic_file))
                     write(*, '(a)') ' '
                 endif
@@ -552,7 +565,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
          case (0) ! Calculate or read Mott elastic MFP
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
 
-            temp_char2 = 'OUTPUT_Electron_Mott_EMFPs.dat'
+            temp_char2 = 'OUTPUT_Electron_EMFPs_Mott.dat'
 
             Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
             if (allocated(File_names%F)) File_names%F(4) = trim(adjustl(temp_char2))
@@ -1219,7 +1232,7 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
        charge_kind = '_P'
     END SELECT
     
-    ch_temp = trim(adjustl(Path_name))//'/OUTPUT_'//trim(adjustl(SHI%Name))//trim(adjustl(CS_name))// &
+    ch_temp = trim(adjustl(Path_name))//trim(adjustl(NumPar%path_sep))//'OUTPUT_'//trim(adjustl(SHI%Name))//trim(adjustl(CS_name))// &
         trim(adjustl(charge_name))//trim(adjustl(charge_kind))
 
     Input_files = trim(adjustl(ch_temp))//'_IMFP.dat'
