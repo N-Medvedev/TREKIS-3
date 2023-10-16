@@ -688,14 +688,21 @@ function Int_Ritchi_x(A,E,Gamma,x) ! integral of the Ritchi*x (k-sum rule)
         Sc = cmplx(0.0d0, sqrt(ABS(-(2.0d0*E)*(2.0d0*E) + Gamma*Gamma)))
     endif
     Gc = cmplx(Gamma*Gamma - 2.0d0*E*E,0.0d0)
+
     s_plus_c = sq2*sqrt(Gc + Gamma*Sc)
     s_minus_c = sq2*sqrt(Gc - Gamma*Sc)
-    Bc=Gc/(Gamma*Sc)
+    if ((Gamma*Sc) == cmplx(0.0d0,0.0d0)) then
+       Bc = cmplx(0.0d0,0.0d0)
+    else
+       Bc = Gc/(Gamma*Sc)
+    endif
     !Int_Ritchi_x = real(A*Gamma*( ATAN(2.0e0*x/s_minus)/s_minus*(1.0e0-B) + ATAN(2.0e0*x/s_plus)/s_plus*(1.0e0+B) ))
+
     arg = 2.0d0*x/(s_minus_c)
     arg2 = 2.0d0*x/(s_plus_c)
     !Ic = (A*Gamma*( ATAN2(aimag(arg),real(arg))/s_minus_c*(1.0e0-Bc) + ATAN2(aimag(arg2),real(arg2))/s_plus_c*(1.0e0+Bc) ))
-    Ic = (A*Gamma*(0.5d0*oneI*(log(1.0d0-oneI*arg)-log(1.0d0+oneI*arg))/s_minus_c*(1.0d0-Bc) + (0.5d0*oneI*(log(1.0d0-oneI*arg2)-log(1.0d0+oneI*arg2)))/s_plus_c*(1.0d0+Bc) ))
+    Ic = (A*Gamma*(0.5d0*oneI*(log(1.0d0-oneI*arg )-log(1.0d0+oneI*arg ))/s_minus_c*(1.0d0-Bc) + &
+                   0.5d0*oneI*(log(1.0d0-oneI*arg2)-log(1.0d0+oneI*arg2))/s_plus_c *(1.0d0+Bc) ))
     Int_Ritchi_x = real(Ic)
 end function Int_Ritchi_x
 
@@ -704,7 +711,7 @@ function Int_Ritchi_p_x(A,E,Gamma,x) ! integral of the Ritchi/x (ff-sum rule)
     real(8) A, E, Gamma, x  ! parameters and variable
     real(8) Int_Ritchi_p_x ! function itself
     real(8) S, sq2, G, s_plus, s_minus
-    complex(8) Sc, Gc, s_plus_c, s_minus_c, oneI, In_c, arg, arg2
+    complex(8) Sc, Gc, s_plus_c, s_minus_c, oneI, In_c, arg, arg2, term1, term2
     sq2 = sqrt(2.0d0)
     oneI = cmplx(0.0d0,1.0d0)
     if ((-(2.0d0*E)*(2.0d0*E) + Gamma*Gamma) .GE. 0.0d0) then
@@ -716,9 +723,20 @@ function Int_Ritchi_p_x(A,E,Gamma,x) ! integral of the Ritchi/x (ff-sum rule)
     s_plus_c = sqrt(Gc + Gamma*Sc)
     s_minus_c = sqrt(Gc - Gamma*Sc)
     !Int_Ritchi_p_x = sq2*A/S*( ATAN(sq2*x/s_minus)/s_minus - ATAN(sq2*x/s_plus)/s_plus )
-    arg = sq2*x/s_minus_c
+
+    arg  = sq2*x/s_minus_c
     arg2 = sq2*x/s_plus_c
-    In_c = sq2*A/Sc*( (0.5d0*oneI*(log(1.0d0-oneI*arg)-log(1.0d0+oneI*arg)))/s_minus_c - (0.5d0*oneI*(log(1.0d0-oneI*arg2)-log(1.0d0+oneI*arg2)))/s_plus_c )
+
+    term1 = (0.5d0*oneI*(log(1.0d0-oneI*arg )-log(1.0d0+oneI*arg )))/s_minus_c
+    term2 = (0.5d0*oneI*(log(1.0d0-oneI*arg2)-log(1.0d0+oneI*arg2)))/s_plus_c
+    !In_c = sq2*A/Sc*( (0.5d0*oneI*(log(1.0d0-oneI*arg )-log(1.0d0+oneI*arg )))/s_minus_c - &
+    !                  (0.5d0*oneI*(log(1.0d0-oneI*arg2)-log(1.0d0+oneI*arg2)))/s_plus_c )
+    if ((term1-term2) == cmplx(0.0d0,0.0d0)) then
+       In_c = sq2*A
+    else
+       In_c = sq2*A/Sc*(term1 - term2)
+    endif
+
     Int_Ritchi_p_x = real(In_c)
 end function Int_Ritchi_p_x
 
@@ -2343,7 +2361,7 @@ subroutine get_screening(Shell_CDF, Target_atoms, screening)
 
    ! Combine terms:
    pers = dble(SUM(target_atoms(:)%Pers))  ! total number of atoms per molecule of the compound
-   screening = (Zmol + screen_contrib) !/pers  ! ~(Z/CDF_e) per atom or molecule (?)
+   screening = (Zmol + screen_contrib)/pers  ! ~(Z/CDF_e) per atom or molecule (?)
 
    ! Square it (Z/CDF_e)^2:
    screening = screening**2

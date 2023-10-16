@@ -943,7 +943,7 @@ subroutine write_CDF_file(FN, Material, Chem, dens, Efermi, Egap, c_sound, Atoms
          enddo SH_NUM
 
          ! Phononic part, if used:
-         if (allocated(CDF_Phonon%A)) then
+         if (allocated(CDF_Phonon%A) .and. (i == N_KOA)) then   ! only after last element
             write(line_to_write,'(i4,a)') size(CDF_Phonon%A), '   ! number of phonon peaks'
             write(FN,'(a)') trim(adjustl(line_to_write))
             do k = 1, size(CDF_Phonon%A)
