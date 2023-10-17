@@ -48,7 +48,7 @@ subroutine Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, comp
    !----------------------
    logical :: it_is_photon, it_contributes
    integer :: Nat, Nshl, i, j
-   real(8) :: ImE, ReE, den, ReL, ImL
+   real(8) :: ImE, ReE, den, ReL, ImL, Q
    complex(8) :: Part_CDF
 
    if (present(photon)) then ! it may be a photon
@@ -81,7 +81,8 @@ subroutine Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, comp
          ! Save individual shell CDF:
          if (present(Shell_CDF)) then ! save for each shell separately
             if ((i /= 1) .or. (j /= size(Target_atoms(1)%Ip))) then ! not VB, core shell:
-               if (hw <= Target_atoms(i)%Ip(j) ) then  ! energy below Ip, no CDF contribution
+               Q = (g_h*hq)**2 / (2.0d0*g_me)
+               if (hw+Q <= Target_atoms(i)%Ip(j) ) then  ! (energy+recoin elenry) below Ip, no CDF contribution
                   it_contributes = .false.
                else  ! it can contribute
                   it_contributes = .true.
@@ -124,7 +125,6 @@ subroutine Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, comp
       complex_CDF = dcmplx(1.0d0, 0.0d0)
    endif
 
-
 end subroutine Total_copmlex_CDF
 
 
@@ -141,7 +141,7 @@ subroutine construct_CDF(Part_CDF, Target_atoms, Nat, Nshl, Mat_DOS, Matter, Num
    logical, intent(in), optional :: photon
    real(8), intent(out), optional :: ReL, ImL   ! real and imaginary parts of the loss function, if required
    !-----------------------
-   real(8) :: ImE, ReE, den
+   real(8) :: ImE, ReE, den, Q
    logical :: it_is_photon, this_shell_contributes
 
    if (present(photon)) then ! it may be a photon
@@ -156,7 +156,9 @@ subroutine construct_CDF(Part_CDF, Target_atoms, Nat, Nshl, Mat_DOS, Matter, Num
    ! For core shells, there is no CDF below the ionization potential:
    ! check if it is not valence/conduction band:
    if ((Nat /= 1) .or. (Nshl /= size(Target_atoms(1)%Ip))) then ! not VB, core shell:
-      if (hw <= Target_atoms(Nat)%Ip(Nshl) ) then  ! energy below Ip, no CDF contribution
+      Q = (g_h*hq)**2 / (2.0d0*g_me)
+
+      if (hw+Q <= Target_atoms(Nat)%Ip(Nshl) ) then  ! (energy+recoin elenry) below Ip, no CDF contribution
          this_shell_contributes = .false.
       else
          this_shell_contributes = .true.
