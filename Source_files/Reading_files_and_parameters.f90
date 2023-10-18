@@ -7,7 +7,7 @@ module Reading_files_and_parameters
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
   use Dealing_with_EADL, only : Decompose_compound, check_atomic_parameters, Find_element_name, define_PQN, &
-                                 Count_lines_in_file, m_atomic_folder, m_atomic_data_file
+                                 Count_lines_in_file, m_atomic_folder, m_atomic_data_file, SkipCount_lines_in_file
   use Variables, only: dashline, starline
   
   ! Open_MP related modules from external libraries:
@@ -46,6 +46,9 @@ end interface Trapeziod
 
 public :: Find_in_array, Find_in_array_monoton, Linear_approx, get_file_stat, get_num_shells, print_time_step
 public :: Read_input_file, Linear_approx_2x1d_DSF, Find_VB_numbers, read_file_here, read_SHI_MFP, get_add_data
+
+
+character(25), parameter :: m_form_factors_file = 'Atomic_form_factors.dat'
 
 contains
 
@@ -108,7 +111,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    type(Flag), intent(inout) :: NumPar
    
    real(8) M, SUM_DOS
-   integer FN, Reason, i, temp, temp1, temp2(1), temper
+   integer FN, Reason, i, temp, temp1, temp2(1), temper, FN2
    character(100)   Material_file   ! file with material parameters, name MUST coinside with 'Material_name'!!!
    character(100)   Short_material_file ! short version of the 'material parameters file'
    character(100)   File_name   ! file name if needed to use
@@ -399,12 +402,61 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       allocate(DSF_DEMFP_H(0))
    endif
 
+
+   if (NumPar%CDF_elast_Zeff == 2) then   ! elastic cross section requires form factors:
+      FN2 = 26
+      open(FN2, file = trim(adjustl(m_atomic_folder))//trim(adjustl(NumPar%path_sep))//trim(adjustl(m_form_factors_file)))
+      call read_form_factors(FN2, Matter%form_factor, Error_message, read_well)  ! below
+      if (.not. read_well) goto 2015
+      close(26)
+   endif
+
    
 2013 if (.not. read_well) print*, 'Error in INPUT_PARAMETERS.txt file or inrut files. See log!!'
 2015 continue   ! if we must skip to the end for some reason
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)             ! and if it is, close it
 end subroutine Read_input_file
+
+
+
+subroutine read_form_factors(FN, form_factor, Err, read_well)
+   integer, intent(in) :: FN  ! file number with the database
+   real(8), dimension(:,:), allocatable, intent(inout) :: form_factor   ! coefficients used to construct form factors
+   type(Error_handling), intent(inout) :: Err	! error log
+   logical, intent(inout) :: read_well
+   !----------------------------------
+   real(8), dimension(:), allocatable :: read_vec	! to read the coeffs
+   integer :: N_line, i, j, Reason, count_lines
+   character(200) :: Error_descript, temp
+
+   ! Count how many lines are in the file:
+   call SkipCount_lines_in_file(FN, N_line, skip_lines=1)	! module "Dealing_with_files"
+   ! Allocate array of copefficients:
+   allocate(form_factor(N_line,5))
+
+   allocate(read_vec(5))  ! temp
+   count_lines = 1
+   read(FN,*)  ! skip the first line with description
+
+   do i = 1, N_line	! read the pair creation coeffs
+      read(FN,*,IOSTAT=Reason) read_vec(:)   ! read into temporary array
+      call read_file(Reason, count_lines, read_well)	! module "Dealing_with_files"
+
+      if (read_well) then
+         ! Save in the array:
+         form_factor(i,:) = read_vec(:)   ! save into working array
+      else
+         write(Error_descript,'(a,i3)') 'In read_form_factors could not read line ', count_lines
+         call Save_error_details(Err, 2, Error_descript)	! module "Objects"
+         return
+      endif
+   enddo
+   rewind(FN)  ! for future use of the file
+
+   ! Clean up at the end:
+   deallocate(read_vec)
+end subroutine read_form_factors
 
 
 

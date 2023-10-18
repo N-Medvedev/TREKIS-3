@@ -83,6 +83,7 @@ type :: Solid
     real(8) cut_off         ![eV] cut_off energy
     real(8) temp            ![K] temperature
     real(8) :: Egap         ! [eV] bandgap (used for single-pole CDF automatic fit)
+    real(8), dimension(:,:), allocatable :: form_factor  ! table of coefficients of fitted atomic form factors
 end type solid
 !==============================================
 

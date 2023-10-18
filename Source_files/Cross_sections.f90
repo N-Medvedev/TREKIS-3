@@ -11,8 +11,14 @@ MODULE Cross_sections
 implicit none
 PRIVATE
 
+
+real(8) :: m_Thom_factor, m_five_sixteenth
+
 real(8), parameter :: m_two_third = 2.0d0/3.0d0
 real(8), parameter :: m_Pi_6 = (g_Pi/6.0d0)**(1.0d0/3.0d0)
+
+parameter (m_Thom_factor = 20.6074224164d0)        ! [1] Constant for Eq.(2.5)
+parameter (m_five_sixteenth = 5.0d0/16.0d0)
 
 
 ! this interface finds by itself which of the two subroutine to use depending on the parameters passed:
@@ -28,6 +34,33 @@ public :: Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, El
 
 
 contains
+
+
+!---------------------------
+! Atomic form factors:
+
+pure function form_factor(q, a, Z) result(FF)
+   ! [1]  F. Salvat, J. M. Fernandez-Varea, E. Acosta, J. Sempau
+   ! "PENELOPE  A Code System for Monte Carlo Simulation of Electron and Photon Transport", OECD (2001)
+   real(8) FF
+   real(8), intent(in) :: q, Z, a(5)   ! q in [kg*m/s]; Z=atomic number; a=fitted coeefs
+   real(8) :: fxz, Fk, x, x2, x4, demf, b, CapQ, al, mc
+   !-------------------------
+   mc = g_me*g_cvel
+   x = q/mc*m_Thom_factor  ! [1] Eq.(2.5)
+   x2 = x*x
+   x4 = x2*x2
+   demf = 1.0d0 + a(4)*x2 + a(5)*x4
+   fxz = Z*(1.0d0 + a(1)*x2 + a(2)*x*x2 + a(3)*x4) / (demf*demf)  ! [1] Eq.(2.7)
+   FF = fxz
+   if ((Z > 10.0d0) .and. (fxz < 2.0d0)) then
+      al = g_alpha*(Z - m_five_sixteenth)    ! [1] Eq.(2.9)
+      b = sqrt(1.0d0 - al*al)    ! [1] Eq.(2.9)
+      CapQ = q/(2.0d0*mc*al)     ! [1] Eq.(2.9)
+      Fk = sin(2.0d0*b*atan(CapQ))/(b*CapQ*(1.0d0 + CapQ*CapQ)**b)   ! [1] Eq.(2.8)
+      if (FF < Fk) FF = Fk
+   endif
+end function form_factor
 
 
 !---------------------------
@@ -579,7 +612,7 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
       if (NumPar%verbose) call print_time_step('Getting phononic single-pole CDF calculations:', msec=.true.)
 
          ! Debye energy [eV]:
-         E_debye = Debye_energy(Matter%At_Dens, Matter%Vsound) ! below
+         call Debye_energy(Matter%At_Dens, Matter%Vsound, E_debye) ! below
          ! Einstein energy [eV]:
          E_eistein = Einstein_energy(E_debye) ! below
 
@@ -609,14 +642,17 @@ end subroutine get_single_pole
 
 
 
-pure function Debye_energy(At_Dens, Vsound) result(Edebye)
-   real(8) Edebye   ! [eV] maximal phonon energy within Debye approximation
+pure subroutine Debye_energy(At_Dens, Vsound, Edebye, q_Debye)
    real(8), intent(in) :: At_Dens   ! [1/cm^3] atomic density
    real(8), intent(in) :: Vsound    ! [m/s] speed of sound in the material
+   real(8), intent(out) :: Edebye   ! [eV] maximal phonon energy within Debye approximation
+   real(8), intent(out), optional :: q_Debye
+   !---------------------
    real(8) :: qdebye
    qdebye = (6.0d0*g_Pi*g_Pi*(At_Dens*1d6))**(0.33333333d0)   ! Debye momentum [1/m]
    Edebye = g_h*Vsound*qdebye/g_e  ! Debye energy [eV]
-end function Debye_energy
+   if (present(q_Debye)) q_Debye = qdebye
+end subroutine Debye_energy
 
 
 pure function Einstein_energy(Edebye) result(Eeinstein) ! https://en.wikipedia.org/wiki/Debye_model#Debye_versus_Einstein
@@ -2259,8 +2295,8 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
     !---------------------------
     integer i, n, Nat, Nsh
     real(8), pointer :: Ee, dE
-    real(8) dLs, qmin, qmax, hq, ddq, dq, Ime, dLs0, dL, hq0, dq_save
-    real(8) a, b, x, temp1, temp2, eps, Pot, screening
+    real(8) dLs, qmin, qmax, hq, ddq, dq, Ime, dLs0, dL, hq0, dq_save, E_debye
+    real(8) a, b, x, temp1, temp2, eps, Pot, screening, r_max, q_min_solid, q_phonon
     complex(8) :: complex_CDF
     type(Recon_CDF), dimension(:), allocatable :: Shell_CDF   ! shell-resolved CDFf
 
@@ -2268,30 +2304,41 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
     dE => hw         ! transferred energy [eV]
 
     ! Prepare CDF calculations:
-    if (NumPar%CDF_elast_Zeff == 2) then
+    if (NumPar%CDF_elast_Zeff == 3) then
       Nat = size(Target_atoms)
       allocate(Shell_CDF(Nat))
       do i = 1, Nat
          Nsh = size(Target_atoms(i)%Ip)
          allocate(Shell_CDF(i)%CDF(Nsh))
       enddo
-   endif
+    endif
 
     eps = 1.0d-12
     if (abs(dE) < eps)  then
       print*, 'Problem #1 in Diff_cross_section_phonon', Ee, dE, sqrt(Ee) - sqrt(Ee - dE)
       qmin = 0.0d0
     elseif ( dE > (Ee-eps) ) then
-      qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee))        ! min transferred momentum [kg*m/s]
+      qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee))        ! min transferred momentum [not kg*m/s!]
     else
-      qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) - sqrt(abs(Ee - dE)))        ! min transferred momentum [kg*m/s]
+      qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) - sqrt(abs(Ee - dE)))        ! min transferred momentum [not kg*m/s!]
     endif
-    qmax = pref * sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) + sqrt(abs(Ee - dE))) ! max transferred momentum [kg*m/s]
+    qmax = pref * sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) + sqrt(abs(Ee - dE))) ! max transferred momentum [not kg*m/s!]
+
+!-----Test possible momentum restrictions:
+!     ! Check maximum momentum:
+!     call Debye_energy(Matter%At_Dens, Matter%Vsound, E_debye, q_phonon) ! below
+!     qmax = max(qmax, q_phonon)   ! choose the maximal momentum
+!     ! Check minimal transferred momentum:
+!     ! Maximal possible distance between the atoms in a solid (larger distance make you closer to another atom):
+!     r_max = (1.0d0/(1d6*Matter%At_dens))**(1.0d0/3.0d0) * 0.5d0 ! [m]
+!     q_min_solid = g_h/r_max   ! [kg*m/s] minimal possible momentum transfer in a solid (associated with maximal distance)
+!     q_min_solid = q_min_solid/(g_h*sqrt(g_e))   ! make it in the same internal units
+
 
     dLs = 0.0d0  ! starting integration, mean free path per energy [A/eV]^(-1)
-    hq = qmin    ! transient transferred momentum for integration [kg*m/s]
+    hq = qmin    ! transient transferred momentum for integration [not kg*m/s!]
     n = 100
-    dq = (qmax - qmin)/dble(n) ! differential of transferred momentum [kg*m/s]
+    dq = (qmax - qmin)/dble(n) ! differential of transferred momentum [not kg*m/s!]
     dLs0 = 0.0d0
     do while (abs(hq) .LT. abs(qmax)) ! no matter how many points, go till the end
         dq = hq/dble(n)
@@ -2304,15 +2351,23 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
         dL = ImE
 
         ! Define Fourier of the interaction potential:
-        if (NumPar%CDF_elast_Zeff == 2) then ! dynamical screening of the nucleus by electrons
-            ! Get the CDF for given hq and hw:
+        select case (NumPar%CDF_elast_Zeff)
+        case (2)  ! dynamical screening of the nucleus by electrons via form factors
+            ! Get the VB CDF (core shells are using form factors) for given hq and hw:
+            Nsh = size(target_atoms(1)%Ip)  ! number of VB shell
+            call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw, hq) ! above
+            ! Combine screenings from VB and form-factors into final expression: (Z - f(q) + Ne*(1/CDF_VB-1))^2:
+            call get_screening_ff(complex_CDF, Matter, Target_atoms, hq*g_h*sqrt(g_e), screening)   ! below
+
+        case (3)  ! dynamical screening of the nucleus by electrons via CDF:
+            ! Get the CDF for all shells given hq and hw:
             call Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, complex_CDF, Shell_CDF=Shell_CDF)  ! above
             ! Combine screenings from each shell into final expression: (Z + Ne*(1/CDF-1))^2:
-            call get_screening(Shell_CDF, Target_atoms, screening)   ! below
-            !write(*,'(f16.5, es22.6, f16.6, f22.9)') hw, hq, complex_CDF
-        else   ! no screening, effective charge is used instead
+            call get_screening_all(Shell_CDF, Target_atoms, screening)   ! below
+
+        case default ! no screening, effective charge is used instead
             screening = 1.0d0
-        endif
+        endselect
 
         Pot = screening / hq
 
@@ -2335,7 +2390,62 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
 end subroutine Diff_cross_section_phonon
 
 
-subroutine get_screening(Shell_CDF, Target_atoms, screening)
+subroutine get_screening_ff(complex_CDF, Matter, Target_atoms, hq, screening)
+   complex(8), intent(in) :: complex_CDF   ! VB CDF
+   type(Solid), intent(in) :: Matter
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
+   real(8), intent(in) :: hq  ! [kg*m/s]
+   real(8), intent(out) :: screening   ! (Z/CDF_e(w,q))^2
+   !-----------------
+   real(8) :: Nel, pers, contrib, Zi, N_el, Zmol, screen_contrib, NVB
+   real(8) :: FF, Z, hq1
+   integer :: i, Nat, j, Nsh
+
+   Zmol = SUM( Target_atoms(:)%Zat * Target_atoms(:)%Pers ) ! full nuclear charge per molecule
+
+   Nat = size(Target_atoms)   ! number of kinds of atoms
+   screen_contrib = 0.0d0 ! to start with
+   do i = 1, Nat  ! for each atom
+      ! Ionic core without the VB:
+      if (i == 1) then
+         Z = SUM( Target_atoms(i)%Nel(1:size(Target_atoms(i)%Nel)-1) )
+      else
+         Z = SUM( Target_atoms(i)%Nel(1:size(Target_atoms(i)%Nel)) )
+      endif
+
+      ! Core-shells via form factor:
+      FF = form_factor(hq, matter%form_factor(Target_atoms(i)%Zat,:), dble(Target_atoms(i)%Zat))  ! above
+      FF = min(FF, Z)
+
+!       do j = 1, 100
+!          hq1 = g_me*g_cvel/100.0d0*real(j)
+!          print*, j, hq1, hq1/(g_me*g_cvel), form_factor(hq1, matter%form_factor(Target_atoms(i)%Zat,:), dble(Target_atoms(i)%Zat))
+!       enddo
+!       pause 'get_screening_ff'
+
+      screen_contrib = screen_contrib - FF   ! form factor of the core
+      if (FF < 0.0d0) print*, 'ff', i, hq, FF
+
+      ! Add VB:
+      if (i == 1) then
+         NVB = size(Target_atoms(1)%Nel)
+         N_el = Target_atoms(i)%Nel(NVB)  ! number of electrons in this shell
+         screen_contrib = screen_contrib + N_el*(1.0d0/abs(complex_CDF) - 1.0d0)
+      endif
+   enddo ! i
+
+   ! Combine terms:
+   pers = dble(SUM(Target_atoms(:)%Pers))  ! total number of atoms per molecule of the compound
+   screening = (Zmol + screen_contrib)/pers  ! ~(Z/CDF_e) per atom or molecule (?)
+
+   ! Square it (Z/CDF_e)^2:
+   screening = screening**2
+end subroutine get_screening_ff
+
+
+
+
+subroutine get_screening_all(Shell_CDF, Target_atoms, screening)
    type(Recon_CDF), dimension(:), intent(in) :: Shell_CDF   ! shell-resolved CDFf
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
    real(8), intent(out) :: screening   ! (Z/CDF_e(w,q))^2
@@ -2367,7 +2477,8 @@ subroutine get_screening(Shell_CDF, Target_atoms, screening)
 
    ! Square it (Z/CDF_e)^2:
    screening = screening**2
-end subroutine get_screening
+   !screening = screening*(screening+1.0d0)   ! test
+end subroutine get_screening_all
 
 
 subroutine Imewq_phonon(NumPar, Matter, hw, hq, CDF_Phonon, ImE, Mtarget) ! constructs full Im(-1/e(w,q)) as a sum of Drude-like functions

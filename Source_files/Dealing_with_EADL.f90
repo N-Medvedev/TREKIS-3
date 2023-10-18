@@ -11,7 +11,7 @@ implicit none
 PRIVATE  ! hides items not listed on public statement
 
 public :: Decompose_compound, check_atomic_parameters, get_photon_cross_section_EPDL, next_designator, Find_element_name, &
-         define_PQN, Count_lines_in_file, m_atomic_folder, m_atomic_data_file, Count_columns_in_file
+         define_PQN, Count_lines_in_file, m_atomic_folder, m_atomic_data_file, Count_columns_in_file, SkipCount_lines_in_file
 
 
 character(25), parameter :: m_atomic_folder = 'INPUT_EADL'
