@@ -18,11 +18,11 @@ By using this code or its materials, you agree with these terms and conditions.
 
  ## How to cite
 
-The use of the code is at your own risk. Should you choose to use it, appropriate citations are mandatory:
+The use of the code is at your own risk. Should you choose to use it, please cite the appropriate works:
 > 1)	N. A. Medvedev, R. A. Rymzhanov, A. E. Volkov, J. Phys. D. Appl. Phys. 48 (2015) 355303
 > 2)	R. A. Rymzhanov, N. A. Medvedev, A. E. Volkov, Nucl. Instrum. Methods B 388 (2016) 41
 
-Should you use this code to create initial conditions for further molecular dynamics simulations of atomic response to the electronic excitation by a swift heavy ion (e.g. with LAMMPS), the following citation is required:
+Should you use this code to create initial conditions for further molecular dynamics simulations of atomic response to the electronic excitation by a swift heavy ion (e.g. with LAMMPS), please also cite the following work:
 
 > 3)	R. Rymzhanov, N. A. Medvedev, A. E. Volkov, J. Phys. D. Appl. Phys. 50 (2017) 475301
 
