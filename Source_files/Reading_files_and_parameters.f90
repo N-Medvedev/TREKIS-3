@@ -1061,7 +1061,12 @@ subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
       Atoms_temp(i)%PQN = Target_atoms(i)%PQN
       Atoms_temp(i)%KOCS = Target_atoms(i)%KOCS
       Atoms_temp(i)%KOCS_SHI = Target_atoms(i)%KOCS_SHI
-      Atoms_temp(i)%Ritchi = Target_atoms(i)%Ritchi
+      do j = 1, size(Atoms_temp(i)%Ritchi)
+         Atoms_temp(i)%Ritchi(j)%A = Target_atoms(i)%Ritchi(j)%A
+         Atoms_temp(i)%Ritchi(j)%E0 = Target_atoms(i)%Ritchi(j)%E0
+         Atoms_temp(i)%Ritchi(j)%Gamma = Target_atoms(i)%Ritchi(j)%Gamma
+         Atoms_temp(i)%Ritchi(j)%alpha = Target_atoms(i)%Ritchi(j)%alpha
+      enddo
    enddo
 end subroutine copy_atomic_data
 
