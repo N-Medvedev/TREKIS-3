@@ -2212,8 +2212,11 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
     else
       pref = 1.0d0   ! no prefactor required
     endif
-    qdebay = (6.0d0*g_Pi*g_Pi*(Matter%At_Dens*1e6))**(0.33333333d0)   ! maximum energy of phonons analyzed [1/m], debay energy
-    Edebay = 2.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy // 2 is artificial...
+    !qdebay = (6.0d0*g_Pi*g_Pi*(Matter%At_Dens*1e6))**(0.33333333d0)   ! maximum energy of phonons analyzed [1/m], debay energy
+    !Edebay = 2.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy // 2 is artificial...
+    call Debye_energy(Matter%At_Dens, Matter%Vsound, Edebay)   ! below
+    Edebay = Edebay * 3.0d0   ! empiricall adjustment, to make sure we cover all phonon CDF peaks
+
     Ee => Ele   ! just to use this name later
     Emin = pref * 0.1d-8    !Target_atoms(Nat)%Ip(Nshl)   ! [eV] ionization potential of the shell is minimum possible transferred energy
     Mtarget = g_Mp*SUM(target_atoms(:)%Mass*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! average mass of a target atom [kg]
@@ -2295,7 +2298,7 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
     !---------------------------
     integer i, n, Nat, Nsh
     real(8), pointer :: Ee, dE
-    real(8) dLs, qmin, qmax, hq, ddq, dq, Ime, dLs0, dL, hq0, dq_save, E_debye
+    real(8) dLs, qmin, qmax, hq, ddq, dq, Ime, dLs0, dL, hq0, dq_save, E_debye, p_e
     real(8) a, b, x, temp1, temp2, eps, Pot, screening, r_max, q_min_solid, q_phonon
     complex(8) :: complex_CDF
     type(Recon_CDF), dimension(:), allocatable :: Shell_CDF   ! shell-resolved CDFf
@@ -2323,6 +2326,9 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
       qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) - sqrt(abs(Ee - dE)))        ! min transferred momentum [not kg*m/s!]
     endif
     qmax = pref * sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) + sqrt(abs(Ee - dE))) ! max transferred momentum [not kg*m/s!]
+
+    ! Incident electron momentum:
+    p_e = sqrt(2.0d0*Mass*g_me*Ee*g_e) ! [kg*m/s]
 
 !-----Test possible momentum restrictions:
 !     ! Check maximum momentum:
@@ -2355,9 +2361,13 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
         case (2)  ! dynamical screening of the nucleus by electrons via form factors
             ! Get the VB CDF (core shells are using form factors) for given hq and hw:
             Nsh = size(target_atoms(1)%Ip)  ! number of VB shell
-            call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw, hq) ! above
+            !call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw, hq) ! above
             ! Combine screenings from VB and form-factors into final expression: (Z - f(q) + Ne*(1/CDF_VB-1))^2:
-            call get_screening_ff(complex_CDF, Matter, Target_atoms, hq*g_h*sqrt(g_e), screening)   ! below
+            !call get_screening_ff(complex_CDF, Matter, Target_atoms, hq*g_h*sqrt(g_e), screening)   ! below
+            ! Empirical model: replace q by p_e:
+            call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw, sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee))) ! above
+            ! Combine screenings from VB and form-factors into final expression: (Z - f(q) + Ne*(1/CDF_VB-1))^2:
+            call get_screening_ff(complex_CDF, Matter, Target_atoms, hq*g_h*sqrt(g_e), screening, p_e)   ! below
 
         case (3)  ! dynamical screening of the nucleus by electrons via CDF:
             ! Get the CDF for all shells given hq and hw:
@@ -2390,18 +2400,25 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
 end subroutine Diff_cross_section_phonon
 
 
-subroutine get_screening_ff(complex_CDF, Matter, Target_atoms, hq, screening)
+subroutine get_screening_ff(complex_CDF, Matter, Target_atoms, hq, screening, p_e)
    complex(8), intent(in) :: complex_CDF   ! VB CDF
    type(Solid), intent(in) :: Matter
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
-   real(8), intent(in) :: hq  ! [kg*m/s]
+   real(8), intent(in) :: hq  ! [kg*m/s] transferred momentum
    real(8), intent(out) :: screening   ! (Z/CDF_e(w,q))^2
+   real(8), intent(in), optional :: p_e ! [kg*m/s] incident particle momentum
    !-----------------
    real(8) :: Nel, pers, contrib, Zi, N_el, Zmol, screen_contrib, NVB
-   real(8) :: FF, Z, hq1
+   real(8) :: FF, Z, hq1, q, fact
    integer :: i, Nat, j, Nsh
 
    Zmol = SUM( Target_atoms(:)%Zat * Target_atoms(:)%Pers ) ! full nuclear charge per molecule
+
+   if (present(p_e)) then  ! try incident particle momentum (empirical test)
+      q = p_e
+   else  ! transferred momentum
+      q = hq
+   endif
 
    Nat = size(Target_atoms)   ! number of kinds of atoms
    screen_contrib = 0.0d0 ! to start with
@@ -2414,7 +2431,9 @@ subroutine get_screening_ff(complex_CDF, Matter, Target_atoms, hq, screening)
       endif
 
       ! Core-shells via form factor:
-      FF = form_factor(hq, matter%form_factor(Target_atoms(i)%Zat,:), dble(Target_atoms(i)%Zat))  ! above
+      FF = form_factor(q, matter%form_factor(Target_atoms(i)%Zat,:), dble(Target_atoms(i)%Zat))  ! above
+
+      ! Exclude the valence part of the charge (it will be screened by CDF of valence band):
       FF = min(FF, Z)
 
 !       do j = 1, 100
@@ -2423,8 +2442,8 @@ subroutine get_screening_ff(complex_CDF, Matter, Target_atoms, hq, screening)
 !       enddo
 !       pause 'get_screening_ff'
 
-      screen_contrib = screen_contrib - FF   ! form factor of the core
-      if (FF < 0.0d0) print*, 'ff', i, hq, FF
+      screen_contrib = screen_contrib - FF * Target_atoms(i)%Pers   ! form factor of the core
+      if (FF < 0.0d0) print*, 'Error in ff', i, hq, FF
 
       ! Add VB:
       if (i == 1) then
@@ -2436,6 +2455,8 @@ subroutine get_screening_ff(complex_CDF, Matter, Target_atoms, hq, screening)
 
    ! Combine terms:
    pers = dble(SUM(Target_atoms(:)%Pers))  ! total number of atoms per molecule of the compound
+
+   !screen_contrib = 0.0d0  ! testing unscreened potential
    screening = (Zmol + screen_contrib)/pers  ! ~(Z/CDF_e) per atom or molecule (?)
 
    ! Square it (Z/CDF_e)^2:

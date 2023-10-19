@@ -107,7 +107,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     integer :: FN, FN1, FN2, FN3, FN4     ! file numbers where to save the output
     integer :: N, Nelast, Nsiz
     integer temp(1)
-    real(8) Ele, IMFP_calc, dEdx, dEdx1, dEdx0, dE, Emin, Emax, L_tot, vel, Mass, InelMFP, ElasMFP, e_range
+    real(8) Ele, IMFP_calc, dEdx, dEdx1, dEdx0, dE, Emin, Emax, L_tot, vel, Mass, InelMFP, ElasMFP, e_range, InelMFP_inv, ElasMFP_inv
     real(8), dimension(:,:), allocatable :: Temp_MFP
     real(8), dimension(:), allocatable :: Temp_grid
     integer Num_th, my_id, OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS, IMFP_last_modified
@@ -508,6 +508,8 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 case (1)
                     temp_char1 = 'Z=1_'//trim(adjustl(temp_char1))
                 case (2)
+                    temp_char1 = 'Z_CDFe_FF_'//trim(adjustl(temp_char1))
+                case (3)
                     temp_char1 = 'Z_CDFe_'//trim(adjustl(temp_char1))
                 endselect
 
@@ -856,7 +858,20 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             else
                 Mass = Matter%Hole_Mass
             endif
-            L_tot = 1.0d0/(1.0d0/ElasMFP + 1.0d0/InelMFP)               ! total MFP [A]
+
+            if (InelMFP > 0.0d0) then
+                InelMFP_inv = 1.0d0/InelMFP
+            else
+                InelMFP_inv = 1.0d30
+            endif
+
+            if (ElasMFP > 0.0d0) then
+                ElasMFP_inv = 1.0d0/ElasMFP
+            else
+                ElasMFP_inv = 1.0d30
+            endif
+
+            L_tot = 1.0d0/(ElasMFP_inv + InelMFP_inv)               ! total MFP [A]
             if (Mass > 1.0d-10) then
                 Vel = sqrt(2*Mat_DOS%E(i)*g_e/(Mass*g_me))*1.0d10       ! Velosity [A/s]
             else
