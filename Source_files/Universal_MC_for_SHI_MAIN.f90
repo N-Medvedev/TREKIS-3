@@ -3,6 +3,7 @@
 ! Time Resolved Electron Kinetics in solids after SHI Impact
 ! was developed by
 ! N. Medvedev, R.A. Rymzhanov, A.E. Volkov
+! With contributions from D. Zainutdinov, F. Akhmetov, P. Babaev, S. Gorbunov
 !
 ! The code simulates a Swift Heavy Ion impact in solids,
 ! where the properties of any solid target are provided
@@ -55,8 +56,6 @@ include 'Cross_sections.f90'            ! include Cross sections subroutines
 include 'Analytical_IMFPs.f90'          ! include analytical calculations of IMFPs and dEdx
 include 'Monte_Carlo.f90'               ! include Monte-Carlo subroutines
 include 'Sorting_output_data.f90'       ! include Sorting output subroutines
-! These files MUST be provided together with the MAIN code,
-! as they contain parts of it with various subroutines.
 !CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 
 PROGRAM Universal_MC_for_SHI
