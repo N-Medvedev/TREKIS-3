@@ -500,7 +500,7 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
 
    case ('print_CDF', 'Print_CDF', 'print_cdf', 'PRINT_CDF')
       NumPar%print_CDF = .true.
-      print*, 'File with CDF parametres will be printed out'
+      print*, 'File with CDF parameters will be printed out'
 
    case ('print_optical', 'Print_optical', 'Print_Optical', 'print_optical_cdf', 'PRINT_OPTICAL_CDF')
       NumPar%print_CDF_optical = .true.

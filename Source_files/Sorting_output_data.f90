@@ -15,7 +15,7 @@ private  ! hides items not listed on public statement
 public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time, print_parameters
 
 character(10), parameter :: m_Version = '3.1.2'
-character(12), parameter :: m_Update = '19.10.2023'
+character(12), parameter :: m_Update = '20.10.2023'
 
 contains
 
@@ -239,7 +239,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
     write(ch_temp, '(i5)') NMC
     write(print_to, '(a)') ' Number of MC iterations: '//trim(adjustl(ch_temp))
     write(ch_temp, '(i5)') Num_th
-    write(print_to, '(a)') ' Number of threads used for openmp '//trim(adjustl(ch_temp))
+    write(print_to, '(a)') ' Number of threads used for OpenMP '//trim(adjustl(ch_temp))
 
     if (NumPar%verbose) then
         if (NumPar%very_verbose) then
@@ -418,7 +418,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     CALL system(command)  ! create the folder
     !write(*,'(a)') '--------------------------------'
     write(*,'(a)') trim(adjustl(dashline))
-    write(*,'(a,a)') 'The outputs with MC results are storred in the folder:', trim(adjustl(File_name2))
+    write(*,'(a,a)') 'The outputs with MC results are stored in the folder:', trim(adjustl(File_name2))
     ! Save this folder name for gnuplotting later:
     File_names%F(10) = trim(adjustl(File_name2))
     !print*, 'File_names%F(10)=', File_names%F(10)

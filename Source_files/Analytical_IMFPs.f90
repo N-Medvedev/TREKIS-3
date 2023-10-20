@@ -33,7 +33,7 @@ contains
 
 ! Printout optical CDF reconstructed from Ritchie-Howie loss-function:
 subroutine printout_optical_CDF(Output_path, Target_atoms, Matter, NumPar, Mat_DOS)
-   character(100), intent(in) :: Output_path   ! path to the folder where the file is/will be storred
+   character(100), intent(in) :: Output_path   ! path to the folder where the file is/will be stored
    type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
    type(Solid), intent(in) :: Matter   ! material properties
    type(Flag), intent(in) :: NumPar ! numerical parameters
@@ -89,7 +89,7 @@ end subroutine printout_optical_CDF
 ! Calculates electron mean free paths with parallelization via openmp:
 subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_el_MFPs, &
                         Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names)
-    character(100), intent(in) :: Output_path   ! path to the folder where the file is/will be storred
+    character(100), intent(in) :: Output_path   ! path to the folder where the file is/will be stored
     character(100), intent(in) :: Material_name ! name of the material
     type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
     type(CDF), intent(in), target, optional :: CDF_Phonon ! CDF parameters of a phonon peak if excist
@@ -264,7 +264,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         else    ! create and write to the file:
             call All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, kind_of_particle) ! calculate all IMFPs
             open(FN, file=trim(adjustl(Input_files)))
-            write(*,'(a,a,a)') 'Calculated inelastic mean free paths of an electron in ', trim(adjustl(Material_name)), ' are storred in the file'
+            write(*,'(a,a,a)') 'Calculated inelastic mean free paths of an electron in ', trim(adjustl(Material_name)), ' are stored in the file'
             write(*, '(a)') trim(adjustl(Input_files))
             write(*, '(a)') ' '
         endif
@@ -296,7 +296,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         file_exist = .false.                !This file must be overwriten before each calculation.
         call All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, kind_of_particle) ! calculate all IMFPs
         open(FN, file=trim(adjustl(Input_files)))
-        write(*,'(a,a,a)') 'Calculated inelastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are storred in the file'
+        write(*,'(a,a,a)') 'Calculated inelastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file'
         write(*, '(a)') trim(adjustl(Input_files))
         write(*, '(a)') ' '
     else kind_of_particle1 ! photon
@@ -352,7 +352,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         else    ! create and write to the file:
             call All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar, Mat_DOS) ! calculate all IMFPs
             open(newunit=FN, file=trim(adjustl(Input_files)))
-            write(*,'(a,a,a)') 'Calculated attenuation lengths (IMFPs) of a photon in ', trim(adjustl(Material_name)), ' are storred in the file'
+            write(*,'(a,a,a)') 'Calculated attenuation lengths (IMFPs) of a photon in ', trim(adjustl(Material_name)), ' are stored in the file'
             write(*, '(a)') trim(adjustl(Input_files))
             write(*, '(a)') ' '
         endif
@@ -451,7 +451,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 allocate(Elastic_MFP%Absorb%L(Nelast), source = 0.0d0)
                 allocate(Elastic_MFP%Absorb%dEdx(Nelast), source = 0.0d0)
             else    ! create and write to the file:
-                write(*,'(a,a,a)') 'Calculated elastic mean free paths of an electron in ', trim(adjustl(Material_name)), ' are storred in the file:'
+                write(*,'(a,a,a)') 'Calculated elastic mean free paths of an electron in ', trim(adjustl(Material_name)), ' are stored in the file:'
                 write(*, '(a)') trim(adjustl(Input_elastic_file))
                 write(*, '(a)') ' '
                 open(FN2, file=trim(adjustl(Input_elastic_file)))
@@ -553,7 +553,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                                                 NumPar, Mat_DOS, kind_of_particle)
                     open(FN2, file=trim(adjustl(Input_elastic_file)))
                     write(*,'(a,a,a)') 'Elastic mean free paths of an electron calculated with '//trim(adjustl(KCS(2:)))// &
-                        ' phonon peaks in ', trim(adjustl(Material_name)), ' are storred in the file'
+                        ' phonon peaks in ', trim(adjustl(Material_name)), ' are stored in the file'
                     write(*, '(a)') trim(adjustl(Input_elastic_file))
                     write(*, '(a)') ' '
                 endif
@@ -600,7 +600,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             else    ! create and write to the file:
                 call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
                 open(FN2, file=trim(adjustl(Input_elastic_file)))
-                write(*,'(a,a,a)') 'Elastic mean free paths of an electron calculated using Mott formulae in ', trim(adjustl(Material_name)), ' are storred in the file'
+                write(*,'(a,a,a)') 'Elastic mean free paths of an electron calculated using Mott formulae in ', trim(adjustl(Material_name)), ' are stored in the file'
                 write(*, '(a)') trim(adjustl(Input_elastic_file))
                 write(*, '(a)') ' '
             endif
@@ -624,7 +624,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
 !         file_exist = .false.
 !         call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
 !         open(FN2, file=trim(adjustl(Input_elastic_file)))
-!         write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are storred in the file'
+!         write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file'
 !         write(*, '(a)') trim(adjustl(Input_elastic_file))
         select case (NumPar%kind_of_EMFP)
         case (2)    ! Read DSF elastic MFP
@@ -637,7 +637,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             FN2 = 2032
 
             file_exist = .false.
-            write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are storred in the file:'
+            write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file:'
             write(*, '(a)') trim(adjustl(Input_elastic_file))
             write(*, '(a)') ' '
             open(FN2, file=trim(adjustl(Input_elastic_file)))
@@ -693,7 +693,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             file_exist = .false.
             call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
             open(FN2, file=trim(adjustl(Input_elastic_file)))
-            write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are storred in the file'
+            write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file'
             write(*, '(a)') trim(adjustl(Input_elastic_file))
             write(*, '(a)') ' '
          case (0) ! Mott cross-sections
@@ -733,7 +733,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             else    ! create and write to the file:
                 call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
                 open(FN2, file=trim(adjustl(Input_elastic_file)))
-                write(*,'(a,a,a)') 'Elastic mean free paths of an hole calculated using Mott formulae is in ', trim(adjustl(Material_name)), ' are storred in the file'
+                write(*,'(a,a,a)') 'Elastic mean free paths of an hole calculated using Mott formulae is in ', trim(adjustl(Material_name)), ' are stored in the file'
                 write(*, '(a)') trim(adjustl(Input_elastic_file))
                 write(*, '(a)') ' '
             endif
@@ -1149,7 +1149,7 @@ end subroutine All_shells_Photon_MFP
 
 
 subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI, SHI_MFP, Error_message, read_well, NumPar, Matter, Mat_DOS, File_names)
-    character(100), intent(in) :: Output_path_SHI   ! path to the folder where the file is/will be storred
+    character(100), intent(in) :: Output_path_SHI   ! path to the folder where the file is/will be stored
     character(100), intent(in) :: Material_name ! name of the material
     type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
     class(Ion), intent (inout), target :: SHI  ! all the data for the SHI
@@ -1296,7 +1296,7 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
         if (.not. read_well) then
             print*, 'Something was wrong in the file, recalculating it...'
             SHI_E = SHI%E   ! just save it for future
-            write(*,'(a,a,a,a,a)') 'IMFP and dEdx of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' will be storred in the files:'
+            write(*,'(a,a,a,a,a)') 'IMFP and dEdx of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' will be stored in the files:'
             write(*, '(a,a,a)') trim(adjustl(Input_files)), ' and ', trim(adjustl(Input_files2))
             write(*, '(a)') ' ' 
             call Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin, Emax, SHI, SHI_MFP, Target_atoms, dEdx_tot, Matter, Mat_DOS, NumPar) ! from module Analytical_IMPS / openmp parallelization
@@ -1304,7 +1304,7 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
         endif
     else
         SHI_E = SHI%E   ! just save it for future
-        write(*,'(a,a,a,a,a)') 'IMFP and dEdx of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' will be storred in the files:'
+        write(*,'(a,a,a,a,a)') 'IMFP and dEdx of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' will be stored in the files:'
         write(*, '(a,a,a)') trim(adjustl(Input_files)), ' and ', trim(adjustl(Input_files2))
         write(*, '(a)') ' ' 
         call Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin, Emax, SHI, SHI_MFP, Target_atoms, dEdx_tot, Matter, Mat_DOS, NumPar) ! from module Analytical_IMPS / openmp parallelization
@@ -1312,7 +1312,7 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
     endif
     inquire(file=trim(adjustl(Input_files3)),exist=file_exist2)    ! check if file with Ranges excists
     if (.not.file_exist2 .or. NumPar%redo_IMFP) then  ! if not, create it
-        write(*,'(a,a,a,a,a)') 'Ranges of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' will be storred in the file:'
+        write(*,'(a,a,a,a,a)') 'Ranges of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' will be stored in the file:'
         write(*, '(a)') trim(adjustl(Input_files3))
         write(*, '(a)') ' '
         call Get_ion_range(Input_files3,N,SHI_MFP,Target_atoms,dEdx_tot) ! calculate ion range out of its energy-loss function
@@ -1370,7 +1370,7 @@ end subroutine Get_ion_range
 
 ! This version is with parallelization via openmp:
 subroutine Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin, Emax, SHI, SHI_MFP, Target_atoms, dEdx_tot, Matter, Mat_DOS, NumPar)   ! calculates dEdx for range of SHI energies
-   character(100), intent(in) :: Input_files ! path to the folder where the file is/will be storred
+   character(100), intent(in) :: Input_files ! path to the folder where the file is/will be stored
    character(100), intent(in) :: Input_files2
    character(100), intent(in) :: Input_files11
    integer, intent(in) :: N ! number of grid point in the SHI energy
