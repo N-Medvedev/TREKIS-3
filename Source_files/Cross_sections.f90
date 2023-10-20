@@ -1916,7 +1916,14 @@ subroutine Equilibrium_charge_SHI(SHI, Target_atoms)  ! Equilibrium charge
    class(Ion), intent (inout) :: SHI  ! all the data for the SHI
    type(Atom), dimension(:), intent(in), optional :: Target_atoms  ! all data for target atoms
    real(8) x, x2, x4, Zt, Zp, vp, y, Zp052, vpvo, c1, c2
-   vp = dsqrt(2.0d0*SHI%E*g_e/(SHI%Mass*g_Mp))  ! SHI velocity
+
+   !print*, 'Equilibrium_charge_SHI', SHI%E, SHI%Mass, g_Mp
+   if (SHI%E > 0.0d0) then
+      vp = dsqrt(2.0d0*SHI%E*g_e/(SHI%Mass*g_Mp))  ! SHI velocity
+   else
+      vp = 0.0d0
+   endif
+
    if (present(Target_atoms)) then
       !Zt = SUM(Target_atoms(:)%Zat)/size(Target_atoms)  ! mean atomic number of target atoms
       Zt = SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
@@ -1967,8 +1974,19 @@ subroutine SHI_Diff_cross_section(Ele, MSHI, Emax, hw, Target_atoms, Nat, Nshl, 
     
     !qmin = sqrt(2.0e0*g_me)/g_h*(sqrt(Ee) - sqrt((Ee - dE))) ! min transferred momentum [kg*m/s] electron
     !qmax = sqrt(2.0e0*g_me)/g_h*(sqrt(Ee) + sqrt((Ee - dE))) ! max transferred momentum [kg*m/s]
-    qmin = hw/g_h/sqrt(2.0e0*Ee/MSHI)       ! min transferred momentum [kg*m/s] SHI
-    qmax = sqrt(2.0e0*g_me)/g_h*sqrt(Emax)  ! min transferred momentum [kg*m/s] SHI
+
+    if (Ee > 0.0d0) then
+      qmin = hw/g_h/sqrt(2.0e0*Ee/MSHI)       ! min transferred momentum [kg*m/s] SHI
+    else
+      qmin = 0.0d0
+    endif
+
+    if (Emax > 0.0d0) then
+      qmax = sqrt(2.0e0*g_me)/g_h*sqrt(Emax)  ! min transferred momentum [kg*m/s] SHI
+    else
+      Diff_IMFP = 0.0d0
+      return
+    endif
 
     dLs = 0.0e0 ! starting integration, mean free path per energy [A/eV]^(-1)
     hq = qmin    ! transient transferred momentum for integration [sqrt(eV/J) /m] (not [kg*m/s])
@@ -2298,7 +2316,7 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
     !---------------------------
     integer i, n, Nat, Nsh
     real(8), pointer :: Ee, dE
-    real(8) dLs, qmin, qmax, hq, ddq, dq, Ime, dLs0, dL, hq0, dq_save, E_debye, p_e
+    real(8) dLs, qmin, qmax, hq, ddq, dq, Ime, dLs0, dL, hq0, dq_save, E_debye, p_e, p_e_prime, scaling
     real(8) a, b, x, temp1, temp2, eps, Pot, screening, r_max, q_min_solid, q_phonon
     complex(8) :: complex_CDF
     type(Recon_CDF), dimension(:), allocatable :: Shell_CDF   ! shell-resolved CDFf
@@ -2327,8 +2345,6 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
     endif
     qmax = pref * sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) + sqrt(abs(Ee - dE))) ! max transferred momentum [not kg*m/s!]
 
-    ! Incident electron momentum:
-    p_e = sqrt(2.0d0*Mass*g_me*Ee*g_e) ! [kg*m/s]
 
 !-----Test possible momentum restrictions:
 !     ! Check maximum momentum:
@@ -2364,8 +2380,20 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
             !call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw, hq) ! above
             ! Combine screenings from VB and form-factors into final expression: (Z - f(q) + Ne*(1/CDF_VB-1))^2:
             !call get_screening_ff(complex_CDF, Matter, Target_atoms, hq*g_h*sqrt(g_e), screening)   ! below
-            ! Empirical model: replace q by p_e:
-            call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw, sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee))) ! above
+
+            ! Empirical model: replace q -> (scaling * p_e):
+            scaling = 1.0d0  ! empirical adjustment of the momentum
+            p_e = scaling * sqrt(2.0d0*Mass*g_me*Ee*g_e) ! [kg*m/s]
+            !p_e = max(p_e, hq*g_h*sqrt(g_e))
+            p_e = 0.5d0 * (p_e + hq*g_h*sqrt(g_e))
+
+            !scaling = 0.5d0  ! empirical adjustment of the momentum
+            p_e_prime = scaling * sqrt(2.0d0*Mass*g_me*Ee)/g_h  ! the same but in the units used in the CDF subroutine
+            p_e_prime = 0.5d0*(p_e_prime + hq)
+
+            !call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw, p_e_prime) ! above
+            !call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, Ee, p_e_prime) ! test, wiggles Si
+            call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw, p_e_prime) ! test
             ! Combine screenings from VB and form-factors into final expression: (Z - f(q) + Ne*(1/CDF_VB-1))^2:
             call get_screening_ff(complex_CDF, Matter, Target_atoms, hq*g_h*sqrt(g_e), screening, p_e)   ! below
 

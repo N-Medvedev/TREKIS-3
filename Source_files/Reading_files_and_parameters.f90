@@ -685,6 +685,7 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
       READ(temp,*,IOSTAT=Reason) Matter%Dens, Matter%Vsound, Matter%E_F
       Matter%Egap = 0.0d0  ! assume metal
    endif
+   if (Matter%Egap .LT. 1.0d-1) Matter%Egap = 1.0d-1 ! [eV], introduce at least a minimum "band gap"
    call read_file(Reason, i, read_well) ! reports if everything read well
 
    if (.not. read_well) goto 2014
@@ -1027,7 +1028,7 @@ subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(Atom), dimension(:), allocatable, intent(inout) :: Atoms_temp  ! define target atoms as objects, we don't know yet how many they are
    !------------
-   integer :: i, j, N_at, Shl
+   integer :: i, j, N_at, Shl, Nj
    N_at = size(Target_atoms)
 
    allocate(Atoms_temp(N_at))
@@ -1061,12 +1062,19 @@ subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
       Atoms_temp(i)%PQN = Target_atoms(i)%PQN
       Atoms_temp(i)%KOCS = Target_atoms(i)%KOCS
       Atoms_temp(i)%KOCS_SHI = Target_atoms(i)%KOCS_SHI
-      do j = 1, size(Atoms_temp(i)%Ritchi)
-         Atoms_temp(i)%Ritchi(j)%A = Target_atoms(i)%Ritchi(j)%A
-         Atoms_temp(i)%Ritchi(j)%E0 = Target_atoms(i)%Ritchi(j)%E0
-         Atoms_temp(i)%Ritchi(j)%Gamma = Target_atoms(i)%Ritchi(j)%Gamma
-         Atoms_temp(i)%Ritchi(j)%alpha = Target_atoms(i)%Ritchi(j)%alpha
-      enddo
+      if (allocated(Target_atoms(i)%Ritchi)) then
+         do j = 1, size(Atoms_temp(i)%Ritchi)
+            Nj = size(Target_atoms(i)%Ritchi(j)%A)
+            allocate(Atoms_temp(i)%Ritchi(j)%A(Nj))
+            allocate(Atoms_temp(i)%Ritchi(j)%E0(Nj))
+            allocate(Atoms_temp(i)%Ritchi(j)%Gamma(Nj))
+            allocate(Atoms_temp(i)%Ritchi(j)%alpha(Nj))
+            Atoms_temp(i)%Ritchi(j)%A = Target_atoms(i)%Ritchi(j)%A
+            Atoms_temp(i)%Ritchi(j)%E0 = Target_atoms(i)%Ritchi(j)%E0
+            Atoms_temp(i)%Ritchi(j)%Gamma = Target_atoms(i)%Ritchi(j)%Gamma
+            Atoms_temp(i)%Ritchi(j)%alpha = Target_atoms(i)%Ritchi(j)%alpha
+         enddo
+      endif
    enddo
 end subroutine copy_atomic_data
 
