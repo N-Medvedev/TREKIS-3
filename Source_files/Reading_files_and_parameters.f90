@@ -136,6 +136,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    NumPar%print_CDF_optical = .false.  ! don't print optical CDF
    NumPar%do_gnuplot = .true. ! gnuplot by default
    NumPar%plot_extension = 'jpeg' ! default jpeg-files
+   NumPar%get_thermal = .false.   ! default: no thermal parameters
 
    !----------------
    ! Reading the input file:
@@ -498,6 +499,10 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
          print*, "Gnuplot scripts will be created with extension '."//trim(adjustl(NumPar%plot_extension))//"'"
       end select
 
+   case ('get_thermal', 'thermal', 'make_thermal', 'Get_thermal', 'Thermal', 'Make_thermal')
+      NumPar%get_thermal = .true.
+      print*, 'Thermal parameters will be calculated'
+
    case ('print_CDF', 'Print_CDF', 'print_cdf', 'PRINT_CDF')
       NumPar%print_CDF = .true.
       print*, 'File with CDF parameters will be printed out'
@@ -523,11 +528,13 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
       print*, 'Although we endeavour to ensure that the code TREKIS-3 and results delivered are correct, no warranty is given as to its accuracy. We assume no responsibility for possible errors or omissions. We shall not be liable for any damage arising from the use of this code or its parts or any results produced with it, or from any action or decision taken as a result of using this code or any related material.', &
          'This code is distributed as is for non-commercial peaceful purposes only, such as research and education. It is explicitly prohibited to use the code, its parts, its results or any related material for military-related and other than peaceful purposes. By using this code or its materials, you agree with these terms and conditions.'
       print*, 'HOW TO CITE'
-      print*, 'The use of the code is at your own risk. Should you choose to use it, appropriate citations are mandatory:', &
-         ' 1) N. A. Medvedev, R. A. Rymzhanov, A. E. Volkov, J. Phys. D. Appl. Phys. 48 (2015) 355303', &
-         ' 2) R. A. Rymzhanov, N. A. Medvedev, A. E. Volkov, Nucl. Instrum. Methods B 388 (2016) 41', &
+      print*, 'The use of the code is at your own risk. Should you choose to use it, please cite the following works.'
+      print*, 'The code itself: ', &
+         'N. Medvedev, R. Rymzhanov, A.E. Volkov, (2023). TREKIS-3 [Computer software]. https://doi.org/10.5281/zenodo.8394462', &
+         ' 1) N. Medvedev, R. A. Rymzhanov, A. E. Volkov, J. Phys. D. Appl. Phys. 48 (2015) 355303', &
+         ' 2) R. A. Rymzhanov, N. Medvedev, A. E. Volkov, Nucl. Instrum. Methods B 388 (2016) 41', &
          'Should you use this code to create initial conditions for further molecular dynamics simulations of atomic response to the electronic excitation by a swift heavy ion (e.g. with LAMMPS), the following citation is required:', &
-         ' 3) R. Rymzhanov, N. A. Medvedev, A. E. Volkov, J. Phys. D. Appl. Phys. 50 (2017) 475301', &
+         ' 3) R. Rymzhanov, N. Medvedev, A. E. Volkov, J. Phys. D. Appl. Phys. 50 (2017) 475301', &
          'In a publication, we recommend that at least the following parameters should be mentioned for reproducibility of the results: material, its structure, density, speed of sound, the used CDF coefficients, which processes were included (active) in the simulation, ion type, its energy, the model for SHI charge, number of MC iterations.'
       print*, trim(adjustl(starline))
    endselect

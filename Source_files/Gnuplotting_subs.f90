@@ -57,6 +57,7 @@ public :: Gnuplot_ion, Gnuplot_electron_hole, Gnuplot_transients
 ! File_names%F(27) = Radial_holes_pot_energy
 ! File_names%F(28) = Radial_holes_kin_energy
 ! File_names%F(29) = Radial_holes_temperature
+! File_names%F(30) = Thermal_parameters
 
 !----------------------------------------------
 

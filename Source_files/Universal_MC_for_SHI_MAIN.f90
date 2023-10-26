@@ -46,7 +46,7 @@
 
 !CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 ! Include all the separate file with modules to use in the main program:
-include 'Universal_Constants.f90'   	! include universal constants
+include 'Universal_Constants.f90'       ! include universal constants
 include 'Objects.f90'                   ! include objects definitions
 include 'Variables.f90'                 ! include global variables used in the program
 include 'Dealing_with_EADL.f90'         ! include EADL and EPDL97 database subs
@@ -55,6 +55,7 @@ include 'Reading_files_and_parameters.f90'  ! include module for reading and man
 include 'Cross_sections.f90'            ! include Cross sections subroutines
 include 'Analytical_IMFPs.f90'          ! include analytical calculations of IMFPs and dEdx
 include 'Monte_Carlo.f90'               ! include Monte-Carlo subroutines
+include 'Thermal_parameters.f90'        ! include calculation fo thermal parameters
 include 'Sorting_output_data.f90'       ! include Sorting output subroutines
 !CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 
@@ -72,6 +73,7 @@ use Sorting_output_data, only: TREKIS_title, Radius_for_distributions, Allocate_
 use Cross_sections, only: SHI_TotIMFP, Equilibrium_charge_SHI, get_single_pole
 use Analytical_IMFPs, only: Analytical_electron_dEdx, Analytical_ion_dEdx, printout_optical_CDF
 use Monte_Carlo, only : Monte_Carlo_modelling
+use Thermal_parameters, only : Get_thermal_parameters
 !MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
 implicit none
 
@@ -165,9 +167,23 @@ if (NumPar%do_gnuplot) then
 endif
 
 
+!TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+! Thermal parameters (electron-phonon coupling, heat capacity, conductivity), if requested:
+call Get_thermal_parameters(Output_path, CDF_Phonon, Target_atoms, Matter, NumPar, Mat_DOS, File_names) ! module "Thermal_parameters"
+!TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+
+
+if ((NMC .LE. 0) .OR. (Tim .LE. 0.0d0)) then
+    !write(*,'(a)') '----------------------------------------------------'
+    write(*,'(a)') trim(adjustl(dashline))
+    write(*,'(a)') 'No Monte Carlo routine will be performed since'
+    write(*,'(a,i6)') 'Number of MC iterations = ', NMC
+    write(*,'(a, ES16.7)') 'Time of MC analysis = ', Tim
+    goto 2012 ! skip MC at all
+endif
+
 ! if we couldn't read the input files, there is nothing else to do, go to the end; or if skip ion:
 if ((.not. read_well) .OR. (SHI%Zat .LE. 0)) goto 2012
-
 
 ! Prepare differential SHI MFP for the given energy:
 if (NumPar%verbose) call print_time_step('Calculating SHI mean free paths for given energy:', msec=.true.)
@@ -180,15 +196,6 @@ do i = 1, size(Target_atoms)
     enddo
 enddo
 
-
-if ((NMC .LE. 0) .OR. (Tim .LE. 0.0d0)) then
-    !write(*,'(a)') '----------------------------------------------------'
-    write(*,'(a)') trim(adjustl(dashline))
-    write(*,'(a)') 'No Monte Carlo routine will be performed since' 
-    write(*,'(a,i6)') 'Number of MC iterations = ', NMC
-    write(*,'(a, ES16.7)') 'Time of MC analysis = ', Tim
-    goto 2012 ! skip MC at all
-endif
 
 
 !AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA

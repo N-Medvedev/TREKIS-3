@@ -123,6 +123,7 @@ type :: Flag
     logical :: print_CDF    ! printout CDF coefficients file or not
     logical :: print_CDF_optical    ! printout optical limit of the CDF function file or not
     logical :: do_gnuplot   ! make gnuplot scripts or not
+    logical :: get_thermal  ! calculate thermal parameters
     character(15) :: plot_extension ! file extension for plots (made with gnuplot)
     ! Flags for automatic recalcultion of MFPs:
     logical :: redo_IMFP, redo_EMFP ! do we have to?
@@ -254,6 +255,15 @@ end type Cylinder_distr
 
 
 !==============================================
+! Differential cross section:
+type El_CS
+   real(8) :: E
+   real(8), dimension(:), allocatable :: dsdhw
+   real(8), dimension(:), allocatable :: hw
+end type El_CS
+
+
+!==============================================
 ! File names for printing out stuff:
 type All_names
    character(300), dimension(:), allocatable :: F
@@ -287,6 +297,7 @@ subroutine Save_error_details(Err_name, Err_num, Err_data)
    Err_name%Err_descript = Err_data ! descriptino of an error
    write(FN, '(a,i2,1x,a)') 'Error #', Err_name%Err_Num, trim(adjustl(Err_name%Err_descript))   ! write it all into the file
 end subroutine Save_error_details
+
 
 
 ! To change parameters of a certain type:

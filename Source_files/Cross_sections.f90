@@ -27,10 +27,20 @@ interface Electron_energy_transfer ! finds energy transfer in electron collision
     module procedure Electron_energy_transfer_elastic
 end interface Electron_energy_transfer
 
+
+! this interface finds by itself which of the two subroutine to use depending on the parameters passed:
+interface extend_array_size ! extend array size by factor of 2
+    module procedure extend_array_size_int
+    module procedure extend_array_size_real
+end interface extend_array_size
+
+
+
 !private  ! hides items not listed on public statement 
 public :: Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, &
          SHI_Total_IMFP, SHI_TotIMFP, SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF, &
-         NRG_transfer_elastic_atomic_OLD, get_single_pole, w_plasma, sumrules, construct_CDF, Total_copmlex_CDF
+         NRG_transfer_elastic_atomic_OLD, get_single_pole, w_plasma, sumrules, construct_CDF, Total_copmlex_CDF, &
+         extend_array_size, Tot_EMFP, CS_from_MFP, Equilibrium_charge_Target
 
 
 contains
@@ -931,7 +941,7 @@ end subroutine TotIMFP
 
 
 pure function MFP_from_sigma(sigma, nat) result(lambda)
-   real(8) lambda   ! [1/A]
+   real(8) lambda   ! [A]
    real(8), intent(in) :: sigma ! [A^2]
    real(8), intent(in) :: nat   ! [cm^-3]
    real(8) :: na
@@ -942,6 +952,20 @@ pure function MFP_from_sigma(sigma, nat) result(lambda)
       lambda = 1.0d30   ! infinity
    endif
 end function MFP_from_sigma
+
+
+pure function CS_from_MFP(lambda, nat) result(CS)
+   real(8) CS     ! [A^2]
+   real(8), intent(in) :: lambda ! [A]
+   real(8), intent(in) :: nat   ! [cm^-3]
+   real(8) :: na
+   if (lambda > 1.0d-14) then  ! finite MFP
+      na = nat * 1.0d-24    ! [A^-3] converted from [cm^-3]
+      CS = 1.0d0 / (lambda * na)    ! [A^2] cross section
+   else
+      CS = 0.0d0
+   endif
+end function CS_from_MFP
 
 
 
@@ -2153,8 +2177,8 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
    real(8), intent(out) :: EMFP ! [A] elastic mean free path
    real(8), intent(out) :: dEdx   ! [eV/A] energy loss
    type(Flag), intent(in) :: NumPar
-   type(Density_of_states) :: Mat_DOS
-   character(8), intent(in) :: kind_of_particle
+   type(Density_of_states), intent(in) :: Mat_DOS
+   character(*), intent(in) :: kind_of_particle
    real(8), intent(in), optional :: prefact  ! prefactor if required (e.g. for negative frequencies)
    !--------------------------
          
@@ -2183,16 +2207,17 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
          call Tot_EMFP(Ee, Target_atoms, CDF_Phonon, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff) ! below
       endif
    else  ! Mott cross section
-      if (kind_of_particle .EQ. 'Electron') then
+      select case (kind_of_particle)
+      case ('Electron', 'electron', 'e')
          Mass = 1.0d0
-      else if (kind_of_particle .EQ. 'Hole') then
+      case ('Hole', 'hole', 'h')
          if(Matter%hole_mass .GE. 0) then
                Mass = Matter%hole_mass
          else  ! Define mass from DOS
                call find_in_array_monoton(Mat_DOS%E, Ee, Mnum)
                Mass = Mat_DOS%Eff_m(Mnum)
          endif
-      endif
+      end select
       Sigma_Tot = 0.0d0 ! [cm^2] cross-section
       do i = 1, size(Target_atoms)  ! for all atomic spicies:
          call Atomic_elastic_sigma(Target_atoms, i, Ee, Sigma_el) ! total cross-section of elastic scattering on an atom:
@@ -2208,17 +2233,19 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
 end subroutine Elastic_cross_section
 
 
-subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff, prefact)
+subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff, prefact, dsdhw, d_hw)
     real(8), intent(in), target :: Ele  ! electron energy [eV]
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
     type(CDF), intent(in) :: CDF_Phonon ! phonon CDF parameters
-    type(Solid), intent(inout) :: Matter   ! all material parameters
+    type(Solid), intent(in) :: Matter   ! all material parameters
     real(8), intent(out) :: Sigma, dEdx   ! calculated inverse mean free path (cross-section) [A], and the energy losses [eV/A]
     type(Flag), intent(in) :: NumPar
     type(Density_of_states), intent(in) :: Mat_DOS     
-    character(8), intent(in) :: kind_of_particle
+    character(*), intent(in) :: kind_of_particle
     real(8), intent(in) :: Zeff  ! effective charge of target atoms [electron charge]
     real(8), intent(in), optional :: prefact ! prefactor for Emax, if required (e.g., use for negative frequencies)
+    real(8), dimension(:), allocatable, intent(inout), optional :: dsdhw  ! d sigma / d hw [A^2/eV]
+    real(8), dimension(:), allocatable, intent(inout), optional :: d_hw  ! d hw [eV]
     !--------------------
     integer :: i, j, n, Mnum
     real(8) :: Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx
@@ -2231,26 +2258,27 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
       pref = 1.0d0   ! no prefactor required
     endif
     !qdebay = (6.0d0*g_Pi*g_Pi*(Matter%At_Dens*1e6))**(0.33333333d0)   ! maximum energy of phonons analyzed [1/m], debay energy
-    !Edebay = 2.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy // 2 is artificial...
+    !Edebay = 2.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy (2 is artificial)
     call Debye_energy(Matter%At_Dens, Matter%Vsound, Edebay)   ! below
-    Edebay = Edebay * 3.0d0   ! empiricall adjustment, to make sure we cover all phonon CDF peaks
+    Edebay = Edebay * 3.0d0   ! to make sure we cover all phonon CDF peaks
 
     Ee => Ele   ! just to use this name later
     Emin = pref * 0.1d-8    !Target_atoms(Nat)%Ip(Nshl)   ! [eV] ionization potential of the shell is minimum possible transferred energy
     Mtarget = g_Mp*SUM(target_atoms(:)%Mass*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! average mass of a target atom [kg]
     
-    if (trim(adjustl(kind_of_particle)) .EQ. 'Electron') then
+    select case (trim(adjustl(kind_of_particle)))
+    case ('Electron', 'electron', 'e')
         Mass = 1.0d0
-    else if (trim(adjustl(kind_of_particle)) .EQ. 'Hole') then
+    case ('Hole', 'hole', 'h')
         if(Matter%hole_mass .GE. 0) then
             Mass = Matter%hole_mass
         else                    ! Define mass from DOS
             call find_in_array_monoton(Mat_DOS%E, Ele, Mnum)
             Mass = Mat_DOS%Eff_m(Mnum)
         endif 
-    else
+    case default
         Mass = 1.0d0
-    endif    
+    end select
         
     Emax = 4.0e0*Ee*Mass*g_me*Mtarget/((Mtarget+Mass*g_me)*(Mtarget+Mass*g_me))    ! [eV] maximum energy transfer
       
@@ -2260,13 +2288,14 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
 
     n = 20*(MAX(INT(Emin),10))    ! number of integration steps
     dE = (Emax - Emin)/(dble(n)) ! differential of transferred energy
-    i = 1       ! to start integration
+    i = 0       ! to start integration
     E = Emin    ! to start integration
     Ltot1 = 0.0d0
     Ltot0 = 0.0d0
     call Diff_cross_section_phonon(Ele, E, NumPar, Matter, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS)  ! below
     ddEdx = 0.0e0
     do while (abs(E) .LE. abs(Emax)) ! integration
+        i = i + 1 ! index
         dE = (1.0d0/(E+1.0d0) + E)/dble(n)
         dE = pref * dE  ! if user requested a prefactor
         ! If it's Simpson integration:
@@ -2275,11 +2304,25 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
         temp1 = dL
         b = E + dE
         call Diff_cross_section_phonon(Ele, b, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS) ! below
-        temp2 = abs(dE)/6.0d0*(Ltot0 + 4.0d0*temp1 + dL)
+        temp2 = abs(dE)/6.0d0 * (Ltot0 + 4.0d0*temp1 + dL)
         Ltot1 = Ltot1 + temp2
         ddEdx = ddEdx + E*temp2
         Ltot0 = dL
         E = E + dE  ! [eV]
+
+        ! Save differential cross-section:
+        if (present(dsdhw) .and. present(d_hw)) then
+           if (i > size(dsdhw)) then
+              call extend_array_size(dsdhw)  ! below
+              call extend_array_size(d_hw)  ! below
+           endif
+           d_hw(i) = E  ! save differential grid [eV]
+           if (Mass < 1.0d-20) then
+              dsdhw(i) = 1.0d29
+           else
+              dsdhw(i) = 1.0d0/(Zeff*Zeff*Mass*dL) ! differential MFP [A/eV]
+           endif
+        endif
         
         ! test:
         !if ((Ele-1.0d0) < 1.0d-2) then
@@ -2314,10 +2357,10 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
     type(Density_of_states), intent(in) :: Mat_DOS ! DOS
     !---------------------------
-    integer i, n, Nat, Nsh
+    integer i, n, Nat, Nsh, j
     real(8), pointer :: Ee, dE
     real(8) dLs, qmin, qmax, hq, ddq, dq, Ime, dLs0, dL, hq0, dq_save, E_debye, p_e, p_e_prime, scaling
-    real(8) a, b, x, temp1, temp2, eps, Pot, screening, r_max, q_min_solid, q_phonon
+    real(8) a, b, x, temp1, temp2, eps, Pot, screening, r_max, q_min_solid, q_phonon, hw_prime, E0_min
     complex(8) :: complex_CDF
     type(Recon_CDF), dimension(:), allocatable :: Shell_CDF   ! shell-resolved CDFf
 
@@ -2399,7 +2442,36 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
 
         case (3)  ! dynamical screening of the nucleus by electrons via CDF:
             ! Get the CDF for all shells given hq and hw:
-            call Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, complex_CDF, Shell_CDF=Shell_CDF)  ! above
+            !call Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, complex_CDF, Shell_CDF=Shell_CDF)  ! above
+
+            ! Construct CDF for each shell with its own momenum:
+            do i = 1, Nat  ! all atoms in the compound
+               Nsh = size(Target_atoms(i)%Ip)
+               do j = 1, Nsh  ! all shells
+                  ! Average energy and momentum associated with this shell's response to passing electron:
+                  !E0_min = minval(Target_atoms(i)%Ritchi(j)%E0(:))
+                  if (Ee < Target_atoms(i)%Ip(j)) then
+                     hw_prime = hw
+                  else
+                     !hw_prime = Ee
+                     hw_prime = hw
+                  endif
+
+                  ! Empirical model: replace q -> (scaling * p_e):
+                  scaling = 1.0d0  ! empirical adjustment of the momentum
+                  !p_e_prime = scaling * sqrt(2.0d0*Mass*g_me*Ee)/g_h  ! the same but in the units used in the CDF subroutine
+                  if (Ee < Target_atoms(i)%Ek(j)) then
+                     p_e_prime = hq
+                  else
+                     p_e_prime = sqrt(2.0d0*Mass*g_me*(Ee - Target_atoms(i)%Ek(j)))/g_h
+                  endif
+                  p_e_prime = 0.5d0*(p_e_prime + hq)
+                  p_e_prime = hq
+
+                  call construct_CDF(Shell_CDF(i)%CDF(j), Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw_prime, p_e_prime) ! test
+               enddo ! j
+            enddo ! i
+
             ! Combine screenings from each shell into final expression: (Z + Ne*(1/CDF-1))^2:
             call get_screening_all(Shell_CDF, Target_atoms, screening)   ! below
 
@@ -2555,6 +2627,62 @@ subroutine Imewq_phonon(NumPar, Matter, hw, hq, CDF_Phonon, ImE, Mtarget) ! cons
         nullify(Gamma)
     enddo
 end subroutine Imewq_phonon
+
+
+
+!GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+! General subroutines
+pure subroutine extend_array_size_int(array1, N)
+   integer, dimension(:), allocatable, intent(inout) :: array1
+   integer, intent(in), optional :: N   ! extend by how much
+   !----------------------------
+   integer, dimension(:), allocatable :: tmp
+   integer :: N_old, N_new
+
+   ! Old size:
+   N_old = size(array1)       ! size of the present array
+
+   ! New size:
+   if (present(N)) then
+      N_new = N_old + N
+   else ! by default, double it
+      N_new = 2*N_old         ! new size increased by factor of 2
+   endif
+
+   allocate( tmp( N_new ) )  ! array tp be used temporary storing data
+
+   ! store the data from old array:
+   tmp(1:N_old) = array1
+
+   ! shift data from old array into the new one:
+   call move_alloc( tmp, array1 )   ! intrinsic function in FORTRAN-2008 format
+end subroutine extend_array_size_int
+
+pure subroutine extend_array_size_real(array1, N)
+   real(8), dimension(:), allocatable, intent(inout) :: array1
+   integer, intent(in), optional :: N   ! extend by how much
+   !----------------------------
+   real(8), dimension(:), allocatable :: tmp
+   integer :: N_old, N_new
+
+   ! Old size:
+   N_old = size(array1)       ! size of the present array
+
+   ! New size:
+   if (present(N)) then
+      N_new = N_old + N
+   else ! by default, double it
+      N_new = 2*N_old         ! new size increased by factor of 2
+   endif
+
+   allocate( tmp( N_new ) )  ! array tp be used temporary storing data
+
+   ! store the data from old array:
+   tmp(1:N_old) = array1
+
+   ! shift data from old array into the new one:
+   call move_alloc( tmp, array1 )   ! intrinsic function in FORTRAN-2008 format
+end subroutine extend_array_size_real
 
 
 
