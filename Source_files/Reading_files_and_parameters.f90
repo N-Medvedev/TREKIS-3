@@ -7,7 +7,7 @@ module Reading_files_and_parameters
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
   use Dealing_with_EADL, only : Decompose_compound, check_atomic_parameters, Find_element_name, define_PQN, &
-                                 Count_lines_in_file, m_atomic_folder, m_atomic_data_file
+                                 Count_lines_in_file, m_atomic_folder, m_atomic_data_file, SkipCount_lines_in_file
   use Variables, only: dashline, starline
   
   ! Open_MP related modules from external libraries:
@@ -46,6 +46,9 @@ end interface Trapeziod
 
 public :: Find_in_array, Find_in_array_monoton, Linear_approx, get_file_stat, get_num_shells, print_time_step
 public :: Read_input_file, Linear_approx_2x1d_DSF, Find_VB_numbers, read_file_here, read_SHI_MFP, get_add_data
+
+
+character(25), parameter :: m_form_factors_file = 'Atomic_form_factors.dat'
 
 contains
 
@@ -108,7 +111,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    type(Flag), intent(inout) :: NumPar
    
    real(8) M, SUM_DOS
-   integer FN, Reason, i, temp, temp1, temp2(1), temper
+   integer FN, Reason, i, temp, temp1, temp2(1), temper, FN2
    character(100)   Material_file   ! file with material parameters, name MUST coinside with 'Material_name'!!!
    character(100)   Short_material_file ! short version of the 'material parameters file'
    character(100)   File_name   ! file name if needed to use
@@ -130,8 +133,10 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    NumPar%plasmon_Emax = .false. ! do not include plasmon integration limit in inelastic CDF
    NumPar%field_include = .false.   ! no fields (bc NOT READY!)
    NumPar%print_CDF = .false. ! don't print CDF file out
+   NumPar%print_CDF_optical = .false.  ! don't print optical CDF
    NumPar%do_gnuplot = .true. ! gnuplot by default
    NumPar%plot_extension = 'jpeg' ! default jpeg-files
+   NumPar%get_thermal = .false.   ! default: no thermal parameters
 
    !----------------
    ! Reading the input file:
@@ -220,7 +225,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    if (.not. read_well) goto 2013
    
    ! kind of elastic cross-section: -1=no elastic, 0=Mott; 1=CDF phonons; 2=DSF
-   ! and kind of effective target charge (used in CDF): 0 = effective Barkas-like; 1=fixed value=1
+   ! and kind of effective target charge (used in CDF): 0=effective Barkas-like; 1=Z=1 (old); 2=Z^2/CDF_e_e
    READ(FN,*,IOSTAT=Reason) NumPar%kind_of_EMFP, NumPar%CDF_elast_Zeff
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2013
@@ -398,12 +403,61 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       allocate(DSF_DEMFP_H(0))
    endif
 
+
+   if (NumPar%CDF_elast_Zeff == 2) then   ! elastic cross section requires form factors:
+      FN2 = 26
+      open(FN2, file = trim(adjustl(m_atomic_folder))//trim(adjustl(NumPar%path_sep))//trim(adjustl(m_form_factors_file)))
+      call read_form_factors(FN2, Matter%form_factor, Error_message, read_well)  ! below
+      if (.not. read_well) goto 2015
+      close(26)
+   endif
+
    
 2013 if (.not. read_well) print*, 'Error in INPUT_PARAMETERS.txt file or inrut files. See log!!'
 2015 continue   ! if we must skip to the end for some reason
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)             ! and if it is, close it
 end subroutine Read_input_file
+
+
+
+subroutine read_form_factors(FN, form_factor, Err, read_well)
+   integer, intent(in) :: FN  ! file number with the database
+   real(8), dimension(:,:), allocatable, intent(inout) :: form_factor   ! coefficients used to construct form factors
+   type(Error_handling), intent(inout) :: Err	! error log
+   logical, intent(inout) :: read_well
+   !----------------------------------
+   real(8), dimension(:), allocatable :: read_vec	! to read the coeffs
+   integer :: N_line, i, j, Reason, count_lines
+   character(200) :: Error_descript, temp
+
+   ! Count how many lines are in the file:
+   call SkipCount_lines_in_file(FN, N_line, skip_lines=1)	! module "Dealing_with_files"
+   ! Allocate array of copefficients:
+   allocate(form_factor(N_line,5))
+
+   allocate(read_vec(5))  ! temp
+   count_lines = 1
+   read(FN,*)  ! skip the first line with description
+
+   do i = 1, N_line	! read the pair creation coeffs
+      read(FN,*,IOSTAT=Reason) read_vec(:)   ! read into temporary array
+      call read_file(Reason, count_lines, read_well)	! module "Dealing_with_files"
+
+      if (read_well) then
+         ! Save in the array:
+         form_factor(i,:) = read_vec(:)   ! save into working array
+      else
+         write(Error_descript,'(a,i3)') 'In read_form_factors could not read line ', count_lines
+         call Save_error_details(Err, 2, Error_descript)	! module "Objects"
+         return
+      endif
+   enddo
+   rewind(FN)  ! for future use of the file
+
+   ! Clean up at the end:
+   deallocate(read_vec)
+end subroutine read_form_factors
 
 
 
@@ -445,9 +499,17 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
          print*, "Gnuplot scripts will be created with extension '."//trim(adjustl(NumPar%plot_extension))//"'"
       end select
 
+   case ('get_thermal', 'thermal', 'make_thermal', 'Get_thermal', 'Thermal', 'Make_thermal')
+      NumPar%get_thermal = .true.
+      print*, 'Thermal parameters will be calculated'
+
    case ('print_CDF', 'Print_CDF', 'print_cdf', 'PRINT_CDF')
       NumPar%print_CDF = .true.
-      print*, 'File with CDF parametres will be printed out'
+      print*, 'File with CDF parameters will be printed out'
+
+   case ('print_optical', 'Print_optical', 'Print_Optical', 'print_optical_cdf', 'PRINT_OPTICAL_CDF')
+      NumPar%print_CDF_optical = .true.
+      print*, 'File with optical CDF will be printed out'
 
    case ('Verbose', 'verbose', 'VERBOSE')
       NumPar%verbose = .true.
@@ -466,11 +528,13 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
       print*, 'Although we endeavour to ensure that the code TREKIS-3 and results delivered are correct, no warranty is given as to its accuracy. We assume no responsibility for possible errors or omissions. We shall not be liable for any damage arising from the use of this code or its parts or any results produced with it, or from any action or decision taken as a result of using this code or any related material.', &
          'This code is distributed as is for non-commercial peaceful purposes only, such as research and education. It is explicitly prohibited to use the code, its parts, its results or any related material for military-related and other than peaceful purposes. By using this code or its materials, you agree with these terms and conditions.'
       print*, 'HOW TO CITE'
-      print*, 'The use of the code is at your own risk. Should you choose to use it, appropriate citations are mandatory:', &
-         ' 1) N. A. Medvedev, R. A. Rymzhanov, A. E. Volkov, J. Phys. D. Appl. Phys. 48 (2015) 355303', &
-         ' 2) R. A. Rymzhanov, N. A. Medvedev, A. E. Volkov, Nucl. Instrum. Methods B 388 (2016) 41', &
+      print*, 'The use of the code is at your own risk. Should you choose to use it, please cite the following works.'
+      print*, 'The code itself: ', &
+         'N. Medvedev, R. Rymzhanov, A.E. Volkov, (2023). TREKIS-3 [Computer software]. https://doi.org/10.5281/zenodo.8394462', &
+         ' 1) N. Medvedev, R. A. Rymzhanov, A. E. Volkov, J. Phys. D. Appl. Phys. 48 (2015) 355303', &
+         ' 2) R. A. Rymzhanov, N. Medvedev, A. E. Volkov, Nucl. Instrum. Methods B 388 (2016) 41', &
          'Should you use this code to create initial conditions for further molecular dynamics simulations of atomic response to the electronic excitation by a swift heavy ion (e.g. with LAMMPS), the following citation is required:', &
-         ' 3) R. Rymzhanov, N. A. Medvedev, A. E. Volkov, J. Phys. D. Appl. Phys. 50 (2017) 475301', &
+         ' 3) R. Rymzhanov, N. Medvedev, A. E. Volkov, J. Phys. D. Appl. Phys. 50 (2017) 475301', &
          'In a publication, we recommend that at least the following parameters should be mentioned for reproducibility of the results: material, its structure, density, speed of sound, the used CDF coefficients, which processes were included (active) in the simulation, ion type, its energy, the model for SHI charge, number of MC iterations.'
       print*, trim(adjustl(starline))
    endselect
@@ -628,6 +692,7 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
       READ(temp,*,IOSTAT=Reason) Matter%Dens, Matter%Vsound, Matter%E_F
       Matter%Egap = 0.0d0  ! assume metal
    endif
+   if (Matter%Egap .LT. 1.0d-1) Matter%Egap = 1.0d-1 ! [eV], introduce at least a minimum "band gap"
    call read_file(Reason, i, read_well) ! reports if everything read well
 
    if (.not. read_well) goto 2014
@@ -970,7 +1035,7 @@ subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(Atom), dimension(:), allocatable, intent(inout) :: Atoms_temp  ! define target atoms as objects, we don't know yet how many they are
    !------------
-   integer :: i, j, N_at, Shl
+   integer :: i, j, N_at, Shl, Nj
    N_at = size(Target_atoms)
 
    allocate(Atoms_temp(N_at))
@@ -1004,7 +1069,19 @@ subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
       Atoms_temp(i)%PQN = Target_atoms(i)%PQN
       Atoms_temp(i)%KOCS = Target_atoms(i)%KOCS
       Atoms_temp(i)%KOCS_SHI = Target_atoms(i)%KOCS_SHI
-      Atoms_temp(i)%Ritchi = Target_atoms(i)%Ritchi
+      if (allocated(Target_atoms(i)%Ritchi)) then
+         do j = 1, size(Atoms_temp(i)%Ritchi)
+            Nj = size(Target_atoms(i)%Ritchi(j)%A)
+            allocate(Atoms_temp(i)%Ritchi(j)%A(Nj))
+            allocate(Atoms_temp(i)%Ritchi(j)%E0(Nj))
+            allocate(Atoms_temp(i)%Ritchi(j)%Gamma(Nj))
+            allocate(Atoms_temp(i)%Ritchi(j)%alpha(Nj))
+            Atoms_temp(i)%Ritchi(j)%A = Target_atoms(i)%Ritchi(j)%A
+            Atoms_temp(i)%Ritchi(j)%E0 = Target_atoms(i)%Ritchi(j)%E0
+            Atoms_temp(i)%Ritchi(j)%Gamma = Target_atoms(i)%Ritchi(j)%Gamma
+            Atoms_temp(i)%Ritchi(j)%alpha = Target_atoms(i)%Ritchi(j)%alpha
+         enddo
+      endif
    enddo
 end subroutine copy_atomic_data
 

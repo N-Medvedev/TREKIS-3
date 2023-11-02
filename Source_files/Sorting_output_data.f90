@@ -14,6 +14,9 @@ private  ! hides items not listed on public statement
 
 public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time, print_parameters
 
+character(10), parameter :: m_Version = '3.1.2'
+character(12), parameter :: m_Update = '20.10.2023'
+
 contains
 
 
@@ -29,7 +32,7 @@ subroutine TREKIS_title(FN)
    write(FN,'(a)') '*                                                      *'
    write(FN,'(a)') trim(adjustl(starline))
    write(FN,'(a)') 'Time-Resolved Electron Kinetics in SHI-Irradiated Solids'
-   write(FN,'(a)') 'Version: 3.1.1  (update 06.10.2023)     '
+   write(FN,'(a)') 'Version:'//trim(adjustl(m_Version))//' (update '//trim(adjustl(m_Update))//')     '
    write(FN,'(a)') 'DOI: https://doi.org/10.5281/zenodo.8394462'
    write(FN,'(a)') trim(adjustl(starline))
 end subroutine TREKIS_title
@@ -236,7 +239,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
     write(ch_temp, '(i5)') NMC
     write(print_to, '(a)') ' Number of MC iterations: '//trim(adjustl(ch_temp))
     write(ch_temp, '(i5)') Num_th
-    write(print_to, '(a)') ' Number of threads used for openmp '//trim(adjustl(ch_temp))
+    write(print_to, '(a)') ' Number of threads used for OpenMP '//trim(adjustl(ch_temp))
 
     if (NumPar%verbose) then
         if (NumPar%very_verbose) then
@@ -284,8 +287,13 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
         Mean_Mass = SUM(Target_atoms(:)%Pers * Target_atoms(:)%Mass)*g_Mp / N_at_mol  ! average atomic mass
         Omega = w_plasma( 1d6*Matter%At_dens/N_at_mol, Mass=Mean_Mass )  ! module "Cross_sections"
         call sumrules(CDF_Phonon%A, CDF_Phonon%E0, CDF_Phonon%Gamma, ksum, fsum, 1.0d-8, Omega) ! module "Cross_sections"
-        write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2,f9.2)') 'Phonons', &
+        if (ksum > 1.0d-2) then
+            write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2, f9.2)') 'Phonons', &
                         '       ', N_at_mol, 0.0d0, 0.0d0, 0.0d0, 0.0d0, ksum, fsum
+        else ! print too small values
+            write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, es12.2, es12.2)') 'Phonons', &
+                        '       ', N_at_mol, 0.0d0, 0.0d0, 0.0d0, 0.0d0, ksum, fsum
+        endif
         !print*, 'print_parameters', CDF_Phonon%A(1), CDF_Phonon%E0(1), CDF_Phonon%Gamma(1), ksum, fsum, Mean_Mass, N_at_mol, Omega, Matter%At_dens
     endif
 
@@ -410,7 +418,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     CALL system(command)  ! create the folder
     !write(*,'(a)') '--------------------------------'
     write(*,'(a)') trim(adjustl(dashline))
-    write(*,'(a,a)') 'The outputs with MC results are storred in the folder:', trim(adjustl(File_name2))
+    write(*,'(a,a)') 'The outputs with MC results are stored in the folder:', trim(adjustl(File_name2))
     ! Save this folder name for gnuplotting later:
     File_names%F(10) = trim(adjustl(File_name2))
     !print*, 'File_names%F(10)=', File_names%F(10)

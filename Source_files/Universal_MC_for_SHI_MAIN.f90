@@ -3,6 +3,7 @@
 ! Time Resolved Electron Kinetics in solids after SHI Impact
 ! was developed by
 ! N. Medvedev, R.A. Rymzhanov, A.E. Volkov
+! With contributions from D. Zainutdinov, F. Akhmetov, P. Babaev, S. Gorbunov
 !
 ! The code simulates a Swift Heavy Ion impact in solids,
 ! where the properties of any solid target are provided
@@ -45,7 +46,7 @@
 
 !CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 ! Include all the separate file with modules to use in the main program:
-include 'Universal_Constants.f90'   	! include universal constants
+include 'Universal_Constants.f90'       ! include universal constants
 include 'Objects.f90'                   ! include objects definitions
 include 'Variables.f90'                 ! include global variables used in the program
 include 'Dealing_with_EADL.f90'         ! include EADL and EPDL97 database subs
@@ -54,9 +55,8 @@ include 'Reading_files_and_parameters.f90'  ! include module for reading and man
 include 'Cross_sections.f90'            ! include Cross sections subroutines
 include 'Analytical_IMFPs.f90'          ! include analytical calculations of IMFPs and dEdx
 include 'Monte_Carlo.f90'               ! include Monte-Carlo subroutines
+include 'Thermal_parameters.f90'        ! include calculation fo thermal parameters
 include 'Sorting_output_data.f90'       ! include Sorting output subroutines
-! These files MUST be provided together with the MAIN code,
-! as they contain parts of it with various subroutines.
 !CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 
 PROGRAM Universal_MC_for_SHI
@@ -71,8 +71,9 @@ use Reading_files_and_parameters, only: Read_input_file, get_num_shells, Find_VB
 use Sorting_output_data, only: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, &
                             Deallocate_out_arrays, parse_time, print_parameters
 use Cross_sections, only: SHI_TotIMFP, Equilibrium_charge_SHI, get_single_pole
-use Analytical_IMFPs, only: Analytical_electron_dEdx, Analytical_ion_dEdx
+use Analytical_IMFPs, only: Analytical_electron_dEdx, Analytical_ion_dEdx, printout_optical_CDF
 use Monte_Carlo, only : Monte_Carlo_modelling
+use Thermal_parameters, only : Get_thermal_parameters
 !MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
 implicit none
 
@@ -102,12 +103,19 @@ call Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, dt, Ou
 if (.not. read_well) goto 2012  ! if we couldn't read the input files, there is nothing else to do, go to end
 call get_num_shells(Target_atoms, Nshtot) ! from module 'Reading_files_and_parameters'
 
+!IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+! Set OpenMP parallel threading parameters:
+call OMP_SET_DYNAMIC(0) ! standard openmp subroutine
+call OMP_SET_NUM_THREADS(Num_th)    ! start using threads with openmp: Num_th is the number of threads, defined in the input file
+
+!IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! If single-pole approximation is required, make it:
 call get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_message)   ! module "Cross_sections"
 if (Error_message%Err) goto 2012  ! if we couldn't get the cross section, cannot continue
-!IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
-call OMP_SET_DYNAMIC(0) 	        ! standard openmp subroutine
-call OMP_SET_NUM_THREADS(Num_th)    ! start using threads with openmp: Num_th is the number of threads, defined in the input file
+
+! Optical CDF for reconstructed CDF from Ritchie-Howie fitted loss function:
+call printout_optical_CDF(Output_path, Target_atoms, Matter, NumPar, Mat_DOS)  ! module "Cross_sections"
+
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! Print parameters on screen:
 call print_parameters(6, SHI, Material_name, Target_atoms, Matter, NumPar, CDF_Phonon, &
@@ -137,7 +145,6 @@ call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phon
         Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names=File_names) ! from module Analytical_IMPS / openmp parallelization
 !if (allocated(File_names%F)) call Gnuplot_electrons_MFP(NumPar%path_sep, File_names%F(1), Output_path, File_names%F(2), Nshtot+2)   ! From module "Gnuplotting_subs"
 
-
 ! Hole MFPs:
 if (NumPar%verbose) call print_time_step('Starting VB hole mean-free-paths calculations:', msec=.true.)
 kind_of_particle = 'Hole'
@@ -160,9 +167,23 @@ if (NumPar%do_gnuplot) then
 endif
 
 
+!TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+! Thermal parameters (electron-phonon coupling, heat capacity, conductivity), if requested:
+call Get_thermal_parameters(Output_path, CDF_Phonon, Target_atoms, Matter, NumPar, Mat_DOS, File_names) ! module "Thermal_parameters"
+!TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+
+
+if ((NMC .LE. 0) .OR. (Tim .LE. 0.0d0)) then
+    !write(*,'(a)') '----------------------------------------------------'
+    write(*,'(a)') trim(adjustl(dashline))
+    write(*,'(a)') 'No Monte Carlo routine will be performed since'
+    write(*,'(a,i6)') 'Number of MC iterations = ', NMC
+    write(*,'(a, ES16.7)') 'Time of MC analysis = ', Tim
+    goto 2012 ! skip MC at all
+endif
+
 ! if we couldn't read the input files, there is nothing else to do, go to the end; or if skip ion:
 if ((.not. read_well) .OR. (SHI%Zat .LE. 0)) goto 2012
-
 
 ! Prepare differential SHI MFP for the given energy:
 if (NumPar%verbose) call print_time_step('Calculating SHI mean free paths for given energy:', msec=.true.)
@@ -175,15 +196,6 @@ do i = 1, size(Target_atoms)
     enddo
 enddo
 
-
-if ((NMC .LE. 0) .OR. (Tim .LE. 0.0d0)) then
-    !write(*,'(a)') '----------------------------------------------------'
-    write(*,'(a)') trim(adjustl(dashline))
-    write(*,'(a)') 'No Monte Carlo routine will be performed since' 
-    write(*,'(a,i6)') 'Number of MC iterations = ', NMC
-    write(*,'(a, ES16.7)') 'Time of MC analysis = ', Tim
-    goto 2012 ! skip MC at all
-endif
 
 
 !AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
@@ -306,9 +318,9 @@ else ! if there was no error, no need to keep the file, delete it:
 endif
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Formats defined for printing out on the screen:
-1001 format ('Begining: ', i2.2, ':', i2.2, ':', i2.2, '  ', i2.2, '/', i2.2, '/', i4.4)
-1002 format ('The end:  ', i2.2, ':', i2.2, ':', i2.2, '  ', i2.2, '/', i2.2, '/', i4.4)
-1005 format ('Start at: ', i2.2, ':', i2.2, ':', i2.2, '  ', i2.2, '/', i2.2, '/', i4.4)
+1001 format ('Beginning: ', i2.2, ':', i2.2, ':', i2.2, '  ', i2.2, '/', i2.2, '/', i4.4)
+1002 format ('The end :  ', i2.2, ':', i2.2, ':', i2.2, '  ', i2.2, '/', i2.2, '/', i4.4)
+1005 format ('Start at : ', i2.2, ':', i2.2, ':', i2.2, '  ', i2.2, '/', i2.2, '/', i4.4)
 1006 format ('Step at: ', i2.2, ':', i2.2, ':', i2.2, '  ', i2.2, '/', i2.2, '/', i4.4)
 1007 format ('Step at: ', i2.2, ':', i2.2, ':', i2.2, ':', i3.3, '  ', i2.2, '/', i2.2, '/', i4.4)
 1008 format (a, i4, a, i6, a, i2.2, ':', i2.2, ':', i2.2)

@@ -4,7 +4,7 @@
  [![DOI](https://zenodo.org/badge/490195185.svg)](https://zenodo.org/badge/latestdoi/490195185)
  
  ### Monte-Carlo code modelling electronic kinetics after swift-heavy ion impact on matter
- ### Current version: 3.1.1 (update 29.09.2023)
+ ### Current version: 3.1.2 (update 19.10.2023)
  
  For all details and instruction, address the files
  !READ_ME_TREKIS_3.doc  or  !READ_ME_TREKIS_3.pdf
@@ -18,11 +18,11 @@ By using this code or its materials, you agree with these terms and conditions.
 
  ## How to cite
 
-The use of the code is at your own risk. Should you choose to use it, appropriate citations are mandatory:
+The use of the code is at your own risk. Should you choose to use it, please cite the appropriate works:
 > 1)	N. A. Medvedev, R. A. Rymzhanov, A. E. Volkov, J. Phys. D. Appl. Phys. 48 (2015) 355303
 > 2)	R. A. Rymzhanov, N. A. Medvedev, A. E. Volkov, Nucl. Instrum. Methods B 388 (2016) 41
 
-Should you use this code to create initial conditions for further molecular dynamics simulations of atomic response to the electronic excitation by a swift heavy ion (e.g. with LAMMPS), the following citation is required:
+Should you use this code to create initial conditions for further molecular dynamics simulations of atomic response to the electronic excitation by a swift heavy ion (e.g. with LAMMPS), please also cite the following work:
 
 > 3)	R. Rymzhanov, N. A. Medvedev, A. E. Volkov, J. Phys. D. Appl. Phys. 50 (2017) 475301
 

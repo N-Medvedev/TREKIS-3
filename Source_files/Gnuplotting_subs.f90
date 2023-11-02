@@ -57,6 +57,7 @@ public :: Gnuplot_ion, Gnuplot_electron_hole, Gnuplot_transients
 ! File_names%F(27) = Radial_holes_pot_energy
 ! File_names%F(28) = Radial_holes_kin_energy
 ! File_names%F(29) = Radial_holes_temperature
+! File_names%F(30) = Thermal_parameters
 
 !----------------------------------------------
 
@@ -925,15 +926,19 @@ subroutine gnuplot_DOS(FN, Target_atoms, Filename, file_DOS, plot_extension, pat
    col_count = 1  ! to start with
    ! Prepare the plotting line:
    if (path_sep .EQ. '\') then	! if it is Windows
-      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
-         trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] "'// &
+      !write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+         !trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] "'// &
+      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':]['// &
+         trim(adjustl(ymin))//':] "'// &
          trim(adjustl(datafile)) // '"u 1:($3*10) w l lw LW title "DOS" ,\'
 
       write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:5 w l lw LW title "Effective mass [me]" '
 
    else ! It is linux
-      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
-         trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] \"'// &
+      !write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//']['// &
+         !trim(adjustl(ymin))//':'//trim(adjustl(ymax))//'] \"'// &
+      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':]['// &
+         trim(adjustl(ymin))//':] \"'// &
          trim(adjustl(datafile)) // '\"u 1:(\$3*10) w l lw \"$LW\" title \"DOS\" ,\'
 
       write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:5 w l lw \"$LW\" title \"Effective mass [me]\" '
@@ -1415,10 +1420,12 @@ subroutine gnuplot_SHI_Range(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot
    col_count = 1  ! to start with
    ! Prepare the plotting line:
    if (path_sep .EQ. '\') then	! if it is Windows
-      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//'][0.0:] "'// trim(adjustl(datafile)) // &
+      !write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//'][0.0:] "'// trim(adjustl(datafile)) // &
+      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':][0.0:] "'// trim(adjustl(datafile)) // &
          '"u 3:2 w l lw LW title "Range"'
    else ! It is linux
-      write(FN, '(a)') 'p [1e5:1e8][0.0:] \"'// trim(adjustl(datafile)) // &
+      !write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':'//trim(adjustl(xmax))//'][0.0:] \"'// trim(adjustl(datafile)) // &
+      write(FN, '(a)') 'p ['//trim(adjustl(xmin))//':][0.0:] \"'// trim(adjustl(datafile)) // &
          '\"u 3:2 w l lw \"$LW\" title \"Range\"'
    endif
 

@@ -11,8 +11,14 @@ MODULE Cross_sections
 implicit none
 PRIVATE
 
+
+real(8) :: m_Thom_factor, m_five_sixteenth
+
 real(8), parameter :: m_two_third = 2.0d0/3.0d0
 real(8), parameter :: m_Pi_6 = (g_Pi/6.0d0)**(1.0d0/3.0d0)
+
+parameter (m_Thom_factor = 20.6074224164d0)        ! [1] Constant for Eq.(2.5)
+parameter (m_five_sixteenth = 5.0d0/16.0d0)
 
 
 ! this interface finds by itself which of the two subroutine to use depending on the parameters passed:
@@ -21,13 +27,519 @@ interface Electron_energy_transfer ! finds energy transfer in electron collision
     module procedure Electron_energy_transfer_elastic
 end interface Electron_energy_transfer
 
+
+! this interface finds by itself which of the two subroutine to use depending on the parameters passed:
+interface extend_array_size ! extend array size by factor of 2
+    module procedure extend_array_size_int
+    module procedure extend_array_size_real
+end interface extend_array_size
+
+
+
 !private  ! hides items not listed on public statement 
 public :: Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, &
          SHI_Total_IMFP, SHI_TotIMFP, SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF, &
-         NRG_transfer_elastic_atomic_OLD, get_single_pole, w_plasma, sumrules, construct_CDF
+         NRG_transfer_elastic_atomic_OLD, get_single_pole, w_plasma, sumrules, construct_CDF, Total_copmlex_CDF, &
+         extend_array_size, Tot_EMFP, CS_from_MFP, Equilibrium_charge_Target
 
 
 contains
+
+
+!---------------------------
+! Atomic form factors:
+
+pure function form_factor(q, a, Z) result(FF)
+   ! [1]  F. Salvat, J. M. Fernandez-Varea, E. Acosta, J. Sempau
+   ! "PENELOPE  A Code System for Monte Carlo Simulation of Electron and Photon Transport", OECD (2001)
+   real(8) FF
+   real(8), intent(in) :: q, Z, a(5)   ! q in [kg*m/s]; Z=atomic number; a=fitted coeefs
+   real(8) :: fxz, Fk, x, x2, x4, demf, b, CapQ, al, mc
+   !-------------------------
+   mc = g_me*g_cvel
+   x = q/mc*m_Thom_factor  ! [1] Eq.(2.5)
+   x2 = x*x
+   x4 = x2*x2
+   demf = 1.0d0 + a(4)*x2 + a(5)*x4
+   fxz = Z*(1.0d0 + a(1)*x2 + a(2)*x*x2 + a(3)*x4) / (demf*demf)  ! [1] Eq.(2.7)
+   FF = fxz
+   if ((Z > 10.0d0) .and. (fxz < 2.0d0)) then
+      al = g_alpha*(Z - m_five_sixteenth)    ! [1] Eq.(2.9)
+      b = sqrt(1.0d0 - al*al)    ! [1] Eq.(2.9)
+      CapQ = q/(2.0d0*mc*al)     ! [1] Eq.(2.9)
+      Fk = sin(2.0d0*b*atan(CapQ))/(b*CapQ*(1.0d0 + CapQ*CapQ)**b)   ! [1] Eq.(2.8)
+      if (FF < Fk) FF = Fk
+   endif
+end function form_factor
+
+
+!---------------------------
+!Ritchie-Howie CDF subroutines:
+
+
+! Complex CDF producing Ritchie-Howie loss function:
+subroutine Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, complex_CDF, photon, Shell_CDF)
+   type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
+   type(Density_of_states), intent(in) :: Mat_DOS  ! DOS
+   type(Solid), intent(in) :: Matter   ! material properties
+   type(Flag), intent(in) :: NumPar ! numerical parameters
+   real(8), intent(in) ::  hw    ! transferred energy [eV]
+   real(8), intent(in) ::  hq    ! transferred momentum [sqrt(eV/J)/m] (not [kg*m/s] !)
+   complex(8), intent(out) :: complex_CDF ! constructed CDF
+   logical, intent(in), optional :: photon
+   type(Recon_CDF), dimension(:), intent(inout), optional :: Shell_CDF   ! shell-resolved CDFf
+   !----------------------
+   logical :: it_is_photon, it_contributes
+   integer :: Nat, Nshl, i, j
+   real(8) :: ImE, ReE, den, ReL, ImL, Q
+   complex(8) :: Part_CDF
+
+   if (present(photon)) then ! it may be a photon
+      it_is_photon = photon
+   elseif (abs(hq) < 1.0d-6) then ! close enough to be a photon
+      it_is_photon = .true.
+   else ! by default, it is not a photon
+      it_is_photon = .false.
+   endif
+
+   Nat = size(Target_atoms)    ! number of atoms
+   complex_CDF = dcmplx(0.0d0,0.0d0)   ! to start with
+
+   ! Get CDF for all shells of all elements:
+   ReE = 0.0d0   ! to start with
+   ImE = 0.0d0   ! to start with
+   do i = 1, Nat ! for all atoms
+      Nshl = size(Target_atoms(i)%Ip)    ! number of shells of the current atom i
+      do j = 1, Nshl ! for all shells
+         Part_CDF = dcmplx(0.0d0,0.0d0)   ! to restart
+
+         ! Get CDF corresponding to Ritchie-Howie loss function for this shell:
+         ! 1) Get real and imaginary parts of the loss function:
+         if (it_is_photon) then
+            call construct_CDF(Part_CDF, Target_atoms, i, j, Mat_DOS, Matter, NumPar, hw, hq, photon=.true., ReL=ReL, ImL=ImL) ! below
+         else
+            call construct_CDF(Part_CDF, Target_atoms, i, j, Mat_DOS, Matter, NumPar, hw, hq, ReL=ReL, ImL=ImL) ! below
+         endif
+
+         ! Save individual shell CDF:
+         if (present(Shell_CDF)) then ! save for each shell separately
+            if ((i /= 1) .or. (j /= size(Target_atoms(1)%Ip))) then ! not VB, core shell:
+               Q = (g_h*hq)**2 / (2.0d0*g_me)
+               if (hw+Q <= Target_atoms(i)%Ip(j) ) then  ! (energy+recoin elenry) below Ip, no CDF contribution
+                  it_contributes = .false.
+               else  ! it can contribute
+                  it_contributes = .true.
+               endif
+            else  ! VB always contributes to CDF
+               it_contributes = .true.
+            endif
+
+            if (it_contributes) then
+               den = ReL**2 + ImL**2   ! denominator in both, real and imaginary parts
+               if (abs(den) > 1.0d-12) then
+                  Shell_CDF(i)%CDF(j) = dcmplx(-ReL/den, ImL/den)
+               else  ! no CDF for this shell at this energy
+                  Shell_CDF(i)%CDF(j) = dcmplx(1.0d0, 0.0d0)
+               endif
+            else  ! make fully screened charge on this shell
+               !Shell_CDF(i)%CDF(j) = dcmplx(1.0d0/(1.0d0 + Target_atoms(i)%Nel(j)), 0.0d0)
+               Shell_CDF(i)%CDF(j) = cmplx(1.0d25, 0.0d0)
+            endif
+         endif
+
+         ! 2) Sum them up:
+         ReE = ReE + (1.0d0 + ReL)  ! without unity, to be added later to the total CDF
+         ImE = ImE + ImL            ! complete
+
+         ! VB test:
+         !if ((i == 1) .and. (j == Nshl)) then
+         !   write(*,'(es24.6,es24.6,es24.6,es24.6,es24.6,es24.6)') hw, dble(Part_CDF), aimag(Part_CDF), &
+         !                        dble(sqrt(Part_CDF)), aimag(sqrt(Part_CDF))
+         !endif
+      enddo ! j
+   enddo ! i
+
+   ! Combine all into full Re(-1/e(w,q)) = -(1 - sum(ReE_i)):
+   ReE = -(1.0d0 - ReE)
+   den = ReE**2 + ImE**2   ! denominator in both, real and imaginary parts
+   if (abs(den) > 1.0d-12) then
+      complex_CDF = dcmplx(-ReE/den, ImE/den)   ! partial complex CDF for this shell, reconstructed from Ritchie-Howie loss function
+   else  ! no CDF
+      complex_CDF = dcmplx(1.0d0, 0.0d0)
+   endif
+
+end subroutine Total_copmlex_CDF
+
+
+! CDF corresponding to Ritchie-Howie loss function for a single given shell:
+subroutine construct_CDF(Part_CDF, Target_atoms, Nat, Nshl, Mat_DOS, Matter, NumPar, hw, hq, photon, ReL, ImL)
+   complex(8), intent(out) :: Part_CDF ! constructed CDF
+   type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
+   integer, intent(in) :: Nat, Nshl    ! number of atom, and number of shell
+   type(Density_of_states), intent(in) :: Mat_DOS
+   type(Solid), intent(in) :: Matter
+   type(Flag), intent(in) :: NumPar
+   real(8), intent(in) ::  hw    ! transferred energy [eV]
+   real(8), intent(in) ::  hq    ! transferred momentum [sqrt(eV/J)/m] (not [kg*m/s] !)
+   logical, intent(in), optional :: photon
+   real(8), intent(out), optional :: ReL, ImL   ! real and imaginary parts of the loss function, if required
+   !-----------------------
+   real(8) :: ImE, ReE, den, Q
+   logical :: it_is_photon, this_shell_contributes
+
+   if (present(photon)) then ! it may be a photon
+      it_is_photon = photon
+   else ! by default, it is not a photon
+      it_is_photon = .false.
+   endif
+
+   Part_CDF = dcmplx(1.0d0,0.0d0)  ! to start with
+   this_shell_contributes = .true. ! default
+
+   ! For core shells, there is no CDF below the ionization potential:
+   ! check if it is not valence/conduction band:
+   if ((Nat /= 1) .or. (Nshl /= size(Target_atoms(1)%Ip))) then ! not VB, core shell:
+      Q = (g_h*hq)**2 / (2.0d0*g_me)
+
+      if (hw+Q <= Target_atoms(Nat)%Ip(Nshl) ) then  ! (energy+recoin elenry) below Ip, no CDF contribution
+         this_shell_contributes = .false.
+      else
+         this_shell_contributes = .true.
+      endif
+   endif
+
+   if (this_shell_contributes) then ! this shell contributes into CDF:
+      ! 1) Get full Ritchie-Howie Im(-1/e(w,q)):
+      if (it_is_photon) then
+         call Imewq(hw, hq, Target_atoms, Nat, Nshl, ImE, Matter, Mat_DOS, NumPar, photon=.true.)   ! below
+      else
+         call Imewq(hw, hq, Target_atoms, Nat, Nshl, ImE, Matter, Mat_DOS, NumPar)   ! below
+      endif
+
+      ! 2) Constructs full Re(-1/e(w,q)) from Ritchie-Howie Im(-1/e(w,q)):
+      if (it_is_photon) then
+         call Reewq(hw, hq, Target_atoms, Nat, Nshl, ReE, Matter, Mat_DOS, NumPar, photon=.true.)   ! below
+      else
+         call Reewq(hw, hq, Target_atoms, Nat, Nshl, ReE, Matter, Mat_DOS, NumPar)   ! below
+      endif
+
+      ! 3) Construct the CDF from Re(-1/e) and Im(-1/e):
+      den = ReE**2 + ImE**2   ! denominator in both, real and imaginary parts
+      if (abs(den) > 1.0d-12) then
+         Part_CDF = dcmplx(-ReE/den, ImE/den)   ! partial complex CDF for this shell, reconstructed from Ritchie-Howie loss function
+      else  ! no CDF
+         Part_CDF = dcmplx(1.0d0, 0.0d0)
+      endif
+      if (present(ReL)) ReL = ReE
+      if (present(ImL)) ImL = ImE
+   else
+      if (present(ReL)) ReL = -1.0d0
+      if (present(ImL)) ImL = 0.0d0
+   endif
+end subroutine construct_CDF
+
+
+
+! Constructs full Re(-1/e(w,q)) from Ritchie-Howie Im(-1/e(w,q)):
+subroutine Reewq(hw, hq, Target_atoms, Nat, Nshl, ReE, Matter, Mat_DOS, NumPar, photon)
+    real(8), intent(in) ::  hw    ! transferred energy [eV]
+    real(8), intent(in) ::  hq    ! transferred momentum [sqrt(eV/J) /m] (not [kg*m/s] !)
+    real(8), intent(out) :: ReE   ! Real part Re(-1/e(w,q)) corresponding to the fitted loss function Im(-1/e(w,q))
+    type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
+    integer, intent(in) :: Nat, Nshl    ! number of atom, and number of shell
+    type(Density_of_states), intent(in) :: Mat_DOS
+    type(Solid), intent(in) :: Matter
+    type(Flag), intent(in) :: NumPar
+    logical, intent(in), optional :: photon
+    !------------------
+    real(8), pointer :: A, Gamma, E ! no need to copy variable, just point onto it!
+    real(8) sumf
+    integer i, N
+    logical :: it_is_photon
+
+    if (present(photon)) then ! it may be a photon
+       it_is_photon = photon
+    else ! by default, it is not a photon
+       it_is_photon = .false.
+    endif
+
+    N = size(Target_atoms(Nat)%Ritchi(Nshl)%A)  ! number of fitting functions
+    ReE = 0.0e0
+    do i = 1, N !Nff_esh(Nosh)
+        A => Target_atoms(Nat)%Ritchi(Nshl)%A(i)            !A0(Nosh, i)
+        E => Target_atoms(Nat)%Ritchi(Nshl)%E0(i)           !E0(Nosh, i)
+        Gamma => Target_atoms(Nat)%Ritchi(Nshl)%Gamma(i)    !Gamma0(Nosh, i)
+        if (it_is_photon) then ! it's a photon
+            sumf = One_Reewq(A,E,Gamma, hw, hq, photon=.true.) ! below
+        else ! it's a particale
+            if (Matter%El_eff_Mass .EQ. 0) then ! use effective mass from DOS
+                 if (Target_atoms(1)%Ip(size(Target_atoms(1)%Ip)) .LT. 0.2d0) then  ! metallic material: DOS measured from bottom of CB
+                    !Use inverted DOS:
+                    sumf = One_Reewq(A,E,Gamma, hw, hq, NumPar=NumPar, Matter=Matter, k=Mat_DOS%k_inv, Eff_m=Mat_DOS%Eff_m_inv) ! below
+                else ! Insulator or semiconductor: DOS measured from top of VB
+                    sumf = One_Reewq(A,E,Gamma, hw, hq, NumPar=NumPar, Matter=Matter, k=Mat_DOS%k, Eff_m=Mat_DOS%Eff_m) ! below
+                endif
+            else ! use constant value of effective mass given
+                sumf = One_Reewq(A,E,Gamma, hw, hq, NumPar=NumPar, Matter=Matter) ! below
+            endif
+        endif
+        ReE = ReE + sumf
+        nullify(A, E, Gamma)
+    enddo
+    ! Combine all into full Re(-1/e(w,q)) = -(1 - sum(ReE_i)):
+    ReE = -(1.0d0 - ReE)
+end subroutine Reewq
+
+
+function One_Reewq(A,E,Gamma,dE,dq, NumPar, Matter, Mtarget, photon, k, Eff_m) result(ReEps)     ! fit functions in Ritchie algorithm
+   real(8) ReEps ! to be constructed
+   real(8), intent(in) :: A, E, Gamma, dE, dq     ! parameters and variable
+   type(Flag), intent(in), optional :: NumPar
+   type(Solid), intent(in), optional :: Matter
+   real(8), dimension(:), intent(in), optional :: k, Eff_m
+   real(8), intent(in), optional :: Mtarget    ! [kg] target atoms mass
+   logical, intent(in), optional :: photon  ! for photon always q=0
+   !------------------------
+   real(8) E0                      ! temporary parameter
+   real(8) qlim, EEE, sqq, Mass, Ef_m, Gamma1, hq2, dE2, E02
+   integer i, j
+   logical :: it_is_photon
+
+   if (present(photon)) then ! it may be a photon
+      it_is_photon = photon
+   else ! by default, it is not a photon
+      it_is_photon = .false.
+   endif
+
+   phot:if (it_is_photon) then ! it's a photon:
+      Gamma1 = Gamma
+      E0 = E
+   else phot ! an electron or a hole:
+      hq2 = g_h*g_h*dq*dq
+
+      if (present(Mtarget)) then   ! if scattering center is atom
+         call Extend_E0_to_finite_q(E0, Gamma1, E, Gamma, hq2, dq, Matter, NumPar, Mtarget) ! below
+      elseif (present(k) .AND. present(Eff_m)) then ! effective mass from VB or CB
+         call Extend_E0_to_finite_q(E0, Gamma1, E, Gamma, hq2, dq, Matter, NumPar, k=k, Eff_m=Eff_m) ! below
+      else  ! no effective mass, use free-particle mass
+         call Extend_E0_to_finite_q(E0, Gamma1, E, Gamma, hq2, dq, Matter, NumPar) ! below
+      endif
+   endif phot
+
+   dE2 = dE*dE
+   E02 = E0*E0
+
+   ! Part of Re(-1/e) = -(1 - ReEps) from the Ritchie-Howie model loss function:
+   ReEps = A*(E02 - dE2)/((dE2 - E02)**2 + (Gamma1**2)*dE2)
+end function One_Reewq
+
+
+subroutine Extend_E0_to_finite_q(E0, Gamma1, E, Gamma, hq2, dq, Matter, NumPar, Mtarget, k, Eff_m)
+   real(8), intent(out) :: E0, Gamma1  ! coefficients extended to finite q
+   real(8), intent(in) ::  E, Gamma, hq2, dq
+   type(Solid), intent(in), optional :: Matter
+   type(Flag), intent(in), optional :: NumPar
+   real(8), intent(in), optional :: Mtarget    ! [kg] target atoms mass
+   real(8), dimension(:), intent(in), optional :: k, Eff_m
+   !-----------
+   integer :: j
+   real(8) :: Mass, sqq, qlim
+
+   mtar:if (present(Mtarget)) then   ! if scattering center is atom
+      E0 = E + hq2/(2.0d0*Mtarget)  ! for phonons
+      Gamma1 = Gamma
+   else mtar ! scattering center is electron
+      if (present(k) .AND. present(Eff_m)) then ! effective mass from VB or CB
+         qlim = abs(dq)*sqrt(g_e)
+         if (qlim .LE. k(size(k))) then
+            call find_in_array_monoton(k, qlim, j) ! module "Reading_files_and_parameters"
+            Mass = Eff_m(j)
+         else
+            Mass = 1.0d0
+         endif
+      else if (Matter%El_eff_Mass .GT. 0) then  ! effective mass as a constant
+         Mass = Matter%El_eff_Mass
+      else  ! free-electron mass
+         Mass = 1.0d0
+      endif ! present(k) .AND. present(Eff_m)
+
+      sqq = hq2/(2.0d0*Mass*g_me)
+
+      select case(NumPar%kind_of_DR)
+      case(1) ! free electron dispersion relation
+         E0 = E + sqq
+         Gamma1 = Gamma
+      case(2) ! Plasmon-pole approximation
+         E0 = sqrt(E*E + Matter%v_f*Matter%v_f*hq2*0.3333333333333d0 + sqq*sqq)
+         Gamma1 = Gamma
+      case(3) ! Extended dielectric model of Ritchie
+         !E0 = (E**(2.0d0/3.0d0) + (sqq)**(2.0d0/3.0d0))**(3.0d0/2.0d0)
+         E0 = (E**(0.666666666666d0) + (sqq)**(0.666666666666d0))**1.5d0
+         Gamma1 = sqrt(Gamma*Gamma + sqq*sqq)
+      case default ! free electron by default
+         E0 = E + sqq
+         Gamma1 = Gamma
+      end select
+   endif mtar
+end subroutine Extend_E0_to_finite_q
+
+
+
+subroutine Imewq(hw, hq, Target_atoms, Nat, Nshl, ImE, Matter, Mat_DOS, NumPar, photon) ! constructs full Im(-1/e(w,q)) as a sum of Drude-like functions
+    REAL(8), INTENT(in) ::  hw    ! transferred energy [eV]
+    REAL(8), INTENT(in) ::  hq    ! transferred momentum [sqrt(eV/J) /m] (not [kg*m/s] !)
+    REAL(8), INTENT(out) :: ImE   ! loss function Im(-1/e(w,q))
+    type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
+    integer, intent(in) :: Nat, Nshl    ! number of atom, and number of shell
+    type(Density_of_states), intent(in) :: Mat_DOS
+    type(Solid), intent(in) :: Matter
+    type(Flag), intent(in) :: NumPar
+    logical, optional, intent(in) :: photon
+    !--------------------------------------
+    real(8), pointer :: A, Gamma, E ! no need to copy variable, just point onto it!
+    real(8) sumf
+    integer i, N
+    logical :: it_is_photon
+
+    if (present(photon)) then ! it may be a photon
+      it_is_photon = photon
+    else ! by default, it is not a photon
+      it_is_photon = .false.
+    endif
+
+    N = size(Target_atoms(Nat)%Ritchi(Nshl)%A)  ! that's how many fit functions we have
+    ImE = 0.0e0
+    do i = 1, N !Nff_esh(Nosh)
+        A => Target_atoms(Nat)%Ritchi(Nshl)%A(i)            !A0(Nosh, i)
+        E => Target_atoms(Nat)%Ritchi(Nshl)%E0(i)           !E0(Nosh, i)
+        Gamma => Target_atoms(Nat)%Ritchi(Nshl)%Gamma(i)    !Gamma0(Nosh, i)
+        if (it_is_photon) then ! it's a photon
+            sumf = Loss_func(A,E,Gamma, hw, hq, NumPar, Matter, photon=.true.) ! Loss_func function, see below
+        else ! it's a particale
+            if (Matter%El_eff_Mass .EQ. 0) then
+                if (Target_atoms(1)%Ip(size(Target_atoms(1)%Ip)) .LT. 0.2d0) then  ! metallic material: DOS measured from bottom of CB
+                    !Use inverted DOS
+                    sumf = Loss_func(A,E,Gamma, hw, hq, NumPar, Matter, k=Mat_DOS%k_inv, Eff_m=Mat_DOS%Eff_m_inv) ! below
+                else         ! Insulator or semiconductor: DOS measured from top of VB
+                    sumf = Loss_func(A,E,Gamma, hw, hq, NumPar, Matter, k=Mat_DOS%k, Eff_m=Mat_DOS%Eff_m) ! below
+                endif
+            else
+                sumf = Loss_func(A,E,Gamma, hw, hq, NumPar, Matter) ! below
+            endif
+        endif
+        ImE = ImE + sumf
+        nullify(A, E, Gamma)
+    enddo
+end subroutine Imewq
+
+
+
+function Loss_func(A,E,Gamma,dE,dq, NumPar, Matter, Mtarget, photon, k, Eff_m)     ! fit functions in Ritchi algorithm
+   real(8) Loss_func               ! function itself
+   real(8), intent(in) :: A, E, Gamma, dE, dq     ! parameters and variable
+   type(Flag), intent(in) :: NumPar
+   type(Solid), intent(in) :: Matter
+   real(8), dimension(:), intent(in), optional :: k, Eff_m
+   real(8), optional, intent(in) :: Mtarget    ! [kg] target atoms mass
+   logical, optional, intent(in) :: photon  ! for photon always q=0
+   !------------------------
+   real(8) E0                      ! temporary parameter
+   real(8) qlim, EEE, sqq, Mass, Ef_m, Gamma1, hq2, dE2, E02
+   integer i, j
+   logical :: it_is_photon
+
+   if (present(photon)) then  ! it may be a photon
+      it_is_photon = photon
+   else  ! by default, it is not a photon
+      it_is_photon = .false.
+   endif
+
+   phot:if (it_is_photon) then ! it's a photon:
+      Gamma1 = Gamma
+      E0 = E
+   else phot ! an electron or a hole:
+      hq2 = g_h*g_h*dq*dq
+
+      if (present(Mtarget)) then   ! if scattering center is atom
+         call Extend_E0_to_finite_q(E0, Gamma1, E, Gamma, hq2, dq, Matter, NumPar, Mtarget) ! below
+      elseif (present(k) .AND. present(Eff_m)) then ! effective mass from VB or CB
+         call Extend_E0_to_finite_q(E0, Gamma1, E, Gamma, hq2, dq, Matter, NumPar, k=k, Eff_m=Eff_m) ! below
+      else  ! no effective mass, use free-particle mass
+         call Extend_E0_to_finite_q(E0, Gamma1, E, Gamma, hq2, dq, Matter, NumPar) ! below
+      endif
+   endif phot
+
+   dE2 = dE*dE
+   E02 = E0*E0
+
+   ! Loss function accordint to Ritchie-Howie:
+   Loss_func = A*Gamma1*dE/((dE2 - E02)*(dE2 - E02) + Gamma1*Gamma1*dE2)
+end function Loss_func
+
+
+function Loss_func_old(A,E,Gamma,dE,dq, NumPar, Matter, Mtarget, photon, k, Eff_m) result(Loss_func) ! fit functions in Ritchi algorithm
+    real(8) Loss_func               ! function itself
+    real(8), intent(in) :: A, E, Gamma, dE, dq     ! parameters and variable
+    type(Flag), intent(in) :: NumPar
+    type(Solid), intent(in) :: Matter
+    real(8), dimension(:), intent(in), optional :: k, Eff_m
+    real(8), optional, intent(in) :: Mtarget    ! [kg] target atoms mass
+    logical, optional, intent(in) :: photon  ! for photon always q=0
+    !------------------------
+    real(8) E0                      ! temporary parameter
+    real(8) qlim, EEE, sqq, Mass, Ef_m, Gamma1, hq2, dE2, E02
+    integer i, j
+
+    phot:if (present(photon)) then ! it's a photon:
+        dE2 = dE*dE
+        E02 = E*E
+        Loss_func = A*Gamma*dE/((dE2 - E02)*(dE2 - E02) + Gamma*Gamma*dE2)
+    else phot ! an electron or a hole:
+        hq2 = g_h*g_h*dq*dq
+
+        mtar:if (present(Mtarget)) then   ! if scattering center is atom
+            E0 = E + hq2/(2.0d0*Mtarget)  ! for phonons
+            Gamma1 = Gamma
+        else mtar ! scattering center is electron
+            if (present(k) .AND. present(Eff_m)) then ! effective mass from VB or CB
+                qlim = abs(dq)*sqrt(g_e)
+                if (qlim .LE. k(size(k))) then
+                    call find_in_array_monoton(k, qlim, j)
+                    Mass = Eff_m(j)
+                else
+                    Mass = 1.0d0
+                endif
+            else if (Matter%El_eff_Mass .GT. 0) then  ! effective mass as a constant
+                Mass = Matter%El_eff_Mass
+            else  ! free-electron mass
+                Mass = 1.0d0
+            endif
+
+            sqq = hq2/(2.0d0*Mass*g_me)
+
+            select case(NumPar%kind_of_DR)
+                case(1) ! free electron dispersion relation
+                    E0 = E + sqq
+                    Gamma1 = Gamma
+                case(2) ! Plasmon-pole approximation
+                    E0 = sqrt(E*E + Matter%v_f*Matter%v_f*hq2*0.3333333333333d0 + sqq*sqq)
+                    Gamma1 = Gamma
+                case(3) ! Extended dielectric model of Ritchie
+                    !E0 = (E**(2.0d0/3.0d0) + (sqq)**(2.0d0/3.0d0))**(3.0d0/2.0d0)
+                    E0 = (E**(0.666666666666d0) + (sqq)**(0.666666666666d0))**1.5d0
+                    Gamma1 = sqrt(Gamma*Gamma + sqq*sqq)
+                case default ! free electron by default
+                    E0 = E + sqq
+                    Gamma1 = Gamma
+            end select
+        endif mtar
+        dE2 = dE*dE
+        E02 = E0*E0
+!         print*, 'E0', dE, sqq, E0
+        Loss_func = A*Gamma1*dE/((dE2 - E02)*(dE2 - E02) + Gamma1*Gamma1*dE2)
+!         write(*,'(a,f,f,f,f,f)') 'E0', dE, sqq, Loss_func
+    endif phot
+end function Loss_func_old
 
 
 subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_message)   ! module "Cross_sections"
@@ -110,7 +622,7 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
       if (NumPar%verbose) call print_time_step('Getting phononic single-pole CDF calculations:', msec=.true.)
 
          ! Debye energy [eV]:
-         E_debye = Debye_energy(Matter%At_Dens, Matter%Vsound) ! below
+         call Debye_energy(Matter%At_Dens, Matter%Vsound, E_debye) ! below
          ! Einstein energy [eV]:
          E_eistein = Einstein_energy(E_debye) ! below
 
@@ -140,14 +652,17 @@ end subroutine get_single_pole
 
 
 
-pure function Debye_energy(At_Dens, Vsound) result(Edebye)
-   real(8) Edebye   ! [eV] maximal phonon energy within Debye approximation
+pure subroutine Debye_energy(At_Dens, Vsound, Edebye, q_Debye)
    real(8), intent(in) :: At_Dens   ! [1/cm^3] atomic density
    real(8), intent(in) :: Vsound    ! [m/s] speed of sound in the material
+   real(8), intent(out) :: Edebye   ! [eV] maximal phonon energy within Debye approximation
+   real(8), intent(out), optional :: q_Debye
+   !---------------------
    real(8) :: qdebye
    qdebye = (6.0d0*g_Pi*g_Pi*(At_Dens*1d6))**(0.33333333d0)   ! Debye momentum [1/m]
    Edebye = g_h*Vsound*qdebye/g_e  ! Debye energy [eV]
-end function Debye_energy
+   if (present(q_Debye)) q_Debye = qdebye
+end subroutine Debye_energy
 
 
 pure function Einstein_energy(Edebye) result(Eeinstein) ! https://en.wikipedia.org/wiki/Debye_model#Debye_versus_Einstein
@@ -221,14 +736,21 @@ function Int_Ritchi_x(A,E,Gamma,x) ! integral of the Ritchi*x (k-sum rule)
         Sc = cmplx(0.0d0, sqrt(ABS(-(2.0d0*E)*(2.0d0*E) + Gamma*Gamma)))
     endif
     Gc = cmplx(Gamma*Gamma - 2.0d0*E*E,0.0d0)
+
     s_plus_c = sq2*sqrt(Gc + Gamma*Sc)
     s_minus_c = sq2*sqrt(Gc - Gamma*Sc)
-    Bc=Gc/(Gamma*Sc)
+    if ((Gamma*Sc) == cmplx(0.0d0,0.0d0)) then
+       Bc = cmplx(0.0d0,0.0d0)
+    else
+       Bc = Gc/(Gamma*Sc)
+    endif
     !Int_Ritchi_x = real(A*Gamma*( ATAN(2.0e0*x/s_minus)/s_minus*(1.0e0-B) + ATAN(2.0e0*x/s_plus)/s_plus*(1.0e0+B) ))
+
     arg = 2.0d0*x/(s_minus_c)
     arg2 = 2.0d0*x/(s_plus_c)
     !Ic = (A*Gamma*( ATAN2(aimag(arg),real(arg))/s_minus_c*(1.0e0-Bc) + ATAN2(aimag(arg2),real(arg2))/s_plus_c*(1.0e0+Bc) ))
-    Ic = (A*Gamma*(0.5d0*oneI*(log(1.0d0-oneI*arg)-log(1.0d0+oneI*arg))/s_minus_c*(1.0d0-Bc) + (0.5d0*oneI*(log(1.0d0-oneI*arg2)-log(1.0d0+oneI*arg2)))/s_plus_c*(1.0d0+Bc) ))
+    Ic = (A*Gamma*(0.5d0*oneI*(log(1.0d0-oneI*arg )-log(1.0d0+oneI*arg ))/s_minus_c*(1.0d0-Bc) + &
+                   0.5d0*oneI*(log(1.0d0-oneI*arg2)-log(1.0d0+oneI*arg2))/s_plus_c *(1.0d0+Bc) ))
     Int_Ritchi_x = real(Ic)
 end function Int_Ritchi_x
 
@@ -237,7 +759,7 @@ function Int_Ritchi_p_x(A,E,Gamma,x) ! integral of the Ritchi/x (ff-sum rule)
     real(8) A, E, Gamma, x  ! parameters and variable
     real(8) Int_Ritchi_p_x ! function itself
     real(8) S, sq2, G, s_plus, s_minus
-    complex(8) Sc, Gc, s_plus_c, s_minus_c, oneI, In_c, arg, arg2
+    complex(8) Sc, Gc, s_plus_c, s_minus_c, oneI, In_c, arg, arg2, term1, term2
     sq2 = sqrt(2.0d0)
     oneI = cmplx(0.0d0,1.0d0)
     if ((-(2.0d0*E)*(2.0d0*E) + Gamma*Gamma) .GE. 0.0d0) then
@@ -249,22 +771,36 @@ function Int_Ritchi_p_x(A,E,Gamma,x) ! integral of the Ritchi/x (ff-sum rule)
     s_plus_c = sqrt(Gc + Gamma*Sc)
     s_minus_c = sqrt(Gc - Gamma*Sc)
     !Int_Ritchi_p_x = sq2*A/S*( ATAN(sq2*x/s_minus)/s_minus - ATAN(sq2*x/s_plus)/s_plus )
-    arg = sq2*x/s_minus_c
+
+    arg  = sq2*x/s_minus_c
     arg2 = sq2*x/s_plus_c
-    In_c = sq2*A/Sc*( (0.5d0*oneI*(log(1.0d0-oneI*arg)-log(1.0d0+oneI*arg)))/s_minus_c - (0.5d0*oneI*(log(1.0d0-oneI*arg2)-log(1.0d0+oneI*arg2)))/s_plus_c )
+
+    term1 = (0.5d0*oneI*(log(1.0d0-oneI*arg )-log(1.0d0+oneI*arg )))/s_minus_c
+    term2 = (0.5d0*oneI*(log(1.0d0-oneI*arg2)-log(1.0d0+oneI*arg2)))/s_plus_c
+    !In_c = sq2*A/Sc*( (0.5d0*oneI*(log(1.0d0-oneI*arg )-log(1.0d0+oneI*arg )))/s_minus_c - &
+    !                  (0.5d0*oneI*(log(1.0d0-oneI*arg2)-log(1.0d0+oneI*arg2)))/s_plus_c )
+    if ((term1-term2) == cmplx(0.0d0,0.0d0)) then
+       In_c = sq2*A
+    else
+       In_c = sq2*A/Sc*(term1 - term2)
+    endif
+
     Int_Ritchi_p_x = real(In_c)
 end function Int_Ritchi_p_x
 
 
 
+!---------------------------
+!Total electron and photon CS subroutines:
 
-subroutine Tot_Phot_IMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, NumPar)
+subroutine Tot_Phot_IMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, NumPar, Mat_DOS)
     real(8), intent(in) :: Ele  ! electron energy [eV]
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
     integer, intent(in) :: Nat, Nshl    ! number of atom, number of shell
     real(8), intent(out) :: Sigma, dEdx   ! calculated inverse mean free path (cross-section) [1/A], and the energy losses [eV/A]
     type(Solid), intent(in) :: Matter ! properties of material
     type(Flag), intent(in) :: NumPar
+    type(Density_of_states), intent(in) :: Mat_DOS ! unused here, but needs to be passed to further subroutines
     integer i, j, n
     real(8) temp1, ImE, Sigma1
 
@@ -274,7 +810,8 @@ subroutine Tot_Phot_IMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, NumP
           Sigma = 1d30      ! [A] IMFP
           dEdx = Ele/Sigma  ! energy losses [eV/A]
        else
-          call Imewq(Ele, 0.0d0, Target_atoms, Nat, Nshl, ImE, Matter, NumPar=NumPar, photon=.true.) ! constructs full Im(-1/e(w,q)) as a sum of Drude-like functions
+          ! constructs full Im(-1/e(w,q)) as a sum of Drude-like functions:
+          call Imewq(Ele, 0.0d0, Target_atoms, Nat, Nshl, ImE, Matter, Mat_DOS, NumPar, photon=.true.)  ! below
           Sigma = g_cvel*g_h/(ImE*Ele*g_e)*1d10 ! [A] IMFP
           dEdx = Ele/Sigma    ! energy losses [eV/A]
        endif
@@ -285,9 +822,11 @@ subroutine Tot_Phot_IMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, NumP
              if (i .NE. Nat) then
                 j = Target_atoms(i)%Shl_num(Target_atoms(i)%N_shl)
                 call next_designator(n, j) ! find the designator for the VB (next shell after last one)
-                call get_photon_cross_section_EPDL(trim(adjustl(NumPar%path_sep)), Ele, Target_atoms, i, Shl_dsgntr=n, Matter=Matter, Sigma=Sigma)
+                call get_photon_cross_section_EPDL(trim(adjustl(NumPar%path_sep)), Ele, Target_atoms, i, &
+                                                   Shl_dsgntr=n, Matter=Matter, Sigma=Sigma)
              else
-                call get_photon_cross_section_EPDL(trim(adjustl(NumPar%path_sep)), Ele, Target_atoms, i, Nshl=Nshl, Matter=Matter, Sigma=Sigma)
+                call get_photon_cross_section_EPDL(trim(adjustl(NumPar%path_sep)), Ele, Target_atoms, i, &
+                                                   Nshl=Nshl, Matter=Matter, Sigma=Sigma)
              endif
              Sigma1 = Sigma1 + Sigma*(Target_atoms(i)%Pers)/SUM(Target_atoms(:)%Pers)
           enddo
@@ -383,7 +922,7 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
 !           pause 
 !        endif
        
-       if (Ltot1 < 1.0d-10) then
+       if (Ltot1 < 1.0d-15) then
            Sigma = 1.0d20
            dEdx = 0.0d0 !*dE ! energy losses [eV/A]
        else
@@ -400,6 +939,38 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
     end select
 end subroutine TotIMFP
 
+
+pure function MFP_from_sigma(sigma, nat) result(lambda)
+   real(8) lambda   ! [A]
+   real(8), intent(in) :: sigma ! [A^2]
+   real(8), intent(in) :: nat   ! [cm^-3]
+   real(8) :: na
+   if (sigma > 1.0d-24) then  ! finite MFP
+      na = nat * 1.0d-24    ! [A^-3] converted from [cm^-3]
+      lambda = 1.0d0 / (sigma * na)    ! [A] mean free path
+   else
+      lambda = 1.0d30   ! infinity
+   endif
+end function MFP_from_sigma
+
+
+pure function CS_from_MFP(lambda, nat) result(CS)
+   real(8) CS     ! [A^2]
+   real(8), intent(in) :: lambda ! [A]
+   real(8), intent(in) :: nat   ! [cm^-3]
+   real(8) :: na
+   if (lambda > 1.0d-14) then  ! finite MFP
+      na = nat * 1.0d-24    ! [A^-3] converted from [cm^-3]
+      CS = 1.0d0 / (lambda * na)    ! [A^2] cross section
+   else
+      CS = 0.0d0
+   endif
+end function CS_from_MFP
+
+
+
+!---------------------------
+!Delta-CS and subroutines:
 
 function Integral_CDF_delta_CS(M, mt, E, CDF_coefs, Ip, nat, identical, hw_phonon, Emax_in) result(Sigma)
    real(8) Sigma    ! [A^2]
@@ -741,21 +1312,9 @@ function energy_loss_delta(E, M, Zeff, Ip, nat, Mt, CDF_coefs, identical, hw_pho
 end function energy_loss_delta
 
 
-pure function MFP_from_sigma(sigma, nat) result(lambda)
-   real(8) lambda   ! [1/A]
-   real(8), intent(in) :: sigma ! [A^2]
-   real(8), intent(in) :: nat   ! [cm^-3]
-   real(8) :: na
-   if (sigma > 1.0d-24) then  ! finite MFP
-      na = nat * 1.0d-24    ! [A^-3] converted from [cm^-3]
-      lambda = 1.0d0 / (sigma * na)    ! [A] mean free path
-   else
-      lambda = 1.0d30   ! infinity
-   endif
-end function MFP_from_sigma
 
-
-
+!---------------------------
+!Differential CS and subroutines:
 
 subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_tot, dE_out, Matter, Mat_DOS, NumPar, kind_of_particle)
     real(8), intent(in) :: Ele  ! electron energy [eV]
@@ -1161,10 +1720,10 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     endif
 
     ! Target mean atomic charge:
-    if (NumPar%CDF_elast_Zeff /= 1) then   ! Barkas-like charge
+    if (NumPar%CDF_elast_Zeff == 0) then   ! Barkas-like charge
         Zt = SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
         Zeff = 1.0d0 + Equilibrium_charge_Target(Ee, g_me, Zt, (Zt-1.0e0), 0, 1.0e0) ! Equilibrium charge, see below
-    else  ! one, as used in old CDF expression
+    else  ! one, as used in old CDF expression, and in case CDF screening is used - no need for effective charge
         Zeff = 1.0d0    ! electron charge
     endif
         
@@ -1180,16 +1739,16 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     Ltot1 = 0.0d0
     Ltot0 = 0.0d0
     L_cur = 1.0d10
-    call Diff_cross_section_phonon(Ele, E, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0)
+    call Diff_cross_section_phonon(Ele, E, NumPar, Matter, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS)  ! below
     ddEdx = 0.0e0
     do while (L_cur .GT. L_need)
         dE = (1.0d0/(E+1.0d0) + E)/real(n)
         ! If it's Simpson integration:
         a =  E + dE/2.0d0
-        call Diff_cross_section_phonon(Ele, a, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0)
+        call Diff_cross_section_phonon(Ele, a, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS) ! below
         temp1 = dL
         b = E + dE
-        call Diff_cross_section_phonon(Ele, b, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0)
+        call Diff_cross_section_phonon(Ele, b, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS) ! below
         temp2 = dE/6.0d0*(Ltot0 + 4.0d0*temp1 + dL)
         Ltot1 = Ltot1 + temp2
         ddEdx = ddEdx + E*temp2
@@ -1222,6 +1781,9 @@ subroutine SHI_Total_IMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat
     endselect
 end subroutine SHI_Total_IMFP
 
+
+!---------------------------
+!Total CS and subroutines:
 
 subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, NumPar, dSedE)
     class(Ion), intent (inout) :: SHI  ! all the data for the SHI
@@ -1378,7 +1940,14 @@ subroutine Equilibrium_charge_SHI(SHI, Target_atoms)  ! Equilibrium charge
    class(Ion), intent (inout) :: SHI  ! all the data for the SHI
    type(Atom), dimension(:), intent(in), optional :: Target_atoms  ! all data for target atoms
    real(8) x, x2, x4, Zt, Zp, vp, y, Zp052, vpvo, c1, c2
-   vp = dsqrt(2.0d0*SHI%E*g_e/(SHI%Mass*g_Mp))  ! SHI velocity
+
+   !print*, 'Equilibrium_charge_SHI', SHI%E, SHI%Mass, g_Mp
+   if (SHI%E > 0.0d0) then
+      vp = dsqrt(2.0d0*SHI%E*g_e/(SHI%Mass*g_Mp))  ! SHI velocity
+   else
+      vp = 0.0d0
+   endif
+
    if (present(Target_atoms)) then
       !Zt = SUM(Target_atoms(:)%Zat)/size(Target_atoms)  ! mean atomic number of target atoms
       Zt = SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
@@ -1429,8 +1998,19 @@ subroutine SHI_Diff_cross_section(Ele, MSHI, Emax, hw, Target_atoms, Nat, Nshl, 
     
     !qmin = sqrt(2.0e0*g_me)/g_h*(sqrt(Ee) - sqrt((Ee - dE))) ! min transferred momentum [kg*m/s] electron
     !qmax = sqrt(2.0e0*g_me)/g_h*(sqrt(Ee) + sqrt((Ee - dE))) ! max transferred momentum [kg*m/s]
-    qmin = hw/g_h/sqrt(2.0e0*Ee/MSHI)       ! min transferred momentum [kg*m/s] SHI
-    qmax = sqrt(2.0e0*g_me)/g_h*sqrt(Emax)  ! min transferred momentum [kg*m/s] SHI
+
+    if (Ee > 0.0d0) then
+      qmin = hw/g_h/sqrt(2.0e0*Ee/MSHI)       ! min transferred momentum [kg*m/s] SHI
+    else
+      qmin = 0.0d0
+    endif
+
+    if (Emax > 0.0d0) then
+      qmax = sqrt(2.0e0*g_me)/g_h*sqrt(Emax)  ! min transferred momentum [kg*m/s] SHI
+    else
+      Diff_IMFP = 0.0d0
+      return
+    endif
 
     dLs = 0.0e0 ! starting integration, mean free path per energy [A/eV]^(-1)
     hq = qmin    ! transient transferred momentum for integration [sqrt(eV/J) /m] (not [kg*m/s])
@@ -1460,153 +2040,6 @@ subroutine SHI_Diff_cross_section(Ele, MSHI, Emax, hw, Target_atoms, Nat, Nshl, 
     
     nullify(Ee)
 end subroutine SHI_Diff_cross_section
-
-
-
-! Complex CDF producing Ritchie-Howie loss function:
-subroutine construct_CDF(Ritchi_CDF, hw, hq, complex_CDF)
-   type(CDF), intent(in), target :: Ritchi_CDF    ! CDF parameters
-   real(8), intent(in) ::  hw    ! transferred energy [eV]
-   real(8), intent(in) ::  hq    ! transferred momentum [sqrt(eV/J) /m] (not [kg*m/s] !)
-   complex(8), intent(out) :: complex_CDF ! constructed CDF
-   !----------------------
-   integer :: i, Nsiz
-   real(8), pointer :: A, G, E
-   real(8) :: Re_CDF, Im_CDF
-
-   ! How many oscillators:
-   Nsiz = size(Ritchi_CDF%A)
-
-   ! For all oscillators, define CDF:
-   complex_CDF = cmplx( dble(Nsiz) ,0.0d0) ! to start with
-   Re_CDF = dble(Nsiz)
-   Im_CDF = 0.0d0
-   do i = 1, Nsiz
-      ! Fitted coefficients of Ritchie-Howie CDF:
-      A => Ritchi_CDF%A(i)
-      E => Ritchi_CDF%E0(i)
-      G => Ritchi_CDF%Gamma(i)
-
-      complex_CDF = complex_CDF + A/(E**2 - A - hw**2 - g_CI*G*hw)
-
-      Re_CDF = Re_CDF + A * (E**2 - A - hw**2) / ( (E**2 - A - hw**2)**2 + (G*hw)**2)
-      Im_CDF = Im_CDF + A * G * hw**2 / ( (E**2 - A - hw**2)**2 + (G*hw)**2)
-
-      nullify(A, E, G)
-   enddo
-
-   print*, hw, hq, Re_CDF, Im_CDF, complex_CDF
-   !pause 'construct_CDF'
-end subroutine construct_CDF
-
-
-
-
-subroutine Imewq(hw, hq, Target_atoms, Nat, Nshl, ImE, Matter, Mat_DOS, NumPar, photon) ! constructs full Im(-1/e(w,q)) as a sum of Drude-like functions
-    REAL(8), INTENT(in) ::  hw    ! transferred energy [eV]
-    REAL(8), INTENT(in) ::  hq    ! transferred momentum [sqrt(eV/J) /m] (not [kg*m/s] !)
-    REAL(8), INTENT(out) :: ImE   ! loss function Im(-1/e(w,q))
-    type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
-    integer, intent(in) :: Nat, Nshl    ! number of atom, and number of shell
-    type(Density_of_states), intent(in), optional :: Mat_DOS
-    type(Solid), intent(in) :: Matter
-    type(Flag), intent(in) :: NumPar
-    logical, optional, intent(in) :: photon
-    
-    real(8), pointer :: A, Gamma, E ! no need to copy variable, just point onto it!
-    real(8) sumf
-    integer i, N
-    N = size(Target_atoms(Nat)%Ritchi(Nshl)%A)  ! that's how many fit functions we have
-    ImE = 0.0e0
-    do i = 1, N !Nff_esh(Nosh)
-        A => Target_atoms(Nat)%Ritchi(Nshl)%A(i)            !A0(Nosh, i)
-        E => Target_atoms(Nat)%Ritchi(Nshl)%E0(i)           !E0(Nosh, i)
-        Gamma => Target_atoms(Nat)%Ritchi(Nshl)%Gamma(i)    !Gamma0(Nosh, i)
-        if (present(photon)) then ! it's a photon
-            sumf = Diel_func(A,E,Gamma, hw, hq, photon=.true.) ! Diel_func function, see below
-        else ! it's a particale
-            if (Matter%El_eff_Mass .EQ. 0) then
-                 if (Target_atoms(1)%Ip(size(Target_atoms(1)%Ip)) .LT. 0.2d0) then  ! metallic material: DOS measured from bottom of CB
-                    !Use inverted DOS
-                    sumf = Diel_func(A,E,Gamma, hw, hq, NumPar=NumPar, Matter=Matter, k=Mat_DOS%k_inv, Eff_m=Mat_DOS%Eff_m_inv) ! Diel_func function, see below
-                else         ! Insulator or semiconductor: DOS measured from top of VB
-                    sumf = Diel_func(A,E,Gamma, hw, hq, NumPar=NumPar, Matter=Matter, k=Mat_DOS%k, Eff_m=Mat_DOS%Eff_m) ! Diel_func function, see below
-                endif    
-            else
-                sumf = Diel_func(A,E,Gamma, hw, hq, NumPar=NumPar, Matter=Matter) ! Diel_func function, see below
-            endif
-        endif
-        ImE = ImE + sumf
-        nullify(A)
-        nullify(E)
-        nullify(Gamma)
-    enddo
-end subroutine Imewq
-
-
-function Diel_func(A,E,Gamma,dE,dq, NumPar, Matter, Mtarget, photon, k, Eff_m)     ! fit functions in Ritchi algorithm
-    real(8) A, E, Gamma, dE, dq     ! parameters and variable
-    real(8) Diel_func               ! function itself
-    real(8) E0                      ! temporary parameter
-    type(Flag), optional :: NumPar
-    type(Solid), optional :: Matter
-    real(8), dimension(:), optional :: k, Eff_m
-    real(8), optional :: Mtarget    ! [kg] target atoms mass
-    logical, optional, intent(in) :: photon  ! for photon always q=0
-        
-    real(8) qlim, EEE, sqq, Mass, Ef_m, Gamma1, hq2, dE2, E02
-    integer i, j
-
-    phot:if (present(photon)) then ! it's a photon:
-        dE2 = dE*dE
-        E02 = E*E
-        Diel_func = A*Gamma*dE/((dE2 - E02)*(dE2 - E02) + Gamma*Gamma*dE2)
-    else phot ! an electron or a hole:
-        hq2 = g_h*g_h*dq*dq
-
-        mtar:if (present(Mtarget)) then   ! if scattering center is atom
-            E0 = E + hq2/(2.0d0*Mtarget)  ! for phonons
-            Gamma1 = Gamma
-        else mtar ! scattering center is electron
-            if (present(k) .AND. present(Eff_m)) then ! effective mass from VB or CB
-                qlim = abs(dq)*sqrt(g_e)
-                if (qlim .LE. k(size(k))) then
-                    call find_in_array_monoton(k, qlim, j)
-                    Mass = Eff_m(j)
-                else
-                    Mass = 1.0d0
-                endif
-            else if (Matter%El_eff_Mass .GT. 0) then  ! effective mass as a constant
-                Mass = Matter%El_eff_Mass
-            else  ! free-electron mass
-                Mass = 1.0d0
-            endif
-            
-            sqq = hq2/(2.0d0*Mass*g_me)            
-            
-            select case(NumPar%kind_of_DR)
-                case(1) ! free electron dispersion relation
-                    E0 = E + sqq
-                    Gamma1 = Gamma
-                case(2) ! Plasmon-pole approximation                         
-                    E0 = sqrt(E*E + Matter%v_f*Matter%v_f*hq2*0.3333333333333d0 + sqq*sqq)
-                    Gamma1 = Gamma
-                case(3) ! Extended dielectric model of Ritchie                     
-                    !E0 = (E**(2.0d0/3.0d0) + (sqq)**(2.0d0/3.0d0))**(3.0d0/2.0d0)
-                    E0 = (E**(0.666666666666d0) + (sqq)**(0.666666666666d0))**1.5d0
-                    Gamma1 = sqrt(Gamma*Gamma + sqq*sqq)
-                case default ! free electron by default
-                    E0 = E + sqq
-                    Gamma1 = Gamma
-            end select    
-        endif mtar
-        dE2 = dE*dE
-        E02 = E0*E0
-!         print*, 'E0', dE, sqq, E0
-        Diel_func = A*Gamma1*dE/((dE2 - E02)*(dE2 - E02) + Gamma1*Gamma1*dE2)
-!         write(*,'(a,f,f,f,f,f)') 'E0', dE, sqq, Diel_func
-    endif phot
-end function Diel_func
 
 
 
@@ -1744,8 +2177,8 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
    real(8), intent(out) :: EMFP ! [A] elastic mean free path
    real(8), intent(out) :: dEdx   ! [eV/A] energy loss
    type(Flag), intent(in) :: NumPar
-   type(Density_of_states) :: Mat_DOS
-   character(8), intent(in) :: kind_of_particle
+   type(Density_of_states), intent(in) :: Mat_DOS
+   character(*), intent(in) :: kind_of_particle
    real(8), intent(in), optional :: prefact  ! prefactor if required (e.g. for negative frequencies)
    !--------------------------
          
@@ -1758,12 +2191,15 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
    if (NumPar%kind_of_EMFP .EQ. 1) then   ! CDF cross section
 
       ! Target mean atomic charge:
-      if (numpar%CDF_elast_Zeff /= 1) then   ! Barkas-like charge
-         Zt = SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
+      Zt = SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
+      select case(numpar%CDF_elast_Zeff)
+      case (0) ! Barkas-like charge
          Zeff = 1.0d0 + Equilibrium_charge_Target(Ee, g_me, Zt, (Zt-1.0e0), 0, 1.0d0) ! Equilibrium charge, see below
-      else  ! one, as used in old CDF expression
+      case (1) ! one, as used in old CDF expression : Fourier of the unscreened Coulomb with charge Z=1
          Zeff = 1.0d0    ! electron charge
-      endif
+      case default ! full charge will be screened with the electronic CDF(q,w) inside the cross section
+         Zeff = 1.0d0    ! so no additional multiplication needed here
+      end select
 
       if (present(prefact)) then
          call Tot_EMFP(Ee, Target_atoms, CDF_Phonon, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff, prefact) ! below
@@ -1771,16 +2207,17 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
          call Tot_EMFP(Ee, Target_atoms, CDF_Phonon, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff) ! below
       endif
    else  ! Mott cross section
-      if (kind_of_particle .EQ. 'Electron') then
+      select case (kind_of_particle)
+      case ('Electron', 'electron', 'e')
          Mass = 1.0d0
-      else if (kind_of_particle .EQ. 'Hole') then
+      case ('Hole', 'hole', 'h')
          if(Matter%hole_mass .GE. 0) then
                Mass = Matter%hole_mass
          else  ! Define mass from DOS
                call find_in_array_monoton(Mat_DOS%E, Ee, Mnum)
                Mass = Mat_DOS%Eff_m(Mnum)
          endif
-      endif
+      end select
       Sigma_Tot = 0.0d0 ! [cm^2] cross-section
       do i = 1, size(Target_atoms)  ! for all atomic spicies:
          call Atomic_elastic_sigma(Target_atoms, i, Ee, Sigma_el) ! total cross-section of elastic scattering on an atom:
@@ -1796,17 +2233,19 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
 end subroutine Elastic_cross_section
 
 
-subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff, prefact)
+subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff, prefact, dsdhw, d_hw)
     real(8), intent(in), target :: Ele  ! electron energy [eV]
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
     type(CDF), intent(in) :: CDF_Phonon ! phonon CDF parameters
-    type(Solid), intent(inout) :: Matter   ! all material parameters
+    type(Solid), intent(in) :: Matter   ! all material parameters
     real(8), intent(out) :: Sigma, dEdx   ! calculated inverse mean free path (cross-section) [A], and the energy losses [eV/A]
     type(Flag), intent(in) :: NumPar
     type(Density_of_states), intent(in) :: Mat_DOS     
-    character(8), intent(in) :: kind_of_particle
+    character(*), intent(in) :: kind_of_particle
     real(8), intent(in) :: Zeff  ! effective charge of target atoms [electron charge]
     real(8), intent(in), optional :: prefact ! prefactor for Emax, if required (e.g., use for negative frequencies)
+    real(8), dimension(:), allocatable, intent(inout), optional :: dsdhw  ! d sigma / d hw [A^2/eV]
+    real(8), dimension(:), allocatable, intent(inout), optional :: d_hw  ! d hw [eV]
     !--------------------
     integer :: i, j, n, Mnum
     real(8) :: Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx
@@ -1818,24 +2257,28 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
     else
       pref = 1.0d0   ! no prefactor required
     endif
-    qdebay = (6.0d0*g_Pi*g_Pi*(Matter%At_Dens*1e6))**(0.33333333d0)   ! maximum energy of phonons analyzed [1/m], debay energy
-    Edebay = 2.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy // 2 is artificial...
+    !qdebay = (6.0d0*g_Pi*g_Pi*(Matter%At_Dens*1e6))**(0.33333333d0)   ! maximum energy of phonons analyzed [1/m], debay energy
+    !Edebay = 2.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy (2 is artificial)
+    call Debye_energy(Matter%At_Dens, Matter%Vsound, Edebay)   ! below
+    Edebay = Edebay * 3.0d0   ! to make sure we cover all phonon CDF peaks
+
     Ee => Ele   ! just to use this name later
     Emin = pref * 0.1d-8    !Target_atoms(Nat)%Ip(Nshl)   ! [eV] ionization potential of the shell is minimum possible transferred energy
     Mtarget = g_Mp*SUM(target_atoms(:)%Mass*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! average mass of a target atom [kg]
     
-    if (trim(adjustl(kind_of_particle)) .EQ. 'Electron') then
+    select case (trim(adjustl(kind_of_particle)))
+    case ('Electron', 'electron', 'e')
         Mass = 1.0d0
-    else if (trim(adjustl(kind_of_particle)) .EQ. 'Hole') then
+    case ('Hole', 'hole', 'h')
         if(Matter%hole_mass .GE. 0) then
             Mass = Matter%hole_mass
         else                    ! Define mass from DOS
             call find_in_array_monoton(Mat_DOS%E, Ele, Mnum)
             Mass = Mat_DOS%Eff_m(Mnum)
         endif 
-    else
+    case default
         Mass = 1.0d0
-    endif    
+    end select
         
     Emax = 4.0e0*Ee*Mass*g_me*Mtarget/((Mtarget+Mass*g_me)*(Mtarget+Mass*g_me))    ! [eV] maximum energy transfer
       
@@ -1845,26 +2288,41 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
 
     n = 20*(MAX(INT(Emin),10))    ! number of integration steps
     dE = (Emax - Emin)/(dble(n)) ! differential of transferred energy
-    i = 1       ! to start integration
+    i = 0       ! to start integration
     E = Emin    ! to start integration
     Ltot1 = 0.0d0
     Ltot0 = 0.0d0
-    call Diff_cross_section_phonon(Ele, E, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0)
+    call Diff_cross_section_phonon(Ele, E, NumPar, Matter, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS)  ! below
     ddEdx = 0.0e0
     do while (abs(E) .LE. abs(Emax)) ! integration
+        i = i + 1 ! index
         dE = (1.0d0/(E+1.0d0) + E)/dble(n)
         dE = pref * dE  ! if user requested a prefactor
         ! If it's Simpson integration:
         a =  E + dE/2.0d0
-        call Diff_cross_section_phonon(Ele, a, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0)
+        call Diff_cross_section_phonon(Ele, a, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS) ! below
         temp1 = dL
         b = E + dE
-        call Diff_cross_section_phonon(Ele, b, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0)
-        temp2 = abs(dE)/6.0d0*(Ltot0 + 4.0d0*temp1 + dL)
+        call Diff_cross_section_phonon(Ele, b, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS) ! below
+        temp2 = abs(dE)/6.0d0 * (Ltot0 + 4.0d0*temp1 + dL)
         Ltot1 = Ltot1 + temp2
         ddEdx = ddEdx + E*temp2
         Ltot0 = dL
         E = E + dE  ! [eV]
+
+        ! Save differential cross-section:
+        if (present(dsdhw) .and. present(d_hw)) then
+           if (i > size(dsdhw)) then
+              call extend_array_size(dsdhw)  ! below
+              call extend_array_size(d_hw)  ! below
+           endif
+           d_hw(i) = E  ! save differential grid [eV]
+           if (Mass < 1.0d-20) then
+              dsdhw(i) = 1.0d29
+           else
+              dsdhw(i) = 1.0d0/(Zeff*Zeff*Mass*dL) ! differential MFP [A/eV]
+           endif
+        endif
         
         ! test:
         !if ((Ele-1.0d0) < 1.0d-2) then
@@ -1886,65 +2344,271 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
 end subroutine Tot_EMFP
 
 
-subroutine Diff_cross_section_phonon(Ele, hw, CDF_Phonon, Diff_IMFP, Mtarget, Mass, Ttarget, pref)
+subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_IMFP, Mtarget, Mass, Ttarget, pref, Target_atoms, Mat_DOS)
     real(8), intent(in), target :: Ele  ! SHI energy [eV]
     REAL(8), INTENT(in), target :: hw   ! transferred energy [eV]
+    type(Flag), intent(in) :: NumPar
+    type(Solid), intent(in) :: Matter
     type(CDF), intent(in) :: CDF_Phonon ! phonon CDF parameters
     real(8), intent(out) :: Diff_IMFP   ! differential inverse mean free path 1/lambda(Ele,dE)
     real(8), intent(in) :: Mtarget, Mass  ! average mass of atoms of the target [kg]
     real(8), intent(in) :: Ttarget      ! temperature of the sample [K]
     real(8), intent(in) :: pref  ! prefactor defined by the user (e.g., for negative energies)
+    type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
+    type(Density_of_states), intent(in) :: Mat_DOS ! DOS
     !---------------------------
-    integer i, n
+    integer i, n, Nat, Nsh, j
     real(8), pointer :: Ee, dE
-    real(8) dLs, qmin, qmax, hq, ddq, dq, Ime, dLs0, dL, hq0, dq_save
-    real(8) a, b, x, temp1, temp2, eps
+    real(8) dLs, qmin, qmax, hq, ddq, dq, Ime, dLs0, dL, hq0, dq_save, E_debye, p_e, p_e_prime, scaling
+    real(8) a, b, x, temp1, temp2, eps, Pot, screening, r_max, q_min_solid, q_phonon, hw_prime, E0_min
+    complex(8) :: complex_CDF
+    type(Recon_CDF), dimension(:), allocatable :: Shell_CDF   ! shell-resolved CDFf
+
     Ee => Ele        ! energy [eV]
     dE => hw         ! transferred energy [eV]
+
+    ! Prepare CDF calculations:
+    if (NumPar%CDF_elast_Zeff == 3) then
+      Nat = size(Target_atoms)
+      allocate(Shell_CDF(Nat))
+      do i = 1, Nat
+         Nsh = size(Target_atoms(i)%Ip)
+         allocate(Shell_CDF(i)%CDF(Nsh))
+      enddo
+    endif
 
     eps = 1.0d-12
     if (abs(dE) < eps)  then
       print*, 'Problem #1 in Diff_cross_section_phonon', Ee, dE, sqrt(Ee) - sqrt(Ee - dE)
       qmin = 0.0d0
     elseif ( dE > (Ee-eps) ) then
-      qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee))        ! min transferred momentum [kg*m/s]
+      qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee))        ! min transferred momentum [not kg*m/s!]
     else
-      qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) - sqrt(abs(Ee - dE)))        ! min transferred momentum [kg*m/s]
+      qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) - sqrt(abs(Ee - dE)))        ! min transferred momentum [not kg*m/s!]
     endif
-    qmax = pref * sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) + sqrt(abs(Ee - dE))) ! max transferred momentum [kg*m/s]
+    qmax = pref * sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee) + sqrt(abs(Ee - dE))) ! max transferred momentum [not kg*m/s!]
+
+
+!-----Test possible momentum restrictions:
+!     ! Check maximum momentum:
+!     call Debye_energy(Matter%At_Dens, Matter%Vsound, E_debye, q_phonon) ! below
+!     qmax = max(qmax, q_phonon)   ! choose the maximal momentum
+!     ! Check minimal transferred momentum:
+!     ! Maximal possible distance between the atoms in a solid (larger distance make you closer to another atom):
+!     r_max = (1.0d0/(1d6*Matter%At_dens))**(1.0d0/3.0d0) * 0.5d0 ! [m]
+!     q_min_solid = g_h/r_max   ! [kg*m/s] minimal possible momentum transfer in a solid (associated with maximal distance)
+!     q_min_solid = q_min_solid/(g_h*sqrt(g_e))   ! make it in the same internal units
+
 
     dLs = 0.0d0  ! starting integration, mean free path per energy [A/eV]^(-1)
-    hq = qmin    ! transient transferred momentum for integration [kg*m/s]
+    hq = qmin    ! transient transferred momentum for integration [not kg*m/s!]
     n = 100
-    dq = (qmax - qmin)/dble(n) ! differential of transferred momentum [kg*m/s]
+    dq = (qmax - qmin)/dble(n) ! differential of transferred momentum [not kg*m/s!]
     dLs0 = 0.0d0
     do while (abs(hq) .LT. abs(qmax)) ! no matter how many points, go till the end
         dq = hq/dble(n)
         ! If it's Simpson integration:
         a = hq + dq/2.0d0
-        call Imewq_phonon(hw, a, CDF_Phonon, ImE, Mtarget)
+        call Imewq_phonon(NumPar, Matter, hw, a, CDF_Phonon, ImE, Mtarget)
         temp1 = ImE
         b = hq + dq
-        call Imewq_phonon(hw, b, CDF_Phonon, ImE, Mtarget)
+        call Imewq_phonon(NumPar, Matter, hw, b, CDF_Phonon, ImE, Mtarget)
         dL = ImE
-        dLs = dLs + dq/6.0d0*(dLs0 + 4.0d0*temp1 + dL)/hq
+
+        ! Define Fourier of the interaction potential:
+        select case (NumPar%CDF_elast_Zeff)
+        case (2)  ! dynamical screening of the nucleus by electrons via form factors
+            ! Get the VB CDF (core shells are using form factors) for given hq and hw:
+            Nsh = size(target_atoms(1)%Ip)  ! number of VB shell
+            !call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw, hq) ! above
+            ! Combine screenings from VB and form-factors into final expression: (Z - f(q) + Ne*(1/CDF_VB-1))^2:
+            !call get_screening_ff(complex_CDF, Matter, Target_atoms, hq*g_h*sqrt(g_e), screening)   ! below
+
+            ! Empirical model: replace q -> (scaling * p_e):
+            scaling = 1.0d0  ! empirical adjustment of the momentum
+            p_e = scaling * sqrt(2.0d0*Mass*g_me*Ee*g_e) ! [kg*m/s]
+            !p_e = max(p_e, hq*g_h*sqrt(g_e))
+            p_e = 0.5d0 * (p_e + hq*g_h*sqrt(g_e))
+
+            !scaling = 0.5d0  ! empirical adjustment of the momentum
+            p_e_prime = scaling * sqrt(2.0d0*Mass*g_me*Ee)/g_h  ! the same but in the units used in the CDF subroutine
+            p_e_prime = 0.5d0*(p_e_prime + hq)
+
+            !call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw, p_e_prime) ! above
+            !call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, Ee, p_e_prime) ! test, wiggles Si
+            call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw, p_e_prime) ! test
+            ! Combine screenings from VB and form-factors into final expression: (Z - f(q) + Ne*(1/CDF_VB-1))^2:
+            call get_screening_ff(complex_CDF, Matter, Target_atoms, hq*g_h*sqrt(g_e), screening, p_e)   ! below
+
+        case (3)  ! dynamical screening of the nucleus by electrons via CDF:
+            ! Get the CDF for all shells given hq and hw:
+            !call Total_copmlex_CDF(Target_atoms, Mat_DOS, Matter, NumPar, hw, hq, complex_CDF, Shell_CDF=Shell_CDF)  ! above
+
+            ! Construct CDF for each shell with its own momenum:
+            do i = 1, Nat  ! all atoms in the compound
+               Nsh = size(Target_atoms(i)%Ip)
+               do j = 1, Nsh  ! all shells
+                  ! Average energy and momentum associated with this shell's response to passing electron:
+                  !E0_min = minval(Target_atoms(i)%Ritchi(j)%E0(:))
+                  if (Ee < Target_atoms(i)%Ip(j)) then
+                     hw_prime = hw
+                  else
+                     !hw_prime = Ee
+                     hw_prime = hw
+                  endif
+
+                  ! Empirical model: replace q -> (scaling * p_e):
+                  scaling = 1.0d0  ! empirical adjustment of the momentum
+                  !p_e_prime = scaling * sqrt(2.0d0*Mass*g_me*Ee)/g_h  ! the same but in the units used in the CDF subroutine
+                  if (Ee < Target_atoms(i)%Ek(j)) then
+                     p_e_prime = hq
+                  else
+                     p_e_prime = sqrt(2.0d0*Mass*g_me*(Ee - Target_atoms(i)%Ek(j)))/g_h
+                  endif
+                  p_e_prime = 0.5d0*(p_e_prime + hq)
+                  p_e_prime = hq
+
+                  call construct_CDF(Shell_CDF(i)%CDF(j), Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw_prime, p_e_prime) ! test
+               enddo ! j
+            enddo ! i
+
+            ! Combine screenings from each shell into final expression: (Z + Ne*(1/CDF-1))^2:
+            call get_screening_all(Shell_CDF, Target_atoms, screening)   ! below
+
+        case default ! no screening, effective charge is used instead
+            screening = 1.0d0
+        endselect
+
+        Pot = screening / hq
+
+        ! Combine potenital with the loss function, and integrate:
+        dLs = dLs + dq/6.0d0*(dLs0 + 4.0d0*temp1 + dL) * Pot
         dLs0 = dL
         hq = hq + dq
-        
+
+        ! Test:
+        !if ((abs(hq) >= abs(qmax))) write(*,'(f15.3, es20.3, es20.3, f15.6)') Ele, hw, hq, sqrt(screening)
+
 !         if ( (abs(Ele-1.0d0) < 1.0d-2) .and. ( abs(hw - 0.1d0) < 0.01d0) ) &
 !            print*, 'Diff_cross_section_phonon', Ele, hw, g_h*g_h*hq*hq/(2.0d0*Mtarget), dL
     enddo    
     Diff_IMFP = 1.0d0/(g_Pi*g_a0*Ele)*dLs/(1-exp(-hw/Ttarget*g_kb))
-    nullify(Ee)
-    nullify(dE)
+
+    ! Clean up:
+    nullify(Ee, dE)
+    if (allocated(Shell_CDF)) deallocate(Shell_CDF)
 end subroutine Diff_cross_section_phonon
 
 
-subroutine Imewq_phonon(hw, hq, CDF_Phonon, ImE, Mtarget) ! constructs full Im(-1/e(w,q)) as a sum of Drude-like functions
+subroutine get_screening_ff(complex_CDF, Matter, Target_atoms, hq, screening, p_e)
+   complex(8), intent(in) :: complex_CDF   ! VB CDF
+   type(Solid), intent(in) :: Matter
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
+   real(8), intent(in) :: hq  ! [kg*m/s] transferred momentum
+   real(8), intent(out) :: screening   ! (Z/CDF_e(w,q))^2
+   real(8), intent(in), optional :: p_e ! [kg*m/s] incident particle momentum
+   !-----------------
+   real(8) :: Nel, pers, contrib, Zi, N_el, Zmol, screen_contrib, NVB
+   real(8) :: FF, Z, hq1, q, fact
+   integer :: i, Nat, j, Nsh
+
+   Zmol = SUM( Target_atoms(:)%Zat * Target_atoms(:)%Pers ) ! full nuclear charge per molecule
+
+   if (present(p_e)) then  ! try incident particle momentum (empirical test)
+      q = p_e
+   else  ! transferred momentum
+      q = hq
+   endif
+
+   Nat = size(Target_atoms)   ! number of kinds of atoms
+   screen_contrib = 0.0d0 ! to start with
+   do i = 1, Nat  ! for each atom
+      ! Ionic core without the VB:
+      if (i == 1) then
+         Z = SUM( Target_atoms(i)%Nel(1:size(Target_atoms(i)%Nel)-1) )
+      else
+         Z = SUM( Target_atoms(i)%Nel(1:size(Target_atoms(i)%Nel)) )
+      endif
+
+      ! Core-shells via form factor:
+      FF = form_factor(q, matter%form_factor(Target_atoms(i)%Zat,:), dble(Target_atoms(i)%Zat))  ! above
+
+      ! Exclude the valence part of the charge (it will be screened by CDF of valence band):
+      FF = min(FF, Z)
+
+!       do j = 1, 100
+!          hq1 = g_me*g_cvel/100.0d0*real(j)
+!          print*, j, hq1, hq1/(g_me*g_cvel), form_factor(hq1, matter%form_factor(Target_atoms(i)%Zat,:), dble(Target_atoms(i)%Zat))
+!       enddo
+!       pause 'get_screening_ff'
+
+      screen_contrib = screen_contrib - FF * Target_atoms(i)%Pers   ! form factor of the core
+      if (FF < 0.0d0) print*, 'Error in ff', i, hq, FF
+
+      ! Add VB:
+      if (i == 1) then
+         NVB = size(Target_atoms(1)%Nel)
+         N_el = Target_atoms(i)%Nel(NVB)  ! number of electrons in this shell
+         screen_contrib = screen_contrib + N_el*(1.0d0/abs(complex_CDF) - 1.0d0)
+      endif
+   enddo ! i
+
+   ! Combine terms:
+   pers = dble(SUM(Target_atoms(:)%Pers))  ! total number of atoms per molecule of the compound
+
+   !screen_contrib = 0.0d0  ! testing unscreened potential
+   screening = (Zmol + screen_contrib)/pers  ! ~(Z/CDF_e) per atom or molecule (?)
+
+   ! Square it (Z/CDF_e)^2:
+   screening = screening**2
+end subroutine get_screening_ff
+
+
+
+
+subroutine get_screening_all(Shell_CDF, Target_atoms, screening)
+   type(Recon_CDF), dimension(:), intent(in) :: Shell_CDF   ! shell-resolved CDFf
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
+   real(8), intent(out) :: screening   ! (Z/CDF_e(w,q))^2
+   !-----------------
+   real(8) :: Nel, pers, contrib, Zi, N_el, Zmol, screen_contrib
+   integer :: i, Nat, j, Nsh
+
+   Zmol = SUM( target_atoms(:)%Zat * target_atoms(:)%Pers ) ! full nuclear charge per molecule
+
+   Nat = size(target_atoms)   ! number of kinds of atoms
+   screen_contrib = 0.0d0 ! to start with
+   do i = 1, Nat  ! for each atom
+      Nsh = size(target_atoms(i)%Nel)  ! number of shells in this atom
+      ! Now add screening terms from each shell:
+      do j = 1, Nsh  ! for each shell
+         Nel = target_atoms(i)%Nel(j)  ! number of electrons in this shell
+         if ((i /= 1) .or. (j /= size(Target_atoms(1)%Ip))) then ! not VB, core shell
+            N_el = Nel * target_atoms(i)%Pers
+         else  ! VB, normalization of CDF_VB is per molecule
+            N_el = Nel
+         endif
+         screen_contrib = screen_contrib + N_el*(1.0d0/abs(Shell_CDF(i)%CDF(j)) - 1.0d0)
+      enddo ! j
+   enddo ! i
+
+   ! Combine terms:
+   pers = dble(SUM(target_atoms(:)%Pers))  ! total number of atoms per molecule of the compound
+   screening = (Zmol + screen_contrib)/pers  ! ~(Z/CDF_e) per atom or molecule (?)
+
+   ! Square it (Z/CDF_e)^2:
+   screening = screening**2
+   !screening = screening*(screening+1.0d0)   ! test
+end subroutine get_screening_all
+
+
+subroutine Imewq_phonon(NumPar, Matter, hw, hq, CDF_Phonon, ImE, Mtarget) ! constructs full Im(-1/e(w,q)) as a sum of Drude-like functions
     REAL(8), INTENT(in) ::  hw    ! transferred energy [eV]
     REAL(8), INTENT(in) ::  hq    ! transferred momentum [kg*m/s]
     REAL(8), INTENT(out) :: ImE
     real(8), intent(in) :: Mtarget
+    type(Flag), intent(in) :: NumPar
+    type(Solid), intent(in) :: Matter
     type(CDF), intent(in), target :: CDF_Phonon ! phonon CDF parameters
     
     real(8), pointer :: A, Gamma, E ! no need to copy variable, just point onto it!
@@ -1956,7 +2620,7 @@ subroutine Imewq_phonon(hw, hq, CDF_Phonon, ImE, Mtarget) ! constructs full Im(-
         A => CDF_Phonon%A(i)            !A0(Nosh, i)
         E => CDF_Phonon%E0(i)           !E0(Nosh, i)
         Gamma => CDF_Phonon%Gamma(i)    !Gamma0(Nosh, i)
-        sumf = Diel_func(A,E,Gamma, hw, hq, Mtarget=Mtarget) ! Diel_func function, see below
+        sumf = Loss_func(A,E,Gamma, hw, hq, NumPar, Matter, Mtarget=Mtarget) ! Loss_func function, see below
         ImE = ImE + sumf
         nullify(A)
         nullify(E)
@@ -1965,6 +2629,65 @@ subroutine Imewq_phonon(hw, hq, CDF_Phonon, ImE, Mtarget) ! constructs full Im(-
 end subroutine Imewq_phonon
 
 
+
+!GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+! General subroutines
+pure subroutine extend_array_size_int(array1, N)
+   integer, dimension(:), allocatable, intent(inout) :: array1
+   integer, intent(in), optional :: N   ! extend by how much
+   !----------------------------
+   integer, dimension(:), allocatable :: tmp
+   integer :: N_old, N_new
+
+   ! Old size:
+   N_old = size(array1)       ! size of the present array
+
+   ! New size:
+   if (present(N)) then
+      N_new = N_old + N
+   else ! by default, double it
+      N_new = 2*N_old         ! new size increased by factor of 2
+   endif
+
+   allocate( tmp( N_new ) )  ! array tp be used temporary storing data
+
+   ! store the data from old array:
+   tmp(1:N_old) = array1
+
+   ! shift data from old array into the new one:
+   call move_alloc( tmp, array1 )   ! intrinsic function in FORTRAN-2008 format
+end subroutine extend_array_size_int
+
+pure subroutine extend_array_size_real(array1, N)
+   real(8), dimension(:), allocatable, intent(inout) :: array1
+   integer, intent(in), optional :: N   ! extend by how much
+   !----------------------------
+   real(8), dimension(:), allocatable :: tmp
+   integer :: N_old, N_new
+
+   ! Old size:
+   N_old = size(array1)       ! size of the present array
+
+   ! New size:
+   if (present(N)) then
+      N_new = N_old + N
+   else ! by default, double it
+      N_new = 2*N_old         ! new size increased by factor of 2
+   endif
+
+   allocate( tmp( N_new ) )  ! array tp be used temporary storing data
+
+   ! store the data from old array:
+   tmp(1:N_old) = array1
+
+   ! shift data from old array into the new one:
+   call move_alloc( tmp, array1 )   ! intrinsic function in FORTRAN-2008 format
+end subroutine extend_array_size_real
+
+
+
+!---------------------------
+!MOT_MOT_MOT_MOT_MOT_MOT_MOT_MOT_MOT_MOT_MOT
 subroutine Atomic_elastic_sigma(Target_atoms, KOA, Ee, sigma_el) ! total cross-section of elastic scattering on an atom:
    type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all the target atoms parameters
    integer, intent(in) :: KOA   ! kind of atom
@@ -2120,7 +2843,8 @@ end subroutine NRG_transfer_elastic_atomic_OLD
 
 
 
-
+!---------------------------
+!DSF_DSF_DSF_DSF_DSF_DSF_DSF_DSF_DSF_DSF
 subroutine NRG_transfer_elastic_DSF(Elastic_MFP, DSF_DEMFP, Eel, dE)
    type(MFP_elastic), intent(in) :: Elastic_MFP    ! Total elastic mean free paths
    type(Differential_MFP), dimension(:), intent(in) :: DSF_DEMFP  ! Differential EMFPs
@@ -2355,6 +3079,8 @@ subroutine NRG_transfer_elastic_DSF_OLD(DSF_DEMFP, Eel, EMFP, dE)
 endsubroutine NRG_transfer_elastic_DSF_OLD
 
 
+
+!---------------------------
 !BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB
 ! Ionization of an atom: BEB cross-section
 ! Eq.(57) from [Y.K.Kim, M.E.Rudd, Phys.Rev.A 50 (1994) 3954]

@@ -83,6 +83,7 @@ type :: Solid
     real(8) cut_off         ![eV] cut_off energy
     real(8) temp            ![K] temperature
     real(8) :: Egap         ! [eV] bandgap (used for single-pole CDF automatic fit)
+    real(8), dimension(:,:), allocatable :: form_factor  ! table of coefficients of fitted atomic form factors
 end type solid
 !==============================================
 
@@ -119,8 +120,10 @@ type :: Flag
     logical :: include_photons  ! to include or not radiative decays of holes and further photons propagation
     logical :: plasmon_Emax     ! to use maximal plasmon energy as upper integration limit in cross-sections calculations
     integer :: CDF_elast_Zeff ! kind of effective charge of target atoms (1=1, 0=Barkas-like Zeff)
-    logical :: print_CDF    ! printout CDF file or not
+    logical :: print_CDF    ! printout CDF coefficients file or not
+    logical :: print_CDF_optical    ! printout optical limit of the CDF function file or not
     logical :: do_gnuplot   ! make gnuplot scripts or not
+    logical :: get_thermal  ! calculate thermal parameters
     character(15) :: plot_extension ! file extension for plots (made with gnuplot)
     ! Flags for automatic recalcultion of MFPs:
     logical :: redo_IMFP, redo_EMFP ! do we have to?
@@ -213,6 +216,11 @@ type :: Atom ! atom as an object contains the following info:
 end type Atom
 !==============================================
 
+
+type :: Recon_CDF
+   complex(8), dimension(:), allocatable :: CDF ! Complex dielectric function
+endtype Recon_CDF
+
 !==============================================
 ! For reading atomic data from our periodic table:
 type Atomic_data    ! our internal atomic database "INPUT_atomic_data.dat"
@@ -244,6 +252,15 @@ type Cylinder_distr
     class(Distr_on_shells), dimension(:), allocatable :: Atom  ! which sort of atom
 end type Cylinder_distr
 !==============================================
+
+
+!==============================================
+! Differential cross section:
+type El_CS
+   real(8) :: E
+   real(8), dimension(:), allocatable :: dsdhw
+   real(8), dimension(:), allocatable :: hw
+end type El_CS
 
 
 !==============================================
@@ -280,6 +297,7 @@ subroutine Save_error_details(Err_name, Err_num, Err_data)
    Err_name%Err_descript = Err_data ! descriptino of an error
    write(FN, '(a,i2,1x,a)') 'Error #', Err_name%Err_Num, trim(adjustl(Err_name%Err_descript))   ! write it all into the file
 end subroutine Save_error_details
+
 
 
 ! To change parameters of a certain type:
