@@ -584,7 +584,9 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 endif
                 ! Check if the file is consistent with the grid set:
                 open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
-                call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
+                call count_lines_in_file(FN2, Nsiz) ! module "Dealing_with_EADL"
+                !print*, 'Nelast', Nelast, Nsiz
+
                 if (Nsiz /= Nelast) then
                     NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
                     print*, 'Energy grid mismatch in MFP file => recalculating MFP'
@@ -600,7 +602,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             else    ! create and write to the file:
                 call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
                 open(FN2, file=trim(adjustl(Input_elastic_file)))
-                write(*,'(a,a,a)') 'Elastic mean free paths of an electron calculated using Mott formulae in ', trim(adjustl(Material_name)), ' are stored in the file'
+                write(*,'(a,a,a)') 'Elastic mean free paths of an electron calculated using Mott formula in ', trim(adjustl(Material_name)), ' are stored in the file'
                 write(*, '(a)') trim(adjustl(Input_elastic_file))
                 write(*, '(a)') ' '
             endif
@@ -716,7 +718,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 endif
                 ! Check if the file is consistent with the grid set:
                 open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
-                call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
+                call count_lines_in_file(FN2, Nsiz) ! module "Dealing_with_EADL"
                 if (Nsiz /= Nelast) then
                     NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
                     print*, 'Energy grid mismatch in MFP file => recalculating MFP'
