@@ -702,7 +702,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             temp_char2 = 'OUTPUT_Hole_Mott_EMFPs_'//trim(adjustl(temp_char1))//'.dat'
 
             Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
-            if (allocated(File_names%F)) File_names%F(4) = trim(adjustl(temp_char2)) ! save for later use
+            if (allocated(File_names%F)) File_names%F(5) = trim(adjustl(temp_char2)) ! save for later use
             FN2 = 2043
             inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
 
@@ -1842,15 +1842,25 @@ pure function find_order_of_number_real(num)
    integer find_order_of_number_real
    real(8), intent(in) :: num
    character(64) :: temp
-   write(temp,'(i8)') CEILING(num) ! make it a string
-   find_order_of_number_real = LEN(TRIM(adjustl(temp))) ! find how many characters in this string
+   !--------------------
+   real(8) :: r_tmp
+   !print*, num
+   if (num > 1e9) then
+      r_tmp = num/1.0e8 ! order is too high, split it
+      write(temp,'(i16)') ceiling(r_tmp) ! make it a string
+      find_order_of_number_real = 8 + LEN(TRIM(adjustl(temp))) ! find how many characters in this string
+   else
+      write(temp,'(i12)') ceiling(num) ! make it a string
+      find_order_of_number_real = LEN(TRIM(adjustl(temp))) ! find how many characters in this string
+   endif
+   !print*, num, find_order_of_number_real
 end function find_order_of_number_real
 
 pure function find_order_of_number_int(num)
    integer find_order_of_number_int
    integer, intent(in) :: num
    character(64) :: temp
-   write(temp,'(i8)') num ! make it a string
+   write(temp,'(i16)') num ! make it a string
    find_order_of_number_int = LEN(TRIM(adjustl(temp))) ! find how many characters in this string
 end function find_order_of_number_int
 

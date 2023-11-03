@@ -178,14 +178,16 @@ subroutine Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)
    if (file_opened) close(FN)
 
    ! 5.2) Print photon density radial distribution:
-   In_file = trim(adjustl(File_names%F(21)))
-   leng = LEN(trim(adjustl(In_file)))
-   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
-   open(newunit=FN, FILE = trim(adjustl(Filename)))
-   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d16, &
+   if (NumPar%include_photons) then
+      In_file = trim(adjustl(File_names%F(21)))
+      leng = LEN(trim(adjustl(In_file)))
+      Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
+      open(newunit=FN, FILE = trim(adjustl(Filename)))
+      call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d16, &
             'Photons density (1/cm^3)')  ! below
-   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
-   if (file_opened) close(FN)
+      inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+      if (file_opened) close(FN)
+   endif
 
    !--------------
    ! 6) Print electron energy density radial distribution:
@@ -237,14 +239,16 @@ subroutine Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)
    if (file_opened) close(FN)
 
    ! 6.5) Print photon energy density radial distribution:
-   In_file = trim(adjustl(File_names%F(22)))
-   leng = LEN(trim(adjustl(In_file)))
-   Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
-   open(newunit=FN, FILE = trim(adjustl(Filename)))
-   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+   if (NumPar%include_photons) then
+      In_file = trim(adjustl(File_names%F(22)))
+      leng = LEN(trim(adjustl(In_file)))
+      Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
+      open(newunit=FN, FILE = trim(adjustl(Filename)))
+      call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
             'Track energy density (eV/A^3)')  ! below
-   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
-   if (file_opened) close(FN)
+      inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+      if (file_opened) close(FN)
+   endif
 
    !--------------
    ! 7) Print electron temperature radial distribution:
@@ -684,11 +688,11 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
       ! Photons:
       write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:4 w l lw LW title "Photons" ,\'
       ! Valence:
-      VB_count = 5 + size(Target_atoms(1)%Ip)
+      VB_count = 4 + size(Target_atoms(1)%Ip)
       write(col,'(i3)') VB_count ! add valence band
       write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence holes" ,\'
       ! Core holes:
-      col_count = 5
+      col_count = 4
       do i = 1, Nat   ! all atoms
          shl = size(Target_atoms(i)%Ip)
          do j = 1, shl
@@ -722,17 +726,19 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
       ! Photons:
       write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:4 w l lw \"$LW\" title \"Photons\" ,\'
       ! Valence:
-      VB_count = 5 + size(Target_atoms(1)%Ip)
+      VB_count = 4 + size(Target_atoms(1)%Ip)
       write(col,'(i3)') VB_count ! add valence band
       write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence holes\" ,\'
       ! Core holes:
-      col_count = 5
+      col_count = 4
       do i = 1, Nat   ! all atoms
          shl = size(Target_atoms(i)%Ip)
          do j = 1, shl
             col_count = col_count + 1  ! column number to print
+            write(col,'(i3)') col_count
+
             if ((i == 1) .and. (j == shl)) then    ! VB
-               VB_count = col_count ! save column number for VB to plot before last line
+               !VB_count = col_count ! save column number for VB to plot before last line
             elseif ((i == Nat) .and. (j == shl)) then    ! last one
                write(FN, '(a)') '\"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" '
@@ -868,11 +874,13 @@ subroutine Gnuplot_electron_hole(NumPar, Target_atoms, File_names, Output_path) 
 
    !----------------
    ! 3) Plot photon MFPs:
-   Filename = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'Gnuplot_photon_MFP'//trim(adjustl(sh_cmd))
-   open(newunit=FN, FILE = trim(adjustl(Filename)))
-   call gnuplot_photon_MFP(FN, Target_atoms, Filename, File_names%F(7), NumPar%plot_extension, trim(adjustl(NumPar%path_sep)))  ! below
-   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
-   if (file_opened) close(FN)             ! and if it is, close it
+   if (NumPar%include_photons) then
+      Filename = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'Gnuplot_photon_MFP'//trim(adjustl(sh_cmd))
+      open(newunit=FN, FILE = trim(adjustl(Filename)))
+      call gnuplot_photon_MFP(FN, Target_atoms, Filename, File_names%F(7), NumPar%plot_extension, trim(adjustl(NumPar%path_sep)))  ! below
+      inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+      if (file_opened) close(FN)             ! and if it is, close it
+   endif
 
    !----------------
    ! 4) Plot DOS things:
