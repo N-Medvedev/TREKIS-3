@@ -618,7 +618,24 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
 
    !--------------------------
    ! 2) single-pole CDF for elastic scattering
-   if (NumPar%kind_of_CDF_ph == 1) then
+   select case (NumPar%kind_of_CDF_ph)
+   case (0) ! user provided phonon CDF - renormalize according to the sum-rule
+
+      select case (NumPar%CDF_elast_Zeff) ! only in case of using the Chihara-like formalism:
+      case (2:3)  ! dynamical screening of the nucleus by electrons via form factors
+         Mean_Mass = SUM(Target_atoms(:)%Pers * Target_atoms(:)%Mass)*g_Mp / N_at_mol  ! average atomic mass
+         Omega = w_plasma( 1d6*Matter%At_dens/N_at_mol, Mass=Mean_Mass )  ! below
+         call sumrules(CDF_Phonon%A, CDF_Phonon%E0, CDF_Phonon%Gamma, ksum, fsum, 1.0d-8, Omega) ! below
+
+         ! Renormalize to the number of atoms (exclude optical change, will be replaced by the screened charge in CS):
+         CDF_Phonon%A(:) = CDF_Phonon%A(:) * N_at_mol/ksum
+
+         ! Test if correct:
+         !call sumrules(CDF_Phonon%A, CDF_Phonon%E0, CDF_Phonon%Gamma, ksum, fsum, 1.0d-8, Omega) ! below
+         !print*, N_at_mol, ksum
+      endselect
+
+   case (1) ! single-pole - get the coefficients
       if (NumPar%verbose) call print_time_step('Getting phononic single-pole CDF calculations:', msec=.true.)
 
          ! Debye energy [eV]:
@@ -646,7 +663,7 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
             write(*,'(a,f10.3,a,f10.3,a,f12.5)') 'K-sum rule:', ksum, ' Na=', N_at_mol, ' F-sum rule:', fsum
             print*, '------------------------'
          endif
-   endif
+   endselect
 
 end subroutine get_single_pole
 
@@ -2434,7 +2451,6 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
             p_e_prime = scaling * sqrt(2.0d0*Mass*g_me*Ee)/g_h  ! the same but in the units used in the CDF subroutine
             p_e_prime = 0.5d0*(p_e_prime + hq)
 
-            !call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw, p_e_prime) ! above
             !call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, Ee, p_e_prime) ! test, wiggles Si
             call construct_CDF(complex_CDF, Target_atoms, 1, Nsh, Mat_DOS, Matter, NumPar, hw, p_e_prime) ! test
             ! Combine screenings from VB and form-factors into final expression: (Z - f(q) + Ne*(1/CDF_VB-1))^2:
@@ -2509,7 +2525,7 @@ subroutine get_screening_ff(complex_CDF, Matter, Target_atoms, hq, screening, p_
    real(8), intent(in), optional :: p_e ! [kg*m/s] incident particle momentum
    !-----------------
    real(8) :: Nel, pers, contrib, Zi, N_el, Zmol, screen_contrib, NVB
-   real(8) :: FF, Z, hq1, q, fact
+   real(8) :: FF, Z, hq1, q, fact, a(5)
    integer :: i, Nat, j, Nsh
 
    Zmol = SUM( Target_atoms(:)%Zat * Target_atoms(:)%Pers ) ! full nuclear charge per molecule
@@ -2531,7 +2547,9 @@ subroutine get_screening_ff(complex_CDF, Matter, Target_atoms, hq, screening, p_
       endif
 
       ! Core-shells via form factor:
-      FF = form_factor(q, matter%form_factor(Target_atoms(i)%Zat,:), dble(Target_atoms(i)%Zat))  ! above
+      !FF = form_factor(q, matter%form_factor(Target_atoms(i)%Zat,:), dble(Target_atoms(i)%Zat))  ! above
+      a(:) = matter%form_factor(Target_atoms(i)%Zat,:)
+      FF = form_factor(q, a(:), dble(Target_atoms(i)%Zat))  ! above
 
       ! Exclude the valence part of the charge (it will be screened by CDF of valence band):
       FF = min(FF, Z)

@@ -7,7 +7,8 @@
 ! - electron thermal conductivity,
 ! as functions of the electronic temperature
 !***************************************************************
-
+! NOT READY YET
+!--------------
 
 module Thermal_parameters
 
@@ -67,8 +68,8 @@ subroutine Get_thermal_parameters(Output_path, CDF_Phonon, Target_atoms, Matter,
    ! open the corresponding file:
    FN = 8756
    open(FN, file=trim(adjustl(File_name)))
-   write(FN, '(a)') '! Te   Coupling'
-   write(FN, '(a)') '! [K]  [W/(K*m^3)]'
+   write(FN, '(a)') '# Te   Coupling'
+   write(FN, '(a)') '# [K]  [W/(K*m^3)]'
 
    ! Get the thermal parameters:
    ! Create the grid of electron temperatures:
