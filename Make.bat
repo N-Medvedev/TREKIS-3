@@ -16,6 +16,9 @@ cd Source_files
       SET arg1=NODEBUG
    )
 :: shorthand notations:
+   IF "%1"=="debug" (
+      SET arg1=DEBUGOMP
+   )
    IF "%1"=="db" (
       SET arg1=DEBUGOMP
    )

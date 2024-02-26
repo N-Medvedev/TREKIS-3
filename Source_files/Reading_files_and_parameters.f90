@@ -644,7 +644,7 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    endif
    
    i = 0
-   READ(FN2,'(a100)',IOSTAT=Reason) Matter%Target_name ! first line is the full material name
+   READ(FN2,*,IOSTAT=Reason) Matter%Target_name ! first line is the full material name
    Matter%Chem = ''  ! to start with
    
    READ(FN2,*,IOSTAT=Reason) N   ! number of elements in this compound
@@ -711,7 +711,7 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    SP_CDF:if (.not. read_well) then ! check if there is a CDF
       write(*,'(a)') ' No CDF parameters found in the file '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
       NumPar%kind_of_CDF = 1  ! single-pole CDF
-      NumPar%kind_of_CDF_ph = 1 ! use single-pole approximation ofr phonon CDf
+      NumPar%kind_of_CDF_ph = 1 ! use single-pole approximation of phonon CDF
 
       ! Read the atomic parameters from EPICS-database:
       call check_atomic_parameters(NumPar, Target_atoms, Error_message=Error_message, read_well=read_well) ! from module 'Dealing_with_EADL'
@@ -839,7 +839,7 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
       ELSE IF (Reason .LT. 0) THEN ! ... end of file reached ...
          write(*,'(a,i3,a)') 'Line ', i, ', END of file; no CDF data for phonon-peak'
          write(*,'(a,i3,a)') 'Using atomic cross-sections for elastic scattering'
-         NumPar%kind_of_CDF_ph = 1 ! use single-pole approximation ofr phonon CDf
+         NumPar%kind_of_CDF_ph = 1 ! use single-pole approximation of phonon CDF
          read_well = .true.
       ELSE   ! normal reading
          read_well = .true.  ! it read well, nothing to report
@@ -1148,7 +1148,7 @@ subroutine read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_
    character(30) Full_Name
 
    i = 0
-   READ(FN2,'(a100)',IOSTAT=Reason) Matter%Target_name ! first line is the full material name
+   READ(FN2,*,IOSTAT=Reason) Matter%Target_name ! first line is the full material name
    READ(FN2,*,IOSTAT=Reason) N   ! number of elements in this compound
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2014
