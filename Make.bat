@@ -37,7 +37,7 @@ cd Source_files
    echo Started compilation: %date% %time%
 
 :: List of all program files to be compiled
-   SET "List_of_files=Universal_MC_for_SHI_MAIN.F90"
+   SET "List_of_files=Universal_MC_for_SHI_MAIN.f90"
 
 :: List compiler options and the name of the executable:
    IF /I %arg1%==DEBUGOMP (
@@ -58,7 +58,7 @@ cd Source_files
             echo %Starline%
 
             :: List compiler options
-            SET "Compile_options=/F9999999999 /fpp /Qopenmp /D OMP_inside /Qmkl=parallel /real-size:64 /Od /fpe:0 /fp:precise /Qvec /standard-semantics"
+            SET "Compile_options=/F9999999999 /fpp /Qopenmp /D OMP_inside /real-size:64 /Od /fpe:0 /fp:precise /Qvec /standard-semantics"
 
             :: Set name of the executable:
             SET "Name_of_exe=TREKIS_OMP.exe"
@@ -81,7 +81,7 @@ cd Source_files
     )
 
 :: Compile modules
-   ifort.exe -c %Compile_options% %List_of_files%
+   ifx.exe -c %Compile_options% %List_of_files%
 
    echo %Starline%
    echo Assembling the files into executable: %Name_of_exe%
@@ -89,7 +89,7 @@ cd Source_files
    echo %Starline%
 
 :: Assemble the code from all created obj-files
-   ifort.exe %Compile_options% *.obj /exe:%Name_of_exe%
+   ifx.exe %Compile_options% *.obj /exe:%Name_of_exe%
 
    echo %Starline%
 ::   echo Completed: %date% %time%
