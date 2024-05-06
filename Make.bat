@@ -58,7 +58,7 @@ cd Source_files
             echo %Starline%
 
             :: List compiler options
-            SET "Compile_options=/F9999999999 /fpp /Qopenmp /D OMP_inside /real-size:64 /Od /fpe:0 /fp:precise /Qvec /standard-semantics"
+            SET "Compile_options=/F9999999999 /fpp /Qopenmp /D OMP_inside /real-size:64 /Od /fpe:0 /fp:precise /Qvec /standard-semantics /assume:nofpe_summary"
 
             :: Set name of the executable:
             SET "Name_of_exe=TREKIS_OMP.exe"
@@ -71,7 +71,7 @@ cd Source_files
          echo %Starline%
 
          :: List compiler options
-         SET "Compile_options=  /Qopenmp /D OMP_inside /O3 /fpp /Qvec /Qipo /real-size:64 /standard-semantics /F9999999999 "
+         SET "Compile_options=  /Qopenmp /D OMP_inside /O3 /fpp /Qvec /Qipo /real-size:64 /standard-semantics /F9999999999 /assume:nofpe_summary"
 
          :: Set name of the executable:
          SET "Name_of_exe=TREKIS.exe"
