@@ -15,7 +15,7 @@ private  ! hides items not listed on public statement
 public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time, print_parameters
 
 character(10), parameter :: m_Version = '3.1.2'
-character(12), parameter :: m_Update = '03.11.2023'
+character(12), parameter :: m_Update = '06.05.2024'
 
 contains
 
@@ -32,7 +32,7 @@ subroutine TREKIS_title(FN)
    write(FN,'(a)') '*                                                      *'
    write(FN,'(a)') trim(adjustl(starline))
    write(FN,'(a)') 'Time-Resolved Electron Kinetics in SHI-Irradiated Solids'
-   write(FN,'(a)') 'Version:'//trim(adjustl(m_Version))//' (update '//trim(adjustl(m_Update))//')     '
+   write(FN,'(a)') 'Version: '//trim(adjustl(m_Version))//' (update '//trim(adjustl(m_Update))//')     '
    write(FN,'(a)') 'DOI: https://doi.org/10.5281/zenodo.8394462'
    write(FN,'(a)') trim(adjustl(starline))
 end subroutine TREKIS_title
@@ -56,7 +56,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     integer :: j, k
     character(100) :: ch_temp, ch_temp2
-    real(8) :: ksum, fsum, Omega, Mean_Mass, N_at_mol
+    real(8) :: ksum, fsum, Omega, Mean_Mass, N_at_mol, NVB, contrib
 
     ! print title:
     if (print_title) then
@@ -261,20 +261,21 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
             do k = 1, Target_atoms(j)%N_shl ! all the data for each shell:
 
                 if ( (j == 1) .and. (k == Target_atoms(j)%N_shl) ) then ! the valence band
-                    Omega = w_plasma(1d6*Matter%At_dens/N_at_mol)    ! module "Cross_sections"
+                    Omega = w_plasma(1d6*Matter%At_dens/N_at_mol) ! plasma frequency^2 [1/s]^2; module "Cross_sections"
                 else ! core shell
-                    Omega = w_plasma(1d6*Matter%At_dens)    ! module "Cross_sections"
+                    ! Renormalize to make it per atom:
+                    Omega = w_plasma(1d6*Matter%At_dens * Target_atoms(j)%Pers/N_at_mol) ! plasma frequency^2 [1/s]^2; module "Cross_sections"
                 endif
 
                 ! Get sum rule:
                 call sumrules(Target_atoms(j)%Ritchi(k)%A, Target_atoms(j)%Ritchi(k)%E0, Target_atoms(j)%Ritchi(k)%Gamma, &
                               ksum, fsum, Target_atoms(j)%Ip(k), Omega) ! module "Cross_sections"
 
-                if ((j .EQ. 1) .AND. (k .EQ. Target_atoms(j)%N_shl)) then
+                if ((j .EQ. 1) .AND. (k .EQ. Target_atoms(j)%N_shl)) then   ! VB
                   write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2,f9.2)') Target_atoms(j)%Shell_name(k), '   ', &
                         Target_atoms(j)%Nel(k), Target_atoms(j)%Ip(k), Target_atoms(j)%Ek(k), Target_atoms(j)%Auger(k), &
                         Target_atoms(j)%Radiat(k), ksum, fsum
-                else
+                else    ! core shell
                   write(print_to,'(a,i3,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2,f9.2)') Target_atoms(j)%Shell_name(k), &
                         Target_atoms(j)%PQN(k), Target_atoms(j)%Nel(k), Target_atoms(j)%Ip(k), &
                         Target_atoms(j)%Ek(k), Target_atoms(j)%Auger(k), &

@@ -322,9 +322,9 @@ subroutine gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, file_dat
    !write(ymax,'(i10)') ceiling(L_max)
    write(ymin,'(es12.2)') L_min
 
-   ! Prepare grnplot script header:
+   ! Prepare gnuplot script header:
    T_min = 1.0d0
-   x_tics = 10.0  ! for log scale, assume base 10
+   x_tics = 10.0d0  ! for log scale, assume base 10
    T_max = Tim
    write(xmin,'(f12.5)') T_min
    if (Tim < 5.0) then
@@ -340,7 +340,7 @@ subroutine gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, file_dat
    datafile = trim(adjustl(file_data))
    leng = LEN(trim(adjustl(datafile)))
 
-   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, x_tics, 'Distribution', 'Radius (A)', trim(adjustl(value_name)), &
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0e0, x_tics, 'Distribution', 'Radius (A)', trim(adjustl(value_name)), &
          trim(adjustl(datafile(1:leng-3)))//trim(adjustl(plot_extension)), path_sep, 0, &
          set_x_log=x_log, set_y_log=.true., fontsize=14) ! below
 
@@ -436,10 +436,10 @@ subroutine gnuplot_theta_distribution(FN, Tim, Target_atoms, Filename, file_data
    !write(ymax,'(i10)') ceiling(L_max)
    write(ymin,'(es12.2)') L_min
 
-   ! Prepare grnplot script header:
+   ! Prepare gnuplot script header:
    T_min = 0.0
-   x_tics = 20.0  ! for log scale, assume base 10
-   T_max = 180.0  ! degrees
+   x_tics = 20.0d0  ! for log scale, assume base 10
+   T_max = 180.0d0  ! degrees
    write(xmin,'(f12.5)') T_min
    write(xmax,'(i10)') ceiling(T_max)
    x_log = .false.
@@ -448,7 +448,7 @@ subroutine gnuplot_theta_distribution(FN, Tim, Target_atoms, Filename, file_data
    datafile = trim(adjustl(file_data))
    leng = LEN(trim(adjustl(datafile)))
 
-   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, x_tics, 'Theta', 'Angle (deg)', 'Spectrum (arb.units)', &
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0e0, x_tics, 'Theta', 'Angle (deg)', 'Spectrum (arb.units)', &
          trim(adjustl(datafile(1:leng-3)))//trim(adjustl(plot_extension)), path_sep, 0, &
          set_x_log=x_log, set_y_log=.true., fontsize=14) ! below
 
@@ -544,17 +544,17 @@ subroutine gnuplot_spectrum(FN, Tim, Target_atoms, Filename, file_data, NumPar, 
    !write(ymax,'(i10)') ceiling(L_max)
    write(ymin,'(es12.2)') L_min
 
-   ! Prepare grnplot script header:
+   ! Prepare gnuplot script header:
    if (holes_spectrum) then   ! hole uses linear scale:
       T_min = 0.0
-      x_tics = 2.0  ! for log scale, assume base 10
+      x_tics = 2.0d0  ! for log scale, assume base 10
       T_max = 20.0
       write(xmin,'(f12.5)') T_min
       write(xmax,'(i10)') ceiling(T_max)
       x_log = .false.
    else ! electron uses log scale:
       T_min = 1.0d0
-      x_tics = 10.0  ! for log scale, assume base 10
+      x_tics = 10.0d0  ! for log scale, assume base 10
       T_max = Tim
       write(xmin,'(f12.5)') T_min
       write(xmax,'(i10)') 100000
@@ -565,7 +565,7 @@ subroutine gnuplot_spectrum(FN, Tim, Target_atoms, Filename, file_data, NumPar, 
    datafile = trim(adjustl(file_data))
    leng = LEN(trim(adjustl(datafile)))
 
-   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, x_tics, 'Spectrum', 'Energy (eV)', 'Spectrum (arb.units)', &
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0e0, x_tics, 'Spectrum', 'Energy (eV)', 'Spectrum (arb.units)', &
          trim(adjustl(datafile(1:leng-3)))//trim(adjustl(plot_extension)), path_sep, 0, &
          set_x_log=x_log, set_y_log=.true., fontsize=14) ! below
 
@@ -649,7 +649,7 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
    !write(ymax,'(i10)') ceiling(L_max)
    write(ymin,'(i10)') floor(L_min)
 
-   ! Prepare grnplot script header:
+   ! Prepare gnuplot script header:
    if (NumPar%dt_flag <= 0) then ! linear time scale used:
       T_min = 0.0d0
       x_log = .false.
@@ -658,7 +658,7 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
    else ! log-scale
       T_min = 0.01d0
       x_log = .true.
-      x_tics = 10.0  ! for log scale, assume base 10
+      x_tics = 10.0d0  ! for log scale, assume base 10
    endif
    T_max = Tim
    write(xmin,'(f12.5)') T_min
@@ -668,7 +668,7 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
    datafile = trim(adjustl(file_NRG))
    leng = LEN(trim(adjustl(datafile)))
 
-   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, x_tics, 'Energies', 'Time (fs)', 'Energy (eV)', &
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0e0, x_tics, 'Energies', 'Time (fs)', 'Energy (eV)', &
          trim(adjustl(datafile(1:leng-3)))//trim(adjustl(plot_extension)), path_sep, 2, &
          set_x_log=x_log, set_y_log=.false., fontsize=14) ! below
 
@@ -786,7 +786,7 @@ subroutine gnuplot_total_numbers(FN, Tim, Target_atoms, Filename, file_data, Num
    !write(ymax,'(i10)') ceiling(L_max)
    write(ymin,'(i10)') floor(L_min)
 
-   ! Prepare grnplot script header:
+   ! Prepare gnuplot script header:
    if (NumPar%dt_flag <= 0) then ! linear time scale used:
       T_min = 0.0d0
       x_log = .false.
@@ -795,7 +795,7 @@ subroutine gnuplot_total_numbers(FN, Tim, Target_atoms, Filename, file_data, Num
    else ! log-scale
       T_min = 0.01d0
       x_log = .true.
-      x_tics = 10.0  ! for log scale, assume base 10
+      x_tics = 10.0d0  ! for log scale, assume base 10
    endif
    T_max = Tim
    write(xmin,'(f12.5)') T_min
@@ -805,7 +805,7 @@ subroutine gnuplot_total_numbers(FN, Tim, Target_atoms, Filename, file_data, Num
    datafile = trim(adjustl(file_data))
    leng = LEN(trim(adjustl(datafile)))
 
-   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, x_tics, 'Numbers', 'Time (fs)', 'Number (arb.units)', &
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0e0, x_tics, 'Numbers', 'Time (fs)', 'Number (arb.units)', &
          trim(adjustl(datafile(1:leng-3)))//trim(adjustl(plot_extension)), path_sep, 1, &
          set_x_log=x_log, set_y_log=.false., fontsize=14) ! below
 
@@ -926,8 +926,8 @@ subroutine gnuplot_DOS(FN, Target_atoms, Filename, file_DOS, plot_extension, pat
    datafile = trim(adjustl(file_DOS))
 
 
-   ! Prepare grnplot script header:
-   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'DOS', 'Energy (eV)', 'DOS or mass (arb.units)', &
+   ! Prepare gnuplot script header:
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0e0, 10.0e0, 'DOS', 'Energy (eV)', 'DOS or mass (arb.units)', &
       'DOS.'//trim(adjustl(plot_extension)), path_sep, 0, set_x_log=.false., set_y_log=.false., fontsize=14) ! below
 
    Nat = size(Target_atoms)
@@ -988,8 +988,8 @@ subroutine gnuplot_electron_MFP(FN, Target_atoms, Filename, file_IMFP, file_EMFP
    datafile_IMFP = trim(adjustl(file_IMFP))
    datafile_EMFP = trim(adjustl(file_EMFP))
 
-   ! Prepare grnplot script header:
-   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'Electron MFP', 'Electron energy (eV)', 'Mean free path (A)', &
+   ! Prepare gnuplot script header:
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0e0, 10.0e0, 'Electron MFP', 'Electron energy (eV)', 'Mean free path (A)', &
       'Electron_MFPs.'//trim(adjustl(plot_extension)), path_sep, 1, set_x_log=.true., set_y_log=.true., fontsize=14) ! below
 
    Nat = size(Target_atoms)
@@ -1095,8 +1095,8 @@ subroutine gnuplot_hole_MFP(FN, Target_atoms, Filename, file_IMFP, file_EMFP, pl
    datafile_IMFP = trim(adjustl(file_IMFP))
    datafile_EMFP = trim(adjustl(file_EMFP))
 
-   ! Prepare grnplot script header:
-   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'Valence hole MFP', 'Valence hole energy (eV)', 'Mean free path (A)', &
+   ! Prepare gnuplot script header:
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0e0, 10.0e0, 'Valence hole MFP', 'Valence hole energy (eV)', 'Mean free path (A)', &
       'Hole_MFPs.'//trim(adjustl(plot_extension)), path_sep, 0, set_x_log=.false., set_y_log=.true., fontsize=14) ! below
 
    Nat = size(Target_atoms)
@@ -1202,8 +1202,8 @@ subroutine gnuplot_photon_MFP(FN, Target_atoms, Filename, file_IMFP, plot_extens
    ! File with the data:
    datafile_IMFP = trim(adjustl(file_IMFP))
 
-   ! Prepare grnplot script header:
-   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'Photon MFP', 'Photon energy (eV)', 'Mean free path (A)', &
+   ! Prepare gnuplot script header:
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0e0, 10.0e0, 'Photon MFP', 'Photon energy (eV)', 'Mean free path (A)', &
       'Photon_MFPs.'//trim(adjustl(plot_extension)), path_sep, 1, set_x_log=.true., set_y_log=.true., fontsize=14) ! below
 
    Nat = size(Target_atoms)
@@ -1369,8 +1369,8 @@ subroutine gnuplot_SHI_Zeff(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_
    ! File with the data:
    datafile = trim(adjustl(file_ion_MFP))//'_effective_charges.dat'
 
-   ! Prepare grnplot script header:
-   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'SHI Se', 'Ion energy (MeV)', 'Effective charge (Z)', &
+   ! Prepare gnuplot script header:
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0e0, 10.0e0, 'SHI Se', 'Ion energy (MeV)', 'Effective charge (Z)', &
        trim(adjustl(file_ion_MFP))//'_Zeff.'//trim(adjustl(plot_extension)), path_sep, 1, &
        set_x_log=.true., set_y_log=.false., fontsize=14) ! below
 
@@ -1419,8 +1419,8 @@ subroutine gnuplot_SHI_Range(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot
    ! File with the data:
    datafile = trim(adjustl(file_ion_MFP))//'_Range.dat'
 
-   ! Prepare grnplot script header:
-   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'SHI Range', 'Residual range (A)', 'Stopping power, Se (eV/A)', &
+   ! Prepare gnuplot script header:
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0e0, 10.0e0, 'SHI Range', 'Residual range (A)', 'Stopping power, Se (eV/A)', &
        trim(adjustl(file_ion_MFP))//'_Range.'//trim(adjustl(plot_extension)), path_sep, 0, &
        set_x_log=.true., set_y_log=.false., fontsize=14) ! below
 
@@ -1471,8 +1471,8 @@ subroutine gnuplot_SHI_dEdx(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_
    ! File with the data:
    datafile = trim(adjustl(file_ion_MFP))//'_dEdx.dat'
 
-   ! Prepare grnplot script header:
-   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'SHI Se', 'Ion energy (MeV)', 'Stopping power, Se (eV/A)', &
+   ! Prepare gnuplot script header:
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0e0, 10.0e0, 'SHI Se', 'Ion energy (MeV)', 'Stopping power, Se (eV/A)', &
        trim(adjustl(file_ion_MFP))//'_Se.'//trim(adjustl(plot_extension)), path_sep, 0, &
        set_x_log=.true., set_y_log=.false., fontsize=14) ! below
 
@@ -1570,8 +1570,8 @@ subroutine gnuplot_SHI_MFP(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_e
    ! File with the data:
    datafile = trim(adjustl(file_ion_MFP))//'_IMFP.dat'
 
-   ! Prepare grnplot script header:
-   call write_gnuplot_script_header_new(FN, ext_ind, 3.0, 10.0, 'SHI MFP', 'Ion energy (MeV)', 'Ion mean free path (A)', &
+   ! Prepare gnuplot script header:
+   call write_gnuplot_script_header_new(FN, ext_ind, 3.0e0, 10.0e0, 'SHI MFP', 'Ion energy (MeV)', 'Ion mean free path (A)', &
        trim(adjustl(file_ion_MFP))//'_MFP.'//trim(adjustl(plot_extension)), path_sep, 1, &
        set_x_log=.true., set_y_log=.true., fontsize=14) ! below
 

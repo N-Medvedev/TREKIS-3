@@ -1,4 +1,4 @@
-# The makefile calles for another makefile within Source_files directory
+# The makefile calls for another makefile within Source_files directory
 # which compiles and makes an executable TREKIS.x
 # This file was written by N.Medvedev 
 # in 2023
