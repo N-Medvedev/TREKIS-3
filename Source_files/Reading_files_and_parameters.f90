@@ -614,8 +614,8 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    logical, intent(inout) :: read_well  ! did we read the file well?
    
    real(8) M
-   integer FN2, Reason, i, j, k, l, N, Shl, CDF_coef, Shl_num
-   character(100) Error_descript, temp
+   integer FN2, Reason, i, j, k, l, N, Shl, CDF_coef, Shl_num, comment_start
+   character(100) Error_descript, temp, read_line
    character(3) Name
    character(11) Shell_name
    character(30) Full_Name
@@ -644,7 +644,33 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    endif
    
    i = 0
-   READ(FN2,*,IOSTAT=Reason) Matter%Target_name ! first line is the full material name
+   !READ(FN2,*,IOSTAT=Reason) Matter%Target_name ! first line is the full material name
+   Matter%Target_name = '' ! to start with
+   read_line = '' ! to start with
+   READ(FN2,'(a)',IOSTAT=Reason) read_line   ! read the full line
+   comment_start = index(read_line, '!')  ! to exclude comment, if any
+   ! Save the name into the variable:
+   if (comment_start > 1) then   ! trim comment
+      Matter%Target_name = read_line(1:comment_start-1)
+   else  ! no comment
+      Matter%Target_name = trim(adjustl(read_line))
+   endif
+   ! Also, remove TABs if any:
+   comment_start = index(read_line, CHAR(9))  ! to exclude TABs, if any
+   if (comment_start > 1) then   ! trim comment
+      Matter%Target_name = read_line(1:comment_start-1)
+   elseif (comment_start == 1) then   ! omit leading TAB
+      Matter%Target_name = read_line(2:)
+   else  ! no comment
+      Matter%Target_name = trim(adjustl(read_line))
+   endif
+   Matter%Target_name = trim(adjustl(Matter%Target_name))
+
+!    print*, LEN(trim(adjustl(Matter%Target_name))), trim(adjustl(Matter%Target_name))
+!    print*, '::'//Matter%Target_name//'::'
+!    pause 'Matter%Target_name'
+
+
    Matter%Chem = ''  ! to start with
    
    READ(FN2,*,IOSTAT=Reason) N   ! number of elements in this compound
@@ -1141,14 +1167,34 @@ subroutine read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_
    type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
    logical, intent(inout) :: read_well  ! did we read the file well?
    real(8) M
-   integer Reason, i, j, k, l, N, Shl, CDF_coef, Shl_num
-   character(100) Error_descript
+   integer Reason, i, j, k, l, N, Shl, CDF_coef, Shl_num, comment_start
+   character(100) Error_descript, read_line
    character(3) Name
    character(11) Shell_name
    character(30) Full_Name
 
    i = 0
-   READ(FN2,*,IOSTAT=Reason) Matter%Target_name ! first line is the full material name
+   !READ(FN2,*,IOSTAT=Reason) Matter%Target_name ! first line is the full material name
+   READ(FN2,'(a)',IOSTAT=Reason) read_line   ! read the full line
+   comment_start = index(read_line, '!')  ! to exclude comment, if any
+   ! Save the name into the variable:
+   if (comment_start > 1) then   ! trim comment
+      Matter%Target_name = read_line(1:comment_start-1)
+   else  ! no comment
+      Matter%Target_name = trim(adjustl(read_line))
+   endif
+    ! Also, remove TABs if any:
+   comment_start = index(read_line, CHAR(9))  ! to exclude TABs, if any
+   if (comment_start > 1) then   ! trim comment
+      Matter%Target_name = read_line(1:comment_start-1)
+   elseif (comment_start == 1) then   ! omit leading TAB
+      Matter%Target_name = read_line(2:)
+   else  ! no comment
+      Matter%Target_name = trim(adjustl(read_line))
+   endif
+   Matter%Target_name = trim(adjustl(Matter%Target_name))
+
+
    READ(FN2,*,IOSTAT=Reason) N   ! number of elements in this compound
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2014
