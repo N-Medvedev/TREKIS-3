@@ -15,10 +15,8 @@ public :: Decompose_compound, check_atomic_parameters, get_photon_cross_section_
 
 
 character(25), parameter :: m_atomic_folder = 'INPUT_EADL'
-!character(25), parameter :: m_EADL_file = 'eadl.all'  ! EADL database old
-!character(25), parameter :: m_EPDL_file = 'epdl97.all'  ! EADL database old
-character(25), parameter :: m_EADL_file = 'EADL2017.all'  ! EADL database
-character(25), parameter :: m_EPDL_file = 'EPDL2017.all'  ! EPDL database
+character(25), parameter :: m_EADL_file = 'EADL2023.ALL'  ! EADL database
+character(25), parameter :: m_EPDL_file = 'EPDL2023.ALL'  ! EPDL database
 character(25), parameter :: m_atomic_data_file = 'INPUT_atomic_data.dat'
 
 
@@ -119,6 +117,12 @@ subroutine Decompose_compound(Name, path_sep, Target_atoms, read_well)
             Target_atoms(i)%Full_Name = Full_Name  ! full name of the element
             Target_atoms(i)%Mass = M  ! mass of the element in the proton-mass units
          enddo
+
+         ! Make sure the elements in the descending order:
+         !print*, 'BEFORE:', Target_atoms(:)%Zat
+         call sort_elements_in_chem_formula(Target_atoms)   ! below
+         !print*, 'AFTER :', Target_atoms(:)%Zat
+
       else
          do i = 1, num
             call find_atomic_number(ElNames(i), ElNumbers(i), Periodic_table=Periodic_table, read_well=read_well)
@@ -138,6 +142,57 @@ subroutine Decompose_compound(Name, path_sep, Target_atoms, read_well)
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)             ! and if it is, close it
 end subroutine Decompose_compound
+
+
+subroutine sort_elements_in_chem_formula(Target_atoms)
+   type(Atom), dimension(:), intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   !----------------------------------------
+   type(Atom), dimension(:), allocatable :: Target_atoms_SAVE
+   integer :: i, j, Nsiz
+   logical :: swapped
+
+   Nsiz = size(Target_atoms)  ! how many elements
+   if (Nsiz < 1) return ! nothing to sort
+
+   ! To start with:
+   allocate(Target_atoms_SAVE(Nsiz))
+
+   ! Sort elements with bubble method:
+   do j = Nsiz-1, 1, -1
+      swapped = .false. ! nothing swapped at the start
+      do i = 1, j
+         if (Target_atoms(i)%Zat < Target_atoms(i+1)%Zat) then ! swap elements
+            ! Temporarily save data of this element:
+            Target_atoms_SAVE(i)%Zat = Target_atoms(i)%Zat
+            Target_atoms_SAVE(i)%Pers = Target_atoms(i)%Pers
+            Target_atoms_SAVE(i)%Name = Target_atoms(i)%Name
+            Target_atoms_SAVE(i)%Full_Name = Target_atoms(i)%Full_Name
+            Target_atoms_SAVE(i)%Mass = Target_atoms(i)%Mass
+
+            ! Replace it with the next element:
+            Target_atoms(i)%Zat = Target_atoms(i+1)%Zat
+            Target_atoms(i)%Pers = Target_atoms(i+1)%Pers
+            Target_atoms(i)%Name = Target_atoms(i+1)%Name
+            Target_atoms(i)%Full_Name = Target_atoms(i+1)%Full_Name
+            Target_atoms(i)%Mass = Target_atoms(i+1)%Mass
+
+            ! Replace the next element with the previous one:
+            Target_atoms(i+1)%Zat = Target_atoms_SAVE(i)%Zat
+            Target_atoms(i+1)%Pers = Target_atoms_SAVE(i)%Pers
+            Target_atoms(i+1)%Name = Target_atoms_SAVE(i)%Name
+            Target_atoms(i+1)%Full_Name = Target_atoms_SAVE(i)%Full_Name
+            Target_atoms(i+1)%Mass = Target_atoms_SAVE(i)%Mass
+
+            swapped = .true.  ! at least one pair of elements needed swapping
+         endif !
+      enddo ! i
+      if (.not. swapped) exit
+   enddo ! j
+
+   deallocate(Target_atoms_SAVE)
+end subroutine sort_elements_in_chem_formula
+
+
 
 
 subroutine find_atomic_number(Name, Z, Full_name, M, Periodic_table, read_well)
@@ -252,7 +307,7 @@ end function number_of_columns
 
 
 
-subroutine check_atomic_parameters(NumPar, Target_atoms, N_at, cur_shl, shl, Error_message, read_well) ! from module 'Dealing_with_EADL'
+subroutine check_atomic_parameters(NumPar, Target_atoms, N_at, cur_shl, shl, Error_message, read_well)
    type(Flag), intent(inout) :: NumPar ! numerical parameters
    type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    integer, intent(in), optional :: N_at

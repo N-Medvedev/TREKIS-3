@@ -964,8 +964,8 @@ subroutine Auger_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_
    real(8), intent(out) :: Ee, E_new1, E_new2	! [eV] energies of 1) ejected electron, 2) decayed hole, 3) new hole
    type(Error_handling), optional, intent(inout) :: Error_message ! deals with errors, if any
    character(200) Writing_var
-   real(8) RN, Energy_diff, dE_cur
-   integer i, j, coun, N, M, iter, Shel, coun_sh, SHL1, SHL2
+   real(8) RN, Energy_diff, dE_cur, coun, Shel
+   integer i, j, N, M, iter, coun_sh, SHL1, SHL2
 
    N = size(Target_atoms) ! number of elements
    Sh1 = SHL
@@ -974,14 +974,19 @@ subroutine Auger_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_
    KOA2 = 0
    Ee = -1.0d-10
    iter = 0 ! count nmber of iterations
-   coun = 0
+   coun = 0.0d0
   !1111111111111111111111111111111111111111111111111111111111111111111111111111
   ! Hole one:
   ! count how many electrons on the shells that can participate in Auger-decay:
-  call count_for_Auger_shells(Target_atoms, Target_atoms(KOA)%Ip(SHL), coun)
+  call count_for_Auger_shells(Target_atoms, Target_atoms(KOA)%Ip(SHL), coun, .false.)    ! below
+
   call random_number(RN)
-  Shel = 1 + nint(RN*(coun-1)) ! this shell is where the hole jumps up
-  call Choose_for_Auger_shell(Target_atoms, Target_atoms(KOA)%Ip(SHL), Shel, Sh1, KOA1)
+  !Shel = 1 + floor(RN*(coun-1.0d0)) ! this shell is where the hole jumps up
+  Shel = RN*coun    ! this shell is where the hole jumps up
+  !print*, 'a:', coun, Target_atoms(KOA)%Ip(SHL), Shel
+
+
+  call Choose_for_Auger_shell(Target_atoms, Target_atoms(KOA)%Ip(SHL), Shel, Sh1, KOA1, .false.) ! below
   dE_cur = 0.0d0
   if (allocated(Mat_DOS%E)) then    ! it is VB instead of just a shell
      if ((KOA1 .EQ. Lowest_Ip_At) .AND. (Sh1 .EQ. Lowest_Ip_Shl)) then ! it is VB
@@ -993,12 +998,16 @@ subroutine Auger_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_
   !2222222222222222222222222222222222222222222222222222222222222222222222222222
   ! Hole two:
   ! count how many electrons on the shells that can participate in Auger-decay:
-  call count_for_Auger_shells(Target_atoms, Energy_diff, coun)
+  call count_for_Auger_shells(Target_atoms, Energy_diff, coun, .true.) ! below
+  !print*, 'b:', coun, Target_atoms(KOA1)%Ip(Sh1), Energy_diff, dE_cur
+
 
   if (coun .GT. 0) then
      call random_number(RN)
-     Shel = 1 + nint(RN*(coun-1)) ! this shell is where the hole jumps up
-     call Choose_for_Auger_shell(Target_atoms, Energy_diff, Shel, Sh2, KOA2)
+     !Shel = 1 + nint(RN*(coun-1)) ! this shell is where the hole jumps up
+     Shel = RN*coun    ! this shell is where the hole jumps up
+
+     call Choose_for_Auger_shell(Target_atoms, Energy_diff, Shel, Sh2, KOA2, .true.)    ! below
      dE_cur = 0.0d0
      if (allocated(Mat_DOS%E)) then    ! it is VB instead of just a shell
         if ((KOA2 .EQ. Lowest_Ip_At) .AND. (Sh2 .EQ. Lowest_Ip_Shl)) then ! it is VB
@@ -1012,9 +1021,11 @@ subroutine Auger_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_
   endif ! (coun .GT. 0)
 
   if ((Ee .LT. 0.0d0) .OR. (E_new1 .LT. 0.0d0) .OR. (E_new2 .LT. 0.0d0)) then
-     write(Writing_var,'(a,e,e,i,i,i,i,i,i)') 'Impossible Auger-decay ', Target_atoms(KOA1)%Ip(Sh1), &
-        Target_atoms(KOA1)%Ip(Sh1), KOA, SHL, KOA1, Sh1, KOA2, Sh2
-     write(*,'(a)') trim(adjustl(Writing_var))
+     write(*,'(a,i,i,i,i,i,i)') 'Impossible Auger-decay ', KOA, SHL, KOA1, Sh1, KOA2, Sh2
+     write(*,'(i,i,f)') KOA, SHL, Target_atoms(KOA)%Ip(SHL)
+     write(*,'(i,i,f)') KOA1, Sh1, Target_atoms(KOA1)%Ip(Sh1)
+     write(*,'(i,i,f)') KOA2, Sh2, Target_atoms(KOA2)%Ip(Sh2)
+     write(Writing_var,'(a,i,i,i,i,i,i)') 'Impossible Auger-decay ', KOA, SHL, KOA1, Sh1, KOA2, Sh2
      call Save_error_details(Error_message, 25, Writing_var)
   endif
 end subroutine Auger_decay
@@ -1032,8 +1043,8 @@ subroutine Auger_decay_old(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, 
    real(8), intent(out) :: Ee, E_new1, E_new2	! [eV] energies of 1) ejected electron, 2) decayed hole, 3) new hole
    type(Error_handling), optional, intent(inout) :: Error_message ! deals with errors, if any
    character(200) Writing_var
-   real(8) RN, Energy_diff, dE_cur
-   integer i, j, coun, N, M, iter, Shel, coun_sh, SHL1, SHL2
+   real(8) RN, Energy_diff, dE_cur, coun, Shel
+   integer i, j, N, M, iter, coun_sh, SHL1, SHL2
 
    N = size(Target_atoms) ! number of elements
    Sh1 = SHL
@@ -1042,16 +1053,18 @@ subroutine Auger_decay_old(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, 
    KOA2 = 0
    Ee = -1.0d-10
    iter = 0 ! count nmber of iterations
-   coun = 0
+   coun = 0.0d0
    do while ((coun .LE. 0) .OR. (Ee .LT. 0.0d0))
       iter = iter + 1 ! count nmber of iterations
       !1111111111111111111111111111111111111111111111111111111111111111111111111111
       ! Hole one:
       ! count how many electrons on the shells that can participate in Auger-decay:
-      call count_for_Auger_shells(Target_atoms, Target_atoms(KOA)%Ip(SHL), coun)
+      call count_for_Auger_shells(Target_atoms, Target_atoms(KOA)%Ip(SHL), coun, .false.)
       call random_number(RN)
-      Shel = 1 + nint(RN*(coun-1)) ! this shell is where the hole jumps up
-      call Choose_for_Auger_shell(Target_atoms, Target_atoms(KOA)%Ip(SHL), Shel, Sh1, KOA1)
+      !Shel = 1 + nint(RN*(coun-1)) ! this shell is where the hole jumps up
+      Shel = RN*coun    ! this shell is where the hole jumps up
+
+      call Choose_for_Auger_shell(Target_atoms, Target_atoms(KOA)%Ip(SHL), Shel, Sh1, KOA1, .false.)
       dE_cur = 0.0d0
       if (allocated(Mat_DOS%E)) then    ! it is VB instead of just a shell
          if ((KOA1 .EQ. Lowest_Ip_At) .AND. (Sh1 .EQ. Lowest_Ip_Shl)) then ! it is VB
@@ -1063,12 +1076,14 @@ subroutine Auger_decay_old(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, 
       !2222222222222222222222222222222222222222222222222222222222222222222222222222
       ! Hole two:
       ! count how many electrons on the shells that can participate in Auger-decay:
-      call count_for_Auger_shells(Target_atoms, Energy_diff, coun)
+      call count_for_Auger_shells(Target_atoms, Energy_diff, coun, .true.)
 
       if (coun .GT. 0) then
          call random_number(RN)
-         Shel = 1 + nint(RN*(coun-1)) ! this shell is where the hole jumps up
-         call Choose_for_Auger_shell(Target_atoms, Energy_diff, Shel, Sh2, KOA2)
+         !Shel = 1 + nint(RN*(coun-1)) ! this shell is where the hole jumps up
+         Shel = RN*coun    ! this shell is where the hole jumps up
+
+         call Choose_for_Auger_shell(Target_atoms, Energy_diff, Shel, Sh2, KOA2, .true.)
          dE_cur = 0.0d0
          if (allocated(Mat_DOS%E)) then    ! it is VB instead of just a shell
             if ((KOA2 .EQ. Lowest_Ip_At) .AND. (Sh2 .EQ. Lowest_Ip_Shl)) then ! it is VB
@@ -1132,45 +1147,73 @@ subroutine From_where_in_VB(Mat_DOS, dE_cur, E)
 end subroutine From_where_in_VB
 
 
-subroutine count_for_Auger_shells(Target_atoms, NRG, coun)
+subroutine count_for_Auger_shells(Target_atoms, NRG, coun, second_e)
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects
    real(8), intent(in) :: NRG   ! [eV] energy
-   integer, intent(out) :: coun ! count how many shells can participate in the Auger
-   integer i, j, N, M
+   real(8), intent(out) :: coun ! count how many shells can participate in the Auger
+   logical, intent(in) :: second_e  ! marker, if it is the second electron
+   !-----------------
+   integer :: i, j, N, M
+   real(8) :: Egap, dE, E_delta
+
+   Egap = Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))  ! bandgap, the minimal possible energy transferred
+   dE = 1.0d-3  ! precision
    N = size(Target_atoms) ! number of elements
-   coun = 0
-   do i = 1, N
+   coun = 0.0d0 ! to start with
+
+   do i = 1, N  ! for each element of the target
       M = size(Target_atoms(i)%Ip)
-      do j = 1, M
-        !if (Target_atoms(i)%Ip(j) .LT. NRG) then
-         if ((Target_atoms(i)%Ip(j) .LT. NRG) .AND. &
-         (Target_atoms(i)%Ip(j) .GE. Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))) ) then ! it is possible
+      do j = 1, M   ! for each shell of this element
+         ! Energy released in the hole hopping up:
+         !dE = NRG - Target_atoms(i)%Ip(j)
+         !if ((Target_atoms(i)%Ip(j) .LT. NRG) .AND. (NRG .GE. Egap) ) then
+         if (second_e) then
+            E_delta = 1.0d10    ! nothing to worry about
+         else ! first electron, account for the second one to be excited:
+            E_delta = NRG - Target_atoms(i)%Ip(j)  ! energy that will be transferred to the second electron
+         endif
+
+         if ( (NRG > Target_atoms(i)%Ip(j)+dE) .and. (E_delta >= Egap) ) then ! exclude if event the VB cannot be ionized with this energy
             coun = coun + Target_atoms(i)%Nel(j)
          endif
+         !write(*,'(a,i,i,f,f,f,f)') 'A:', i, j, NRG, Target_atoms(i)%Ip(j), Egap, coun
       enddo
    enddo
 end subroutine count_for_Auger_shells
 
-subroutine Choose_for_Auger_shell(Target_atoms, NRG, Shel, Sh1, KOA1)   ! chose the second participant (hole) of the Auger-decay
+subroutine Choose_for_Auger_shell(Target_atoms, NRG, Shel, Sh1, KOA1, second_e)   ! chose the second participant (hole) of the Auger-decay
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects
    real(8), intent(in) :: NRG   ! 
-   integer, intent(in) :: Shel  ! the decaying shell
+   real(8), intent(in) :: Shel  ! the decaying shell
    integer, intent(out) :: Sh1, KOA1    ! which atom's which shell 
-   integer i, j, N, M, coun_sh
+   logical, intent(in) :: second_e  ! marker, if it is the second electron
+   !--------------------------
+   integer i, j, N, M
+   real(8) :: Egap, dE, coun_sh, E_delta
+
+   Egap = Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))  ! bandgap, the minimal possible energy transferred
+   dE = 1.0d-3  ! precision
    N = size(Target_atoms) ! number of elements
-   coun_sh = 0
+   coun_sh = 0.0d0
    do i = 1, N
       M = size(Target_atoms(i)%Ip) ! number of shells
       do j = 1, M
-         !if (Target_atoms(i)%Ip(j) .LT. NRG) then ! it is possible
-         if ((Target_atoms(i)%Ip(j) .LT. NRG) .AND. &
-          (Target_atoms(i)%Ip(j) .GE. Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))) ) then ! it is possible
+         !if ((Target_atoms(i)%Ip(j) .LT. NRG) .AND. &
+         ! (Target_atoms(i)%Ip(j) .GE. Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))) ) then ! it is possible
+         !if ( (NRG > Target_atoms(i)%Ip(j)+dE) .and. (NRG >= Egap)) then ! exclude if event the VB cannot be ionized with this energy
+         if (second_e) then
+            E_delta = 1.0d10    ! nothing to worry about
+         else ! first electron, account for the second one to be excited:
+            E_delta = NRG - Target_atoms(i)%Ip(j)  ! energy that will be transferred to the second electron
+         endif
+
+         if ( (NRG > Target_atoms(i)%Ip(j)+dE) .and. (E_delta >= Egap) ) then ! exclude if event the VB cannot be ionized with this energy
             coun_sh = coun_sh + Target_atoms(i)%Nel(j)
             if (coun_sh .GE. Shel) then 
                Sh1 = j ! this is the shell
                KOA1 = i
             endif ! (coun_sh .EQ. Shel) then
-         endif ! (Ip_elements(i,j) .LT. Ip_elements(KOA, SHL)) then ! it is possible
+         endif ! (Ip_elements(i,j) .LT. Ip_elements(KOA, SHL))
          if (coun_sh .GE. Shel) exit
       enddo ! j
       if (coun_sh .GE. Shel) exit
@@ -1298,6 +1341,7 @@ subroutine Which_shell(MFP_Object, MFP_full, E, Nat, Nshl)
     real(8), dimension(:,:), intent(in) :: MFP_full ! full MFP of the particle
     real(8), intent(in) :: E    ! [eV] energy
     integer, intent(out) :: Nat, Nshl   ! number of atom and shell chosen
+    !----------------------
     real(8) RN, MFP, MFP_tot, MFP_sum
     integer N_temmp, i, j
     
@@ -2403,13 +2447,15 @@ subroutine Radiative_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, 
    type(Error_handling), optional, intent(inout) :: Error_message ! deals with errors, if any
    character(200) Writing_var
    real(8) RN, Energy_diff, dE_cur
-   integer coun, Shel
+   real(8) :: coun, Shel
 
    ! count how many electrons on the shells that can participate in Radiative-decay:
-   call count_for_Auger_shells(Target_atoms, Target_atoms(KOA)%Ip(SHL), coun)
+   call count_for_Auger_shells(Target_atoms, Target_atoms(KOA)%Ip(SHL), coun, .true.)  ! below
    call random_number(RN)
-   Shel = 1 + nint(RN*(coun-1)) ! this shell is where the hole jumps up
-   call Choose_for_Auger_shell(Target_atoms, Target_atoms(KOA)%Ip(SHL), Shel, Sh1, KOA1)
+   !Shel = 1 + nint(RN*(coun-1)) ! this shell is where the hole jumps up
+   Shel = RN*coun   ! this shell is where the hole jumps up
+
+   call Choose_for_Auger_shell(Target_atoms, Target_atoms(KOA)%Ip(SHL), Shel, Sh1, KOA1, .true.)
    dE_cur = 0.0d0
    if (allocated(Mat_DOS%E)) then    ! it is VB instead of just a shell
       if ((KOA1 .EQ. Lowest_Ip_At) .AND. (Sh1 .EQ. Lowest_Ip_Shl)) then ! it is VB
