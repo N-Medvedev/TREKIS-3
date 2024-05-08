@@ -1341,6 +1341,7 @@ subroutine Which_shell(MFP_Object, MFP_full, E, Nat, Nshl)
     real(8), dimension(:,:), intent(in) :: MFP_full ! full MFP of the particle
     real(8), intent(in) :: E    ! [eV] energy
     integer, intent(out) :: Nat, Nshl   ! number of atom and shell chosen
+    !----------------------
     real(8) RN, MFP, MFP_tot, MFP_sum
     integer N_temmp, i, j
     

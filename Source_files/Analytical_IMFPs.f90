@@ -103,7 +103,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     type(All_names), intent(inout) :: File_names    ! file names to use later for gnuplot printing
     type(Flag), intent(inout) :: NumPar    
     character(8), intent(in) :: kind_of_particle    
-        
+    !--------------------------
     integer :: FN, FN1, FN2, FN3, FN4     ! file numbers where to save the output
     integer :: N, Nelast, Nsiz
     integer temp(1)
@@ -116,10 +116,11 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     character(200) temp_char, temp_char1, temp_ch, File_name, temp_char2
     !character(3) KCS
     character(10) KCS
-    logical file_exist, file_opened, file_opened2, do_range
-       
+    logical file_exist, file_opened, file_opened2, do_range, redo_MFP_default
+
     read_well = .true.  ! so far so good
     do_range = .false.  ! don't recalculate electron range by default
+    redo_MFP_default = NumPar%redo_IMFP ! save what the user defined
     Nat = size(Target_atoms)    ! how many atoms
     
     Emin = 1.0d0    ! [eV] we start with this minimum
@@ -400,7 +401,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
       endif
    enddo
    flush(FN)
-   NumPar%redo_IMFP = .false. ! defualt it for the next kind of particle
+   NumPar%redo_IMFP = redo_MFP_default ! defualt it for the next kind of particle
 
    !######################### Now do the same for elastic mean free path of an electron and hole:
    kind_of_part2:if (kind_of_particle .EQ. 'Electron') then
@@ -1269,7 +1270,7 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
         call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
         !print*, 'IMFP file last modified on:', IMFP_last_modified
         if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
-            NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
+            NumPar%redo_IMFP_SHI = .true. ! Material parameters changed, recalculate IMFPs
             print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
         endif
         ! Check if the file is consistent with the grid set:
@@ -1277,13 +1278,13 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
         open(FN, file=trim(adjustl(Input_files)))   ! just to check the energy grid inside
         call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
         if (Nsiz /= N) then
-            NumPar%redo_IMFP = .true. ! Grid mismatch, recalculate IMFPs
+            NumPar%redo_IMFP_SHI = .true. ! Grid mismatch, recalculate IMFPs
             print*, 'Energy grid mismatch in MFP file => recalculating MFP'
         endif
         close(FN)
     endif
 
-    if (file_exist .and. .not.NumPar%redo_IMFP) then
+    if (file_exist .and. .not.NumPar%redo_IMFP_SHI) then
         write(*,'(a,a,a,a,a)') 'IMFP and dEdx of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' are already in the files:'
         write(*, '(a,a,a)') trim(adjustl(Input_files)), ' and ', trim(adjustl(Input_files2))
         write(*, '(a)') ' ' 
@@ -1313,13 +1314,13 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
         SHI%E = SHI_E ! restore the original value
     endif
     inquire(file=trim(adjustl(Input_files3)),exist=file_exist2)    ! check if file with Ranges excists
-    if (.not.file_exist2 .or. NumPar%redo_IMFP) then  ! if not, create it
+    if (.not.file_exist2 .or. NumPar%redo_IMFP_SHI) then  ! if not, create it
         write(*,'(a,a,a,a,a)') 'Ranges of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' will be stored in the file:'
         write(*, '(a)') trim(adjustl(Input_files3))
         write(*, '(a)') ' '
         call Get_ion_range(Input_files3,N,SHI_MFP,Target_atoms,dEdx_tot) ! calculate ion range out of its energy-loss function
     endif
-    NumPar%redo_IMFP = .false. ! default it for the next kind of particle
+    !NumPar%redo_IMFP = .false. ! default it for the next kind of particle
 end subroutine Analytical_ion_dEdx
 
 

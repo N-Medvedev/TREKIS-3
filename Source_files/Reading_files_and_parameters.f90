@@ -129,6 +129,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    ! Default to start with:
    NumPar%redo_IMFP = .false. ! don't recalculate inelastic MFPs, if possible
    NumPar%redo_EMFP = .false. ! don't recalculate elastic MFPs, if possible
+   NumPar%redo_IMFP_SHI = .false. ! don't recalculate elastic MFPs, if possible
    NumPar%include_photons = .false. ! no photons by default (unless user includes them)
    NumPar%plasmon_Emax = .false. ! do not include plasmon integration limit in inelastic CDF
    NumPar%field_include = .false.   ! no fields (bc NOT READY!)
@@ -498,6 +499,24 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
       case default
          print*, "Gnuplot scripts will be created with extension '."//trim(adjustl(NumPar%plot_extension))//"'"
       end select
+
+   case ('redo_MFP', 'REDO_MFP', 'Redo_MFP', 'redo_mfp')
+      NumPar%redo_IMFP = .true. ! recalculate inelastic MFPs, if possible
+      NumPar%redo_EMFP = .true. ! recalculate elastic MFPs, if possible
+      NumPar%redo_IMFP_SHI = .true. ! recalculate SHI inelastic MFPs, if possible
+      print*, 'Mean free paths will be recalculated'
+
+   case ('redo_MFP_SHI', 'REDO_MFP_SHI', 'Redo_MFP_SHI', 'redo_mfp_shi', 'redo_IMFP_SHI', 'REDO_IMFP_SHI', 'Redo_IMFP_SHI', 'redo_imfp_shi')
+      NumPar%redo_IMFP_SHI = .true. ! recalculate SHI inelastic MFPs, if possible
+      print*, 'Inelastic Mean free paths will be recalculate'
+
+   case ('redo_IMFP', 'REDO_IMFP', 'Redo_IMFP', 'redo_imfp')
+      NumPar%redo_IMFP = .true. ! recalculate inelastic MFPs, if possible
+      print*, 'Inelastic Mean free paths will be recalculated'
+
+   case ('redo_EMFP', 'REDO_EMFP', 'Redo_EMFP', 'redo_emfp')
+      NumPar%redo_EMFP = .true. ! recalculate elastic MFPs, if possible
+      print*, 'Elastic Mean free paths will be recalculated'
 
    case ('get_thermal', 'thermal', 'make_thermal', 'Get_thermal', 'Thermal', 'Make_thermal')
       NumPar%get_thermal = .true.
