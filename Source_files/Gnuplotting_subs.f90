@@ -687,12 +687,14 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
       write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:3 w l lw LW title "Atoms" ,\'
       ! Photons:
       write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:4 w l lw LW title "Photons" ,\'
+      ! Fields
+      ! write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:5 w l lw LW title "Fields" ,\' ! SKIP IT< BOT READY
       ! Valence:
-      VB_count = 4 + size(Target_atoms(1)%Ip)
+      VB_count = 5 + size(Target_atoms(1)%Ip)
       write(col,'(i3)') VB_count ! add valence band
       write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence holes" ,\'
       ! Core holes:
-      col_count = 4
+      col_count = 5
       do i = 1, Nat   ! all atoms
          shl = size(Target_atoms(i)%Ip)
          do j = 1, shl
@@ -725,12 +727,14 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
       write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:3 w l lw \"$LW\" title \"Atoms\" ,\'
       ! Photons:
       write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:4 w l lw \"$LW\" title \"Photons\" ,\'
+      ! Fields:
+      !write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:5 w l lw \"$LW\" title \"Fields\" ,\'   ! SKIP IT, NOT READT
       ! Valence:
-      VB_count = 4 + size(Target_atoms(1)%Ip)
+      VB_count = 5 + size(Target_atoms(1)%Ip)
       write(col,'(i3)') VB_count ! add valence band
       write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence holes\" ,\'
       ! Core holes:
-      col_count = 4
+      col_count = 5
       do i = 1, Nat   ! all atoms
          shl = size(Target_atoms(i)%Ip)
          do j = 1, shl

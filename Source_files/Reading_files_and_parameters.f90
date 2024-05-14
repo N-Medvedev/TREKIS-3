@@ -45,10 +45,11 @@ interface Trapeziod
 end interface Trapeziod
 
 public :: Find_in_array, Find_in_array_monoton, Linear_approx, get_file_stat, get_num_shells, print_time_step
-public :: Read_input_file, Linear_approx_2x1d_DSF, Find_VB_numbers, read_file_here, read_SHI_MFP, get_add_data
+public :: Read_input_file, Linear_approx_2x1d_DSF, Find_VB_numbers, read_file_here, read_SHI_MFP, get_add_data, m_INPUT_file
 
 
 character(25), parameter :: m_form_factors_file = 'Atomic_form_factors.dat'
+character(25), parameter :: m_INPUT_file = 'INPUT_PARAMETERS.txt'
 
 contains
 
@@ -142,7 +143,9 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    !----------------
    ! Reading the input file:
 
-   File_name_INPUT = 'INPUT_PARAMETERS.txt'
+   !File_name_INPUT = 'INPUT_PARAMETERS.txt'
+   File_name_INPUT = trim(adjustl(m_INPUT_file))
+
    FN = 200
    inquire(file=trim(adjustl(File_name_INPUT)),exist=file_exist)     ! check if input file excists
    if (file_exist) then
@@ -414,7 +417,9 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    endif
 
    
-2013 if (.not. read_well) print*, 'Error in INPUT_PARAMETERS.txt file or inrut files. See log!!'
+!2013 if (.not. read_well) print*, 'Error in INPUT_PARAMETERS.txt file or inrut files. See log!!'
+2013 if (.not. read_well) print*, 'Error in '//trim(adjustl(m_INPUT_file)) //' file or inrut files. See log!!'
+
 2015 continue   ! if we must skip to the end for some reason
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)             ! and if it is, close it

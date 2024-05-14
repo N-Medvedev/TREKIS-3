@@ -6,7 +6,7 @@
 MODULE Sorting_output_data
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
-  use Reading_files_and_parameters, only : Find_VB_numbers, print_time_step
+  use Reading_files_and_parameters, only : Find_VB_numbers, print_time_step, m_INPUT_file
   use Variables, only: dashline, starline
   use Cross_sections, only :  w_plasma, sumrules
 implicit none
@@ -423,6 +423,16 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     ! Save this folder name for gnuplotting later:
     File_names%F(10) = trim(adjustl(File_name2))
     !print*, 'File_names%F(10)=', File_names%F(10)
+
+
+    !========================================================
+    ! Save input file for reproducibility:
+    if (NumPar%path_sep .EQ. '\') then	! if it is Windows
+        call copy_file(trim(adjustl(m_INPUT_file)), trim(adjustl(File_names%F(10))), 1)   ! below
+    else ! linux
+        call copy_file(trim(adjustl(m_INPUT_file)), trim(adjustl(File_names%F(10))))   ! below
+    endif
+
     
     !========================================================
     !Parameters of this calculation:
@@ -1418,6 +1428,34 @@ subroutine parse_time(sec,chtest)
    write(temp, '(f7.3)') sec
    write(chtest, '(a,a,a)') trim(adjustl(chtest)), ' '//trim(adjustl(temp)), ' sec'
 end subroutine parse_time
+
+
+
+subroutine copy_file(file_to_copy, folder_copy_to, OS_ind, add_com)
+   character(len=*), intent(in) :: file_to_copy, folder_copy_to
+   integer, intent(in), optional :: OS_ind ! windows or linux
+   character(len=*), intent(in), optional :: add_com  ! additional options provided (such as /Y /F)
+   character(250) command, add_option
+
+   if (present(add_com)) then
+      add_option = add_com
+   else
+      add_option = ''   ! no additional options
+   endif
+
+   if (present(OS_ind)) then
+      select case (OS_ind)
+      case (0) ! linux
+         command='cp '//trim(adjustl(file_to_copy))//' '//trim(adjustl(folder_copy_to))//trim(adjustl(add_option))
+      case default ! assume windows
+         command='xcopy '//trim(adjustl(file_to_copy))//' '//trim(adjustl(folder_copy_to))//trim(adjustl(add_option))
+      end select
+   else ! assume linux
+      command='cp '//trim(adjustl(file_to_copy))//' '//trim(adjustl(folder_copy_to))//trim(adjustl(add_option))
+   endif
+   CALL system(command)
+end subroutine copy_file
+
 
 
 
