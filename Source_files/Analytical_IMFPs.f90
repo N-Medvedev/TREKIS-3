@@ -6,8 +6,10 @@
 module Analytical_IMFPs
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
-  use Reading_files_and_parameters, only : get_file_stat, Find_in_array_monoton, read_file_here, Linear_approx, read_SHI_MFP
-  use Cross_sections, only : Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, SHI_Total_IMFP, construct_CDF, Total_copmlex_CDF
+  use Reading_files_and_parameters, only : get_file_stat, Find_in_array_monoton, read_file_here, Linear_approx, read_SHI_MFP, &
+                                           print_time_step
+  use Cross_sections, only : Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, SHI_Total_IMFP, construct_CDF, Total_copmlex_CDF, &
+                             allocate_diff_CS_tables
   use Dealing_with_EADL, only : Count_lines_in_file
 implicit none
 PRIVATE
@@ -104,19 +106,19 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     type(Flag), intent(inout) :: NumPar    
     character(8), intent(in) :: kind_of_particle    
     !--------------------------
-    integer :: FN, FN1, FN2, FN3, FN4     ! file numbers where to save the output
-    integer :: N, Nelast, Nsiz
+    integer :: FN, FN1, FN2, FN3, FN4, FN_diff     ! file numbers where to save the output
+    integer :: N, Nelast, Nsiz, N_diff_siz
     integer temp(1)
     real(8) Ele, IMFP_calc, dEdx, dEdx1, dEdx0, dE, Emin, Emax, L_tot, vel, Mass, InelMFP, ElasMFP, e_range, InelMFP_inv, ElasMFP_inv
     real(8), dimension(:,:), allocatable :: Temp_MFP
     real(8), dimension(:), allocatable :: Temp_grid
     integer Num_th, my_id, OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS, IMFP_last_modified
-    integer i, j, k, Nat, Nshl, Reason, Va, Ord, Mnum, MFPnum
-    character(200) Input_files, Input_elastic_file, File_el_range, File_hole_range
-    character(200) temp_char, temp_char1, temp_ch, File_name, temp_char2
+    integer i, j, k, Nat, Nshl, Reason, Va, Ord, Mnum, MFPnum, i_diff_CS
+    character(200) Input_files, Input_elastic_file, File_el_range, File_hole_range, command
+    character(200) temp_char, temp_char1, temp_ch, File_name, temp_char2, folder_diff_CS, diff_CS_file, full_CS_file
     !character(3) KCS
     character(10) KCS
-    logical file_exist, file_opened, file_opened2, do_range, redo_MFP_default
+    logical :: file_exist, file_opened, file_opened2, do_range, redo_MFP_default, diff_CS_file_exists
 
     read_well = .true.  ! so far so good
     do_range = .false.  ! don't recalculate electron range by default
@@ -152,6 +154,17 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 allocate(Total_el_MFPs(j)%ELMFP(k)%dEdx(N))
                 Total_el_MFPs(j)%ELMFP(k)%dEdx = 0.0d0
             endif
+
+            ! For diff.CS save tables:
+            select case (NumPar%CS_method)
+            case (1)
+                if (.not. allocated(Target_atoms(j)%Int_diff_CS(k)%diffCS)) then
+                    ! for each energy grid point there will be its own table:
+                    allocate(Target_atoms(j)%Int_diff_CS(k)%E(N))
+                    allocate(Target_atoms(j)%Int_diff_CS(k)%diffCS(N))
+                endif
+            endselect
+
         enddo
     enddo
     allocate(temp_MFP(2,N))
@@ -258,6 +271,32 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             close(FN)
         endif
 
+
+        ! Check if precalculated diff.CS is required:
+        select case (NumPar%CS_method)
+        case (1)    ! save files are required
+            full_CS_file = trim(adjustl(temp_char1))    ! to be reused below for diff.CS file naming
+            folder_diff_CS = 'diff_CS'  ! folder name
+            ! Add the path to it:
+            folder_diff_CS = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(folder_diff_CS))
+#ifndef __GFORTRAN__
+            ! for intel fortran compiler:
+            inquire(DIRECTORY=trim(adjustl(folder_diff_CS)),exist=diff_CS_file_exists)    ! check if folder excists
+#else
+            ! for gfortran compiler:
+            inquire(FILE=trim(adjustl(folder_diff_CS)),exist=diff_CS_file_exists)    ! check if folder excists
+#endif
+            if (.not.diff_CS_file_exists) then
+                print*, 'Files with diff.CS for electrons are required => recalculating MFP'
+                NumPar%redo_IMFP = .true.   ! diff.CS need to be calculated
+                command='mkdir '//trim(adjustl(folder_diff_CS)) ! to create a folder use this command
+                CALL system(command)  ! create the folder
+                write(*,'(a)') ' Folder '//trim(adjustl(folder_diff_CS))//' created for diff.CS files'
+            endif
+        case default  ! no files, calculate on the fly
+            ! Nothing to do
+        end select
+
         if (file_exist .and. .not.NumPar%redo_IMFP) then    ! read from the file:
             write(*,'(a,a,a)') 'IMFPs of an electron in ', trim(adjustl(Material_name)), ' are already in the file:'
             write(*, '(a)') trim(adjustl(Input_files))
@@ -270,10 +309,6 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             write(*, '(a)') trim(adjustl(Input_files))
             write(*, '(a)') ' '
         endif
-
-        print*, trim(adjustl(Output_path))
-
-        pause "Output_path -- diff.CS"
 
     !==============================
     else if (kind_of_particle .EQ. 'Hole') then
@@ -439,8 +474,71 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
       endif
    enddo
    flush(FN)
-   NumPar%redo_IMFP = redo_MFP_default ! defualt it for the next kind of particle
 
+   ! Diff.CS tables, if required:
+   if (kind_of_particle .EQ. 'Electron') then
+    select case (NumPar%CS_method)
+    case (1)    ! save files are required
+        if (NumPar%verbose) call print_time_step('Starting dealing with diff. CS tables and files:', msec=.true.)
+
+        FN_diff = 333   ! file number to be reused
+
+        do j = 1, Nat   ! for all types of atoms
+            Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
+            do k = 1, Nshl  ! for all orbitals
+                do i = 1, N ! for all energy grid points
+                    ! Construct the file name:
+                    Target_atoms(j)%Int_diff_CS(k)%E(i) = Total_el_MFPs(j)%ELMFP(k)%E(i)
+
+                    ! Name of the atom and shell:
+                    temp_char = trim(adjustl(full_CS_file( 8 : LEN(trim(adjustl(full_CS_file)))-4 ))) //'_'// &
+                                trim(adjustl(Target_atoms(j)%Name))//'_'//trim(adjustl(Target_atoms(j)%Shell_name(k)))
+                    ! Add energy grid point:
+                    write(temp_char1,'(f14.3)') Target_atoms(j)%Int_diff_CS(k)%E(i)
+                    ! Combine the info into file name:
+                    temp_char = trim(adjustl(temp_char))//'_'//trim(adjustl(temp_char1))//'.dat'
+                    ! Full name of the file with diff.CS for this energy grid point, element and shell:
+                    diff_CS_file = trim(adjustl(folder_diff_CS))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char))
+
+                    if ((.not. file_exist) .or. (.not.diff_CS_file_exists) .or. NumPar%redo_IMFP) then  ! if file doesn't exist
+                        open(FN_diff, file=trim(adjustl(diff_CS_file)))   ! create it
+                        ! Write the data into this file:
+                        N_diff_siz = size(Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%dsdhw)
+                        do i_diff_CS = 1, N_diff_siz
+                            write(FN_diff, '(es,es)') Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%hw(i_diff_CS), &
+                                                      Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(i_diff_CS)
+                        enddo ! i_diff_CS
+                    else    ! if file exist, read from it:
+                        open(FN_diff, file=trim(adjustl(diff_CS_file)), action='read')
+                        ! Read the data from this file:
+                        call Count_lines_in_file(FN_diff, N_diff_siz) ! count how many line the file contains
+                        ! Allocate the diff.CS tables:
+                        if (.not.allocated(Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%dsdhw)) then
+                            allocate(Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(N_diff_siz))
+                        endif
+                        if (.not.allocated(Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%hw)) then
+                            allocate(Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%hw(N_diff_siz))
+                        endif
+
+                        do i_diff_CS = 1, N_diff_siz
+                            read(FN_diff,*) Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%hw(i_diff_CS), &
+                                            Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(i_diff_CS)
+                        enddo ! i_diff_CS
+                    endif
+                    !print*, j,k, i, Target_atoms(j)%Int_diff_CS(k)%E(i), trim(adjustl(diff_CS_file))
+                    close (FN_diff)
+                enddo ! k
+            enddo ! k
+        enddo ! j
+
+        if (NumPar%verbose) call print_time_step('Done with diff. CS tables and files:', msec=.true.)
+    case default  ! no files, calculate on the fly
+        ! Nothing to do
+    end select
+   endif ! 'Electron'
+
+
+   NumPar%redo_IMFP = redo_MFP_default ! defualt it for the next kind of particle
 
 
    !######################### Now do the same for elastic mean free path of an electron and hole:
@@ -1134,18 +1232,26 @@ subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matt
     
     Nat = size(Target_atoms)    ! number of atoms
     
-!     Emin = 1.0d0    ! [eV] we start with this minimum
-!     Ord = 0 ! start with 1
-!     Va = int(Emin)
-!     dE(1) = Emin
-!     do i = 1, N-1
-!         if (Va .GE. 100) then
-!             Va = Va - 90
-!             Ord = Ord + 1
-!         endif
-!         dE(i+1) = dE(i) + 10.0d0**Ord
-!         Va = Va + 1
-!     enddo
+    ! If diff.CS tables are required, they need to be allocated:
+    if (trim(adjustl(kind_of_particle)) .EQ. 'Electron') then
+      select case (NumPar%CS_method)
+      case (1)
+        do i = 1, N
+            Ele = Total_el_MFPs(1)%ELMFP(1)%E(i)
+            do j = 1, Nat  ! for all atoms:
+                Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
+                do k = 1, Nshl  ! for all shells of each atom:
+
+                    ! Save energy point for diff.CS tables:
+                    Target_atoms(j)%Int_diff_CS(k)%E(i) = Ele  ! [eV] electron energy on the grid
+
+                    call allocate_diff_CS_tables(Ele, i, Target_atoms, j, k, Matter, Mat_DOS, NumPar, kind_of_particle) ! from module "Cross_sections"
+                enddo ! k
+            enddo ! k = 1, size(Target_atoms(j)%Ip)  ! for all shells of each atom:
+        enddo ! j = 1,size(Target_atoms)  ! for all atoms:
+      endselect
+    endif ! 'Electron'
+
 
 !$omp parallel &
 !$omp private (i, j, k, Ele, IMFP_calc, dEdx)
@@ -1155,13 +1261,16 @@ subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matt
         Ele = Total_el_MFPs(1)%ELMFP(1)%E(i)
         !my_id = 1 + OMP_GET_THREAD_NUM() ! identify which thread it is
         do j = 1, Nat  ! for all atoms:
+
           Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
           do k = 1, Nshl  ! for all shells of each atom:
-             call TotIMFP(Ele, Target_atoms, j, k, IMFP_calc, dEdx, Matter, Mat_DOS, NumPar, kind_of_particle) ! from module "Cross_sections"
+
+             call TotIMFP(Ele, i, Target_atoms, j, k, IMFP_calc, dEdx, Matter, Mat_DOS, NumPar, kind_of_particle) ! from module "Cross_sections"
              !Total_el_MFPs(j)%ELMFP(k)%E(i) = Ele
              Total_el_MFPs(j)%ELMFP(k)%L(i) = IMFP_calc
              Total_el_MFPs(j)%ELMFP(k)%dEdx(i) = dEdx
 
+             !print*, j, k, i, Ele, Total_el_MFPs(j)%ELMFP(k)%L(i), Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%dsdhw( size(Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%dsdhw) )
           enddo ! k = 1, size(Target_atoms(j)%Ip)  ! for all shells of each atom:
         enddo ! j = 1,size(Target_atoms)  ! for all atoms:
         call progress(' Progress of calculation: ', i, N)

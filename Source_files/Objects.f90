@@ -196,10 +196,22 @@ end type CDF
 
 !==============================================
 ! Precalculated differential cross section:
-type diff_CS
+type diff_CS_single
    real(8) :: E
    real(8), dimension(:), allocatable :: dsdhw
    real(8), dimension(:), allocatable :: hw
+end type diff_CS_single
+
+
+type diff_CS_dE
+   real(8), dimension(:), allocatable :: dsdhw
+   real(8), dimension(:), allocatable :: hw
+end type diff_CS_dE
+
+type diff_CS
+   real(8), dimension(:), allocatable :: E
+   ! for each energy point on the grid:
+   type(diff_CS_dE), dimension(:), allocatable :: diffCS
 end type diff_CS
 !==============================================
 

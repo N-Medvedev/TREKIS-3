@@ -1119,11 +1119,11 @@ subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(Atom), dimension(:), allocatable, intent(inout) :: Atoms_temp  ! define target atoms as objects, we don't know yet how many they are
    !------------
-   integer :: i, j, N_at, Shl, Nj
+   integer :: i, j, k, N_at, Shl, Nj
    N_at = size(Target_atoms)
 
    allocate(Atoms_temp(N_at))
-   do i = 1, N_at
+   do i = 1, N_at ! all atoms
       Atoms_temp(i)%Zat = Target_atoms(i)%Zat
       Atoms_temp(i)%Mass = Target_atoms(i)%Mass
       Atoms_temp(i)%Pers = Target_atoms(i)%Pers
@@ -1167,17 +1167,25 @@ subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
             Atoms_temp(i)%Ritchi(j)%alpha = Target_atoms(i)%Ritchi(j)%alpha
          enddo
       endif
+
       if (allocated(Target_atoms(i)%Int_diff_CS)) then ! allocate arrays of precalculated integrated diff.CS for each shell
-         do j = 1, size(Atoms_temp(i)%Int_diff_CS) ! all atoms
-            Atoms_temp(i)%Int_diff_CS(j)%E = Target_atoms(i)%Int_diff_CS(j)%E
-            if (allocated(Target_atoms(i)%Int_diff_CS(j)%dsdhw)) then   ! all shells
-               Nj = size(Target_atoms(i)%Int_diff_CS(j)%dsdhw)
-               allocate(Atoms_temp(i)%Int_diff_CS(j)%hw(Nj))
-               allocate(Atoms_temp(i)%Int_diff_CS(j)%dsdhw(Nj))
+         do j = 1, size(Atoms_temp(i)%Int_diff_CS) ! all shells
+            if (allocated(Target_atoms(i)%Int_diff_CS(j)%E)) then ! energy
+               Nj = size(Target_atoms(i)%Int_diff_CS(j)%E)
+               allocate(Atoms_temp(i)%Int_diff_CS(j)%E(Nj))
+               Atoms_temp(i)%Int_diff_CS(j)%E = Target_atoms(i)%Int_diff_CS(j)%E
             endif
-         enddo
+            if (allocated(Target_atoms(i)%Int_diff_CS(j)%diffCS)) then   ! all shells
+               Nj = size(Target_atoms(i)%Int_diff_CS(j)%diffCS)
+               do k = 1, Nj   ! diff.CS
+                  allocate(Atoms_temp(i)%Int_diff_CS(j)%diffCS(k)%hw(Nj))
+                  allocate(Atoms_temp(i)%Int_diff_CS(j)%diffCS(k)%dsdhw(Nj))
+               enddo ! k
+            endif
+         enddo ! j
       endif
-   enddo
+
+   enddo ! i
 end subroutine copy_atomic_data
 
 

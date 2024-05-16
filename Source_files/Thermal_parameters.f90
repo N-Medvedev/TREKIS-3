@@ -44,7 +44,7 @@ subroutine Get_thermal_parameters(Output_path, CDF_Phonon, Target_atoms, Matter,
    type(Density_of_states), intent(in) :: Mat_DOS       ! Density of states
    type(All_names), intent(inout) :: File_names    ! file names to use later for gnuplot printing
    !--------------------------
-   type(diff_CS), dimension(:), allocatable :: ds_E
+   type(diff_CS_single), dimension(:), allocatable :: ds_E
    real(8), dimension(:), allocatable :: Te_grid
    real(8) :: Eemax, E_min, dE, E_cur, Zt, Zeff, Sigma, dEdx, E_rate, G_coupling, Dens, hw, d_hw, V, DOS, Ffactor
    integer :: FN, i, Nsiz, Nsiz_ds, j, i_T, k, N_siz_DOS
