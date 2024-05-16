@@ -653,6 +653,8 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
    !write(ymax,'(i10)') ceiling(L_max)
    write(ymin,'(i10)') floor(L_min)
 
+   T_max = Tim
+
    ! Prepare gnuplot script header:
    if (NumPar%dt_flag <= 0) then ! linear time scale used:
       T_min = 0.0d0
@@ -664,7 +666,6 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
       x_log = .true.
       x_tics = 10.0d0  ! for log scale, assume base 10
    endif
-   T_max = Tim
    write(xmin,'(f12.5)') T_min
    write(xmax,'(i10)') ceiling(T_max)
 

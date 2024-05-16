@@ -56,7 +56,7 @@ cd Source_files
       IF /I %OMP%==no (
          echo Compiling with DEBUG option, no OpenMP or optimizations are included
          echo Started at: %date% %time%
-         SET "Compile_options=/F9999999999 /QxHost /QaxAVX /fpp /real-size:64 /debug:all /O1 /Qipo /traceback /gen-interfaces /warn:interfaces /check:bounds /fpe:0 /fp:precise /Qvec /standard-semantics /assume:nofpe_summary"
+         SET "Compile_options=/F9999999999 /QxHost /QaxAVX /fpp /real-size:64 /debug:all /Od /Qipo /traceback /gen-interfaces /warn:interfaces /check:bounds /fpe:0 /fp:precise /Qvec /standard-semantics /assume:nofpe_summary"
          SET "Name_of_exe=TREKIS_DEBUG.exe"    :: Set name of the executable
       ) ELSE (    :: With OpenMP
          echo Compiling with DEBUG_OMP option, OpenMP but no optimizations are included

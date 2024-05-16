@@ -47,7 +47,8 @@ interface Trapeziod
 end interface Trapeziod
 
 public :: Find_in_array, Find_in_array_monoton, Linear_approx, get_file_stat, get_num_shells, print_time_step
-public :: Read_input_file, Linear_approx_2x1d_DSF, Find_VB_numbers, read_file_here, read_SHI_MFP, get_add_data, m_INPUT_file
+public :: Read_input_file, Linear_approx_2x1d_DSF, Find_VB_numbers, read_file_here, read_SHI_MFP, get_add_data, m_INPUT_file, &
+          Find_in_monoton_array_decreasing
 
 
 character(25), parameter :: m_form_factors_file = 'Atomic_form_factors.dat'
@@ -1923,6 +1924,66 @@ subroutine Find_in_2D_array(Array, Value, Indx, Number)
    enddo
    Number = i
 end subroutine Find_in_2D_array
+
+
+
+
+subroutine Find_in_monoton_array_decreasing(Array, Value0, Number)
+   REAL(8), dimension(:), INTENT(in) :: Array ! in which we are looking for the Value
+   REAL(8), INTENT(in) :: Value0   ! to be found in the array as near as possible
+   integer, INTENT(out) :: Number ! number of the element which we are looking for
+   !----------------------
+   integer :: Nsiz, i, N, i_cur, i_1, i_2, coun
+   real(8) :: temp_val, val_1, val_2
+
+   Nsiz = size(Array)
+
+   i_1 = 1     ! to start with
+   i_2 = Nsiz  ! to start with
+   val_1 = Array(i_1)   ! to start with
+   val_2 = Array(i_2)   ! to start with
+
+   i_cur = FLOOR((i_1+i_2)/2.0)
+   temp_val = Array(i_cur)
+
+   if (isnan(Value0)) then
+       print*, 'The subroutine Find_in_monotonous_1D_array'
+       print*, 'cannot proceed, the value of Value0 is', Value0
+       write(*, '(f,f,f,f)') Value0, Array(i_cur), Array(i_1), Array(i_2)
+       pause 'STOPPED WORKING...'
+   else
+       if (Value0 < Array(Nsiz)) then ! smaller than the last value
+           i_cur = Nsiz
+       elseif (Value0 > Array(1)) then ! bigger than the first value
+           i_cur = 1
+       else
+           coun = 0
+           do while ( abs(i_1 - i_2) > 1) ! until find the interval where the value is in
+               if (temp_val > Value0) then
+                   i_1 = i_cur
+                   val_1 = Array(i_1)
+                   i_cur = FLOOR((i_1+i_2)/2.0)
+                   temp_val = Array(i_cur)
+                else
+                   i_2 = i_cur
+                   val_2 = temp_val
+                   i_cur = FLOOR((i_1+i_2)/2.0)
+                   temp_val = Array(i_cur)
+                endif
+                coun = coun + 1
+                if (coun > 1e3) then
+                    print*, 'PROBLEM WITH CONVERGANCE IN'
+                    print*, 'Find_in_monoton_array_decreasing', coun
+                    write(*, '(f,f,f,f)') Value0, Array(i_cur), Array(i_1), Array(i_2)
+                    pause 'STOPPED WORKING...'
+                endif
+           enddo
+       endif
+   endif
+   Number = i_cur
+end subroutine Find_in_monoton_array_decreasing
+
+
 
 subroutine Find_in_monotonous_1D_array(Array, Value0, Number)
    REAL(8), dimension(:), INTENT(in) :: Array ! in which we are looking for the Value

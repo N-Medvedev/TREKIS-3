@@ -9,7 +9,7 @@ module Analytical_IMFPs
   use Reading_files_and_parameters, only : get_file_stat, Find_in_array_monoton, read_file_here, Linear_approx, read_SHI_MFP, &
                                            print_time_step
   use Cross_sections, only : Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, SHI_Total_IMFP, construct_CDF, Total_copmlex_CDF, &
-                             allocate_diff_CS_tables
+                             allocate_diff_CS_tables, Interpolate
   use Dealing_with_EADL, only : Count_lines_in_file
 implicit none
 PRIVATE
@@ -26,7 +26,7 @@ interface find_order_of_number
 end interface find_order_of_number
 
 
-public :: Analytical_electron_dEdx, Analytical_ion_dEdx, Interpolate, printout_optical_CDF
+public :: Analytical_electron_dEdx, Analytical_ion_dEdx, printout_optical_CDF
 
 
 
@@ -1728,36 +1728,6 @@ subroutine All_shells_SHI_dEdx(SHI, Target_atoms, SHI_IMFP, SHI_dEdx, Matter, Ma
    enddo
 end subroutine All_shells_SHI_dEdx
 
-
-! Interpolation between two values with different methods:
-subroutine Interpolate(Iflag, E1, E2, Sigma1, Sigma2, E_needed, OUT_value)
-   integer, intent(in) :: Iflag ! what kind of interpolation to use
-   real(8), intent(in) :: E1, E2, Sigma1, Sigma2, E_needed  ! input data: X and Y points
-   real(8), intent(out) :: OUT_value    ! interpolated value
-   real(8) E2log, E1log, E_needed_log, Sigma1log, Sigma2log
-   select case(Iflag) ! what interpolation to use:
-      case(3)	! logarithmic x, linear y
-         E2log = log(E2)
-         E1log = log(E1)
-         E_needed_log = log(E_needed)
-         OUT_value = Sigma1 + (Sigma2 - Sigma1)/(E2log - E1log)*(E_needed_log - E1log)
-      case(4)	! linear x, logarithmic y
-         Sigma1log = log(Sigma1)
-         Sigma2log = log(Sigma2)
-         OUT_value = Sigma1log + (Sigma2log - Sigma1log)/(E2 - E1)*(E_needed - E1)
-         OUT_value = exp(OUT_value)
-      case(5)	! logarithmic x and y
-         E2log = log(E2)
-         E1log = log(E1)
-         E_needed_log = log(E_needed)
-         Sigma1log = log(Sigma1)
-         Sigma2log = log(Sigma2)
-         OUT_value = Sigma1log + (Sigma2log - Sigma1log)/(E2log - E1log)*(E_needed_log - E1log)
-         OUT_value = exp(OUT_value)
-      case default ! linear x and y
-         OUT_value = Sigma1 + (Sigma2 - Sigma1)/(E2 - E1)*(E_needed - E1) 
-   end select
-end subroutine Interpolate
 
 subroutine progress(string,ndone,ntotal)
     implicit none

@@ -6,7 +6,7 @@
 MODULE Cross_sections
   use Universal_Constants               ! let it use universal constants
   use Objects                           ! since it uses derived types, it must know about them from module 'Objects'
-  use Reading_files_and_parameters, only: Find_in_array_monoton, Linear_approx_2x1d_DSF, print_time_step
+  use Reading_files_and_parameters, only: Find_in_array_monoton, Linear_approx_2x1d_DSF, print_time_step, Find_in_monoton_array_decreasing
   use Dealing_with_EADL, only: get_photon_cross_section_EPDL, NEXT_DESIGNATOR
 implicit none
 PRIVATE
@@ -47,7 +47,7 @@ end interface extend_array_size
 public :: Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, &
          SHI_Total_IMFP, SHI_TotIMFP, SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF, &
          NRG_transfer_elastic_atomic_OLD, get_single_pole, w_plasma, sumrules, construct_CDF, Total_copmlex_CDF, &
-         extend_array_size, Tot_EMFP, CS_from_MFP, Equilibrium_charge_Target, allocate_diff_CS_tables
+         extend_array_size, Tot_EMFP, CS_from_MFP, Equilibrium_charge_Target, allocate_diff_CS_tables, Interpolate
 
 
 contains
@@ -1592,17 +1592,7 @@ subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_to
         Emax = (Ele + Emin)/2.0e0 ! [eV] maximum energy transfer, accounting for equality of electrons
         Mass = 1.0d0
     endif
-    
-!   if (trim(adjustl(NumPar%kind_of_particle)) .EQ. 'Electron') then 
-!        if (Mass .GT. 1.0d0) then
-!            print*, "ooooooooooooooooooooooooooooooooooooooo"
-!            print*, Mass, NumPar%kind_of_particle
-!            print*, "ooooooooooooooooooooooooooooooooooooooo"
-!            pause
-!        endif
-!   endif
-    
-    
+
     ! Use maximal plasmon energy as upper limit of integration
     if (Numpar%plasmon_Emax) then       ! If included
         if (Emin .EQ. Egap) then        ! For VB only
@@ -1624,7 +1614,7 @@ subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_to
     !if (trim(adjustl(NumPar%kind_of_particle)) .EQ. 'Electron') then 
         if (dE_out .LT. Egap) then
              print*, "###########################################"
-             print*, 'ERROR in Electron_energy_transfer_inelastic:'
+             print*, 'ERROR in Electron_energy_transfer_inelastic (dE < E_gap):'
              print*, dE_out, Egap, Emin, Emax, Ele
              print*, Mass, kind_of_particle
              print*, "###########################################"
@@ -1646,8 +1636,9 @@ subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Ma
     type(Flag), intent(in) :: NumPar
     real(8), intent(in) :: Mass, Emin, Emax ! electron/hole mass; min and max energies for integration
     !---------------------
-    real(8) L_cur, Ltot0, Ltot1, a, b, temp1, temp2, dE, dL, E_low, E_high
-    integer n, i
+    real(8) :: L_cur, Ltot0, Ltot1, a, b, temp1, temp2, dE, dL, E_low, E_high
+    real(8) :: hw_1, hw_2, hw_cur
+    integer :: n, i, i_E, i_hw
 
     
  if (NumPar%kind_of_DR .EQ. 4) then    ! Delta-CDF
@@ -1657,24 +1648,25 @@ subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Ma
     select case (NumPar%CS_method)
     case (-1)  ! Old integration grid
       n = 10*(MAX(INT(Emin),10))    ! number of integration steps
-      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax) ! below OLD
     case default  ! new integartion grid
       n = m_N_grid_e_inelast ! number defining number of integration steps in intervals
       ! Define the interval of integration where the peak are (requires fined grid):
       E_low = max( minval(Target_atoms(Nat)%Ritchi(Nshl)%E0 - 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emin )
       E_high = min( maxval(Target_atoms(Nat)%Ritchi(Nshl)%E0 + 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emax )
-      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax, E0_min=E_low, E0_max=E_high) ! below
     end select
 
-    i = 1       ! to start integration
-    E = Emin    ! to start integration
-    Ltot1 = 0.0d0
-    Ltot0 = 0.0d0
-    L_cur = 1.0d10
-    call Diff_cross_section(Ele, E, Target_atoms, Nat, Nshl, Ltot0, Mass, Matter, Mat_DOS, NumPar)
-    !ddEdx = 0.0d0
 
-    do while (L_cur .GT. L_need)
+    select case (NumPar%CS_method)
+    case default  ! numerical integration
+       i = 1       ! to start integration
+       E = Emin    ! to start integration
+       Ltot1 = 0.0d0
+       Ltot0 = 0.0d0
+       L_cur = 1.0d10
+       call Diff_cross_section(Ele, E, Target_atoms, Nat, Nshl, Ltot0, Mass, Matter, Mat_DOS, NumPar)
+       !ddEdx = 0.0d0
+
+       do while (L_cur .GT. L_need)
         !dE = (1.0d0/(E+1.0d0) + E)/real(n)
         !dE = define_dE(n, E)   ! below OLD
         dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low, E0_max=E_high)   ! below
@@ -1692,14 +1684,61 @@ subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Ma
         L_cur = 1.0d0/(Mass*Ltot1)
         E = E + dE  ! [eV]
         if (E .GE. Emax) exit
-    enddo
- endif
+       enddo
+
+    case (1) ! Use tabulated diff.CS from precalculated files
+
+       ! Find the transferred energy from precalculated table of integrated diff.CS:
+       call Find_in_array_monoton(Target_atoms(Nat)%Int_diff_CS(Nshl)%E, Ele, i_E) ! "Reading_files_and_parameters"
+       ! For this energy, find the sampled d(CS)/d(hw):
+       call Find_in_monoton_array_decreasing(Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw, L_need, i_hw) ! "Reading_files_and_parameters"
+       ! Get the corresponding transferred energy value:
+       if ( (i_hw == 1) .or. ((i_hw == size(Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw))) ) then ! no need to interpolate
+          hw_1 = Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw)
+       else ! interpolate between the values:
+          call Interpolate(1, Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw), &
+                        Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw+1), &
+                        Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw), &
+                        Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw+1), L_need, hw_1)  ! module "Reading_files_and_parameters"
+       endif
+       hw_cur = hw_1 ! first part of it is done
+
+       ! Interpolate for the next nearest point in energy:
+       if (i_E > 1) then ! try adding the second part
+         i_E = i_E - 1 ! point in energy on the other side
+         ! For this energy, find the sampled d(CS)/d(hw):
+         call Find_in_monoton_array_decreasing(Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw, L_need, i_hw) ! "Reading_files_and_parameters"
+         ! Get the corresponding transferred energy value:
+         if ( (i_hw == 1) .or. ((i_hw == size(Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw))) ) then ! no need to interpolate
+            hw_2 = Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw)
+         else ! interpolate between the values:
+            call Interpolate(1, Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw), &
+                        Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw+1), &
+                        Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw), &
+                        Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw+1), L_need, hw_2)  ! module "Reading_files_and_parameters"
+         endif
+         ! Interpolate the transferred energy between the two electron-energy-grid points:
+         call Interpolate(1, &
+                       Target_atoms(Nat)%Int_diff_CS(Nshl)%E(i_E), &
+                       Target_atoms(Nat)%Int_diff_CS(Nshl)%E(i_E+1), &
+                       hw_1, hw_2, &
+                       Ele, hw_cur)  ! module "Reading_files_and_parameters"
+
+          !print*, Ele, Target_atoms(Nat)%Int_diff_CS(Nshl)%E(i_E), Target_atoms(Nat)%Int_diff_CS(Nshl)%E(i_E+1)
+          !print*, i_hw, L_need, Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw), Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw+1)
+          !print*, E, hw_1, hw_2, hw_cur
+       endif
+       ! Interpolated transferred energy from the precalculated diff.CS tables:
+       E = hw_cur ! [eV]
+    endselect
+
+ endif ! (NumPar%kind_of_DR .EQ. 4)
 end subroutine Electron_NRG_transfer_CDF
 
 
 
 
-! Interface to select the model of electron inelastic scattering cross section:
+! Interface to select the model of electron inelastic scattering cross section for Delta-CDF:
 function get_inelastic_energy_transfer(Ee, Matter, Target_atoms, numpar, j, k, Ip, CDF_dispers, CDF_m_eff, hw_phonon) result(dE)
    real(8) :: dE   ! [eV] sampled transferred energy
    real(8), intent(in) :: Ee	! [eV] electron kinetic energy
@@ -3572,6 +3611,47 @@ function dSigma_dw_w_int(S, t0, u0, w0)
    dSigma_dw_w_int = S*(A+B+C)
 end function dSigma_dw_w_int
 !BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB
+
+
+
+
+! Interpolation between two values with different methods:
+subroutine Interpolate(Iflag, E1, E2, Sigma1, Sigma2, E_needed, OUT_value)
+   integer, intent(in) :: Iflag ! what kind of interpolation to use
+   real(8), intent(in) :: E1, E2, Sigma1, Sigma2, E_needed  ! input data: X and Y points
+   real(8), intent(out) :: OUT_value    ! interpolated value
+   !------------------
+   real(8) E2log, E1log, E_needed_log, Sigma1log, Sigma2log
+
+   if ( abs(E2 - E1) < 1.0d-6 ) then ! no need to interpolate, it is exact
+        OUT_value = max(Sigma1,Sigma2)
+   elseif (E_needed == E1) then ! exactly on the grid
+        OUT_value = Sigma1
+   else ! interpolate
+    select case(Iflag) ! what interpolation to use:
+      case(3)	! logarithmic x, linear y
+         E2log = log(E2)
+         E1log = log(E1)
+         E_needed_log = log(E_needed)
+         OUT_value = Sigma1 + (Sigma2 - Sigma1)/(E2log - E1log)*(E_needed_log - E1log)
+      case(4)	! linear x, logarithmic y
+         Sigma1log = log(Sigma1)
+         Sigma2log = log(Sigma2)
+         OUT_value = Sigma1log + (Sigma2log - Sigma1log)/(E2 - E1)*(E_needed - E1)
+         OUT_value = exp(OUT_value)
+      case(5)	! logarithmic x and y
+         E2log = log(E2)
+         E1log = log(E1)
+         E_needed_log = log(E_needed)
+         Sigma1log = log(Sigma1)
+         Sigma2log = log(Sigma2)
+         OUT_value = Sigma1log + (Sigma2log - Sigma1log)/(E2log - E1log)*(E_needed_log - E1log)
+         OUT_value = exp(OUT_value)
+      case default ! linear x and y
+         OUT_value = Sigma1 + (Sigma2 - Sigma1)/(E2 - E1)*(E_needed - E1)
+    end select
+   endif
+end subroutine Interpolate
 
  
 END MODULE Cross_sections

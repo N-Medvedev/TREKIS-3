@@ -7,8 +7,8 @@ MODULE Monte_Carlo
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
   use Cross_sections, only : Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, SHI_TotIMFP, &
-                            SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF, NRG_transfer_elastic_atomic_OLD
-  use Analytical_IMFPs, only : Interpolate
+                            SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF, NRG_transfer_elastic_atomic_OLD, &
+                            Interpolate
   use Reading_files_and_parameters , only: Find_in_array_monoton, Find_in_array, print_time_step
 
 implicit none
@@ -1300,14 +1300,24 @@ subroutine SHI_energy_transfer(SHI_loc, MFP_Object, Target_atoms, Matter, Mat_DO
         ! find the closest value in the precalculated array of energy losses:
         call Find_in_array_monoton(MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E, Target_atoms(Nat_cur)%Ip(Nshl_cur), M_temp) ! "Reading_files_and_parameters"
         if (M_temp .GT. 1) then
-            call Interpolate(5, MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp-1), &
-                MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp), MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp-1), &
-                MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp), E_cur, dL)  ! interpolate to find exact value
+            if (MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp-1) > 1.0d-10) then
+                call Interpolate(5, MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp-1), &
+                        MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp), MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp-1), &
+                        MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp), E_cur, dL)  ! interpolate to find exact value
+            else ! zero CS, interpolate linearly
+                call Interpolate(1, MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp-1), &
+                        MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp), MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp-1), &
+                        MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp), E_cur, dL)  ! interpolate to find exact value
+            endif
         else
             dL = MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(1)
         endif
         
-        Tot_N = 1.0d0/dL + RN*(1.0d0/MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(N) - 1.0d0/dL)
+        if ((dL > 0.0d0) .and. (MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(N) > 0.0d0)) then
+            Tot_N = 1.0d0/dL + RN*(1.0d0/MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(N) - 1.0d0/dL)
+        else    ! infinite MFP
+            Tot_N = 1.5d21
+        endif
 
         if (Tot_N .LT. 1d20) then
             ! find the closest value in the precalculated array of energy losses:
