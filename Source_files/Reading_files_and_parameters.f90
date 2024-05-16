@@ -12,7 +12,9 @@ module Reading_files_and_parameters
   
   ! Open_MP related modules from external libraries:
   !USE IFLPORT, only : system
-  USE OMP_LIB, only : omp_get_max_threads
+#ifdef OMP_inside
+   USE OMP_LIB, only : omp_get_max_threads
+#endif
 
   implicit none
 private  ! hides items not listed on public statement
@@ -73,7 +75,14 @@ subroutine get_file_stat(File_name, device_ID, Inode_number, File_mode, Number_o
    integer, intent(out), optional :: blocks_allocated ! Blocksize for file system I/O operations
    !(*) Times are in the same format returned by the TIME function (number of seconds since 00:00:00 Greenwich mean time, January 1, 1970).
    !=====================
+   ! The preprocessor option defining compilation with Gfortran: https://gcc.gnu.org/onlinedocs/gfortran/Preprocessing-Options.html
+#ifdef __GFORTRAN__
+   ! for gfortran compiler:
+   INTEGER :: info_array(13)
+#else
+   ! for intel fortran compiler:
    INTEGER :: info_array(12)
+#endif
 
    ! Get the statistics on the file:
    call STAT(trim(adjustl(File_name)), info_array) ! intrinsec fortran subroutine
@@ -139,7 +148,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    NumPar%do_gnuplot = .true. ! gnuplot by default
    NumPar%plot_extension = 'jpeg' ! default jpeg-files
    NumPar%get_thermal = .false.   ! default: no thermal parameters
-   NumPar%CS_method = 0    ! choise of the method of energy transfer (integration grid): default - NEW
+   NumPar%CS_method = 0    ! choice of the method of CS integration (integration grid): default - NEW
 
    !----------------
    ! Reading the input file:
@@ -290,7 +299,11 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    if (.not. read_well) goto 2013
 
    if (Num_th < 1) then ! use default: maximum number of available threads
+#ifdef OMP_inside
       Num_th = omp_get_max_threads() ! number of processors available by default
+#else
+      Num_th = 1  ! no OMP => no threads
+#endif
    endif
    
    !------------------------------------------------------
@@ -313,7 +326,15 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    ! Create an output folder:
    Output_path = 'OUTPUT_'//trim(adjustl(Material_name)) ! that should be a folder with output
    if (SHI%Zat .GT. 0) Output_path_SHI = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'OUTPUT_'//trim(adjustl(SHI%Name))//'_in_'//trim(adjustl(Material_name)) ! that should be a folder with output
+
+#ifndef __GFORTRAN__
+   ! for intel fortran compiler:
    inquire(DIRECTORY=trim(adjustl(Output_path)),exist=file_exist)    ! check if input file excists
+#else
+   ! for gfortran compiler:
+   inquire(FILE==trim(adjustl(Output_path)),exist=file_exist)    ! check if input file excists
+#endif
+
    if (file_exist) then
       write(*,'(a,a,a)') ' Folder ', trim(adjustl(Output_path)), ' already exists, save output files into it'
    else

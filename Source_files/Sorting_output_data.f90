@@ -15,7 +15,7 @@ private  ! hides items not listed on public statement
 public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time, print_parameters
 
 character(10), parameter :: m_Version = '3.1.3'
-character(12), parameter :: m_Update = '15.05.2024'
+character(12), parameter :: m_Update = '16.05.2024'
 
 contains
 
@@ -419,12 +419,26 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
                                         '_E_', trim(adjustl(ch1)), '_MeV_', trim(adjustl(ch2)), '_fs'
     File_name2 = File_name
     i = 0
-    inquire(DIRECTORY=trim(adjustl(File_name2)),exist=file_exist)    ! check if input file excists
+
+#ifndef __GFORTRAN__
+   ! for intel fortran compiler:
+   inquire(DIRECTORY=trim(adjustl(File_name2)),exist=file_exist)    ! check if input file excists
+#else
+   ! for gfortran compiler:
+   inquire(FILE=trim(adjustl(File_name2)),exist=file_exist)    ! check if input file excists
+#endif
+
     do while (file_exist)
         i = i + 1
         write(ch1,'(i6)') i
         write(File_name2,'(a,a,a)') trim(adjustl(File_name)), '_', trim(adjustl(ch1))
+#ifndef __GFORTRAN__
+        ! for intel fortran compiler:
         inquire(DIRECTORY=trim(adjustl(File_name2)),exist=file_exist)    ! check if input file excists
+#else
+        ! for gfortran compiler:
+        inquire(FILE=trim(adjustl(File_name2)),exist=file_exist)    ! check if input file excists
+#endif
     enddo
     command='mkdir '//trim(adjustl(File_name2)) ! to create a folder use this command
     CALL system(command)  ! create the folder

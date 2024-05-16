@@ -46,17 +46,17 @@
 
 !CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 ! Include all the separate file with modules to use in the main program:
-include 'Universal_Constants.f90'       ! include universal constants
-include 'Objects.f90'                   ! include objects definitions
-include 'Variables.f90'                 ! include global variables used in the program
-include 'Dealing_with_EADL.f90'         ! include EADL and EPDL97 database subs
-include 'Gnuplotting_subs.f90'          ! subroutines to create gnuplot scripts
-include 'Reading_files_and_parameters.f90'  ! include module for reading and managing input files
-include 'Cross_sections.f90'            ! include Cross sections subroutines
-include 'Analytical_IMFPs.f90'          ! include analytical calculations of IMFPs and dEdx
-include 'Monte_Carlo.f90'               ! include Monte-Carlo subroutines
-include 'Thermal_parameters.f90'        ! include calculation fo thermal parameters
-include 'Sorting_output_data.f90'       ! include Sorting output subroutines
+#include 'Universal_Constants.f90'
+#include 'Objects.f90'
+#include 'Variables.f90'
+#include 'Dealing_with_EADL.f90'
+#include 'Gnuplotting_subs.f90'
+#include 'Reading_files_and_parameters.f90'
+#include 'Cross_sections.f90'
+#include 'Analytical_IMFPs.f90'
+#include 'Monte_Carlo.f90'
+#include 'Thermal_parameters.f90'
+#include 'Sorting_output_data.f90'
 !CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 
 PROGRAM Universal_MC_for_SHI
@@ -105,8 +105,13 @@ call get_num_shells(Target_atoms, Nshtot) ! from module 'Reading_files_and_param
 
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! Set OpenMP parallel threading parameters:
-call OMP_SET_DYNAMIC(0) ! standard openmp subroutine
-call OMP_SET_NUM_THREADS(Num_th)    ! start using threads with openmp: Num_th is the number of threads, defined in the input file
+#ifdef OMP_inside
+    call OMP_SET_DYNAMIC(0) ! standard openmp subroutine
+    call OMP_SET_NUM_THREADS(Num_th)    ! start using threads with openmp: Num_th is the number of threads, defined in the input file
+#else ! if you set to use OpenMP in compiling: 'make OMP=no'
+!   print*, 'No openmp to deal with...'
+!   pause 'NO OPENMP'
+#endif
 
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! If single-pole approximation is required, make it:
@@ -142,21 +147,20 @@ endif
 if (NumPar%verbose) call print_time_step('Starting electron mean-free-paths calculations:', msec=.true.)
 kind_of_particle = 'Electron'
 call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_el_MFPs, &
-        Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names=File_names) ! from module Analytical_IMPS / openmp parallelization
-!if (allocated(File_names%F)) call Gnuplot_electrons_MFP(NumPar%path_sep, File_names%F(1), Output_path, File_names%F(2), Nshtot+2)   ! From module "Gnuplotting_subs"
+        Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names=File_names) ! from module Analytical_IMPS
 
 ! Hole MFPs:
 if (NumPar%verbose) call print_time_step('Starting VB hole mean-free-paths calculations:', msec=.true.)
 kind_of_particle = 'Hole'
 call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_Hole_MFPs, & 
-          Elastic_Hole_MFP, Error_message, read_well, DSF_DEMFP_H, Mat_DOS, NumPar, kind_of_particle, File_names) ! from module Analytical_IMPS / openmp parallelization
+          Elastic_Hole_MFP, Error_message, read_well, DSF_DEMFP_H, Mat_DOS, NumPar, kind_of_particle, File_names) ! from module Analytical_IMPS
 
 ! Photon MFPs:
 if (NumPar%include_photons) then ! only if we include photons:
     if (NumPar%verbose) call print_time_step('Starting photon mean-free-paths calculations:', msec=.true.)
     kind_of_particle = 'Photon'
     call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_Photon_MFPs, &
-            Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names=File_names) ! from module Analytical_IMPS / openmp parallelization
+            Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names=File_names) ! from module Analytical_IMPS
 else
    allocate(Total_Photon_MFPs(0))
 endif
@@ -225,7 +229,12 @@ Nit = 0
 !$omp private (MC_stat, my_id, c1)
 !$omp do schedule(dynamic) reduction( + : Nit, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_field_all, Out_E_field, Out_diff_coeff)
 do MC_stat = 1, NMC   ! MC iterations to be averaged
+#ifdef OMP_inside
     my_id = 1 + OMP_GET_THREAD_NUM() ! identify which thread it is
+#else ! if you set to use OpenMP in compiling: 'make OMP=no'
+    my_id = 1   ! no OMP => no threads
+#endif
+
     ! Perform all the MC calculations within this subroutine:
     call Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
      Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, &

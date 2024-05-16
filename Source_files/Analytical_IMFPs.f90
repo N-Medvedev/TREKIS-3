@@ -271,6 +271,10 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             write(*, '(a)') ' '
         endif
 
+        print*, trim(adjustl(Output_path))
+
+        pause "Output_path -- diff.CS"
+
     !==============================
     else if (kind_of_particle .EQ. 'Hole') then
         FN = 202
@@ -1291,7 +1295,16 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
     enddo
     
     Path_name = trim(adjustl(Output_path_SHI))  ! here it should be
-    inquire(DIRECTORY=trim(adjustl(Path_name)),exist=file_exist)    ! check if input file excists
+
+#ifndef __GFORTRAN__
+   ! for intel fortran compiler:
+   inquire(DIRECTORY=trim(adjustl(Path_name)),exist=file_exist)    ! check if input file excists
+#else
+   ! for gfortran compiler:
+   inquire(FILE=trim(adjustl(Path_name)),exist=file_exist)    ! check if input file excists
+#endif
+
+
     if (.not. file_exist) then  ! create the directory
         command='mkdir '//trim(adjustl(Path_name)) ! to create a folder use this command
         CALL system(command)  ! create the folder

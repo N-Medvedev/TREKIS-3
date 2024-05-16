@@ -8,7 +8,11 @@
 
 module Gnuplotting_subs
 use Objects, only : Flag, All_names, Atom, Ion, Solid
-USE IFLPORT, only : system, chdir   ! library, allowing to operate with directories in intel fortran
+
+#ifndef __GFORTRAN__
+   USE IFLPORT, only : system, chdir   ! library, allowing to operate with directories in intel fortran
+#endif
+
 use Dealing_with_EADL, only : Count_lines_in_file, Count_columns_in_file
 
 
