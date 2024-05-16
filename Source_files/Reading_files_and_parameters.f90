@@ -139,6 +139,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    NumPar%do_gnuplot = .true. ! gnuplot by default
    NumPar%plot_extension = 'jpeg' ! default jpeg-files
    NumPar%get_thermal = .false.   ! default: no thermal parameters
+   NumPar%CS_method = 0    ! choise of the method of energy transfer (integration grid): default - NEW
 
    !----------------
    ! Reading the input file:
@@ -292,19 +293,6 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       Num_th = omp_get_max_threads() ! number of processors available by default
    endif
    
-   ! This option is not ready, so it is excluded from release:
-!    READ(FN,'(a)',IOSTAT=Reason) Temp_char  ! path to Gnuplot installed
-!    call read_file(Reason, i, read_well) ! reports if everything read well
-!    if (.not. read_well) goto 2013
-!    Temp_char = '0'
-!    if (trim(adjustl(Temp_char)) .EQ. '0') then ! no gmuplot installed, no need to create scripts
-!       print*, 'No Gnuplot script will be created'
-!    else
-!       allocate(File_names%F(10))
-!       File_names%F(1) = Temp_char
-!       print*, 'Gnuplot scripts will be created, calling Gnuplot from'
-!       print*, trim(adjustl(File_names%F(1)))
-!    endif
    !------------------------------------------------------
    ! Read optional parameters:
    read_well = .true.   ! to start with
@@ -472,7 +460,7 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
    type(Flag), intent(inout) :: NumPar ! numerical parameters
    !------------------------------------
    character(100) :: text, text2, ch_temp
-   integer :: i, Reason
+   integer :: i, Reason, i_read
    logical :: read_well
 
    i = 0 ! to start with
@@ -485,6 +473,16 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
    endif
 
    select case (text)
+   case ('grid', 'GRID', 'Grid')
+      ! Try to read which file extension to use:
+      read(text_in, *, IOSTAT=Reason) text, i_read
+      call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
+      if (.not. read_well) then  ! by default, use old grid
+         NumPar%CS_method = -1
+      else ! useк provided grid index
+         NumPar%CS_method = i_read
+      endif
+
    case ('gnuplot', 'plot', 'gnu', 'GNUPLOT', 'PLOT', 'GNU')
       NumPar%do_gnuplot = .true. ! use gnuplot to create plots
 
@@ -772,6 +770,11 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
       ! Having all the atomic parameters, allocate CDFs:
       do j = 1, N  ! for each element
          Shl = size(Target_atoms(j)%Ip)
+
+         if (.not. allocated(Target_atoms(j)%Ritchi)) then
+            allocate(Target_atoms(j)%Ritchi(Shl)) ! allocate Ritchi-functions' coefficiants for each shell
+         endif
+
          do k = 1, Shl ! each shell
             Target_atoms(j)%KOCS_SHI(k) = 1 ! Mark SHI CDF cross section for this shell
             Target_atoms(j)%KOCS(k) = 1 ! Mark electron CDF cross section for this shell
@@ -779,7 +782,7 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
             if (.not. allocated(Target_atoms(j)%Ritchi(k)%E0)) allocate(Target_atoms(j)%Ritchi(k)%E0(1))
             if (.not. allocated(Target_atoms(j)%Ritchi(k)%A)) allocate(Target_atoms(j)%Ritchi(k)%A(1))
             if (.not. allocated(Target_atoms(j)%Ritchi(k)%Gamma)) allocate(Target_atoms(j)%Ritchi(k)%Gamma(1))
-            if (NumPar%kind_of_DR .EQ. 4) then
+            if (NumPar%kind_of_DR == 4) then
                if (.not. allocated(Target_atoms(j)%Ritchi(k)%alpha)) allocate(Target_atoms(j)%Ritchi(k)%alpha(1))
             endif
             !print*, 'spcdf', j, k, Target_atoms(j)%KOCS_SHI(k)
@@ -837,6 +840,14 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
          if (.not. allocated(Target_atoms(j)%Ritchi)) then
             allocate(Target_atoms(j)%Ritchi(Shl)) ! allocate Ritchi-functions' coefficiants for each shell
          endif
+
+         select case (NumPar%CS_method)
+         case (1)
+            if (.not. allocated(Target_atoms(j)%Int_diff_CS)) then
+               allocate(Target_atoms(j)%Int_diff_CS(Shl)) ! allocate table of integral of differential cross secion for each shell
+            endif
+         end select
+
 
          do k = 1, Shl ! read all the data for each shell:
             READ(FN2,*,IOSTAT=Reason) CDF_coef, Shl_num, Target_atoms(j)%Ip(k), Target_atoms(j)%Nel(k), Target_atoms(j)%Auger(k) ! number of CDF functions, shell-designator, ionization potential, number of electrons, Auger-time
@@ -1037,6 +1048,7 @@ subroutine copy_atomic_data_back(Target_atoms, Atoms_temp, Egap, N_e_VB, i, Nsiz
    deallocate(Target_atoms(i)%KOCS)
    deallocate(Target_atoms(i)%KOCS_SHI)
    if (allocated(Target_atoms(i)%Ritchi)) deallocate(Target_atoms(i)%Ritchi)
+   if (allocated(Target_atoms(i)%Int_diff_CS)) deallocate(Target_atoms(i)%Int_diff_CS)
 
    allocate(Target_atoms(i)%Shell_name(Shl)) ! allocate shell-names for each shell
    allocate(Target_atoms(i)%Shl_num(Shl)) ! allocate shell disignator for each shell
@@ -1049,6 +1061,7 @@ subroutine copy_atomic_data_back(Target_atoms, Atoms_temp, Egap, N_e_VB, i, Nsiz
    allocate(Target_atoms(i)%KOCS(Shl)) ! allocate kind of inelastic cross sections
    allocate(Target_atoms(i)%KOCS_SHI(Shl)) ! allocate kind of inelastic cross sections
    allocate(Target_atoms(i)%Ritchi(Shl)) ! allocate Ritchi-functions' coefficiants for each shell
+   allocate(Target_atoms(i)%Int_diff_CS(Shl)) ! allocate table of integral of differential cross secion for each shell
 
    Target_atoms(i)%Shell_name(1:Shl) = Atoms_temp(i)%Shell_name(1:Shl)
    Target_atoms(i)%Shl_num(1:Shl) = Atoms_temp(i)%Shl_num(1:Shl)
@@ -1108,6 +1121,7 @@ subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
       allocate(Atoms_temp(i)%KOCS(Shl)) ! allocate kind of inelastic cross sections
       allocate(Atoms_temp(i)%KOCS_SHI(Shl)) ! allocate kind of inelastic cross sections
       allocate(Atoms_temp(i)%Ritchi(Shl)) ! allocate Ritchi-functions' coefficiants for each shell
+      allocate(Atoms_temp(i)%Int_diff_CS(Shl)) ! allocate arrays of precalculated integrated diff.CS for each shell
 
       Atoms_temp(i)%Shell_name = Target_atoms(i)%Shell_name
       Atoms_temp(i)%Shl_num = Target_atoms(i)%Shl_num
@@ -1130,6 +1144,16 @@ subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
             Atoms_temp(i)%Ritchi(j)%E0 = Target_atoms(i)%Ritchi(j)%E0
             Atoms_temp(i)%Ritchi(j)%Gamma = Target_atoms(i)%Ritchi(j)%Gamma
             Atoms_temp(i)%Ritchi(j)%alpha = Target_atoms(i)%Ritchi(j)%alpha
+         enddo
+      endif
+      if (allocated(Target_atoms(i)%Int_diff_CS)) then ! allocate arrays of precalculated integrated diff.CS for each shell
+         do j = 1, size(Atoms_temp(i)%Int_diff_CS) ! all atoms
+            Atoms_temp(i)%Int_diff_CS(j)%E = Target_atoms(i)%Int_diff_CS(j)%E
+            if (allocated(Target_atoms(i)%Int_diff_CS(j)%dsdhw)) then   ! all shells
+               Nj = size(Target_atoms(i)%Int_diff_CS(j)%dsdhw)
+               allocate(Atoms_temp(i)%Int_diff_CS(j)%hw(Nj))
+               allocate(Atoms_temp(i)%Int_diff_CS(j)%dsdhw(Nj))
+            endif
          enddo
       endif
    enddo

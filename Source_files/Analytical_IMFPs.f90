@@ -91,7 +91,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                         Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names)
     character(100), intent(in) :: Output_path   ! path to the folder where the file is/will be stored
     character(100), intent(in) :: Material_name ! name of the material
-    type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
+    type(Atom), dimension(:), intent(inout), target :: Target_atoms  ! all data for target atoms
     type(CDF), intent(in), target, optional :: CDF_Phonon ! CDF parameters of a phonon peak if excist
     type(Solid), intent(inout) :: Matter ! all material parameters
     type(All_MFP), dimension(:), allocatable, intent(inout) :: Total_el_MFPs   ! electron mean free paths for all shells
@@ -130,7 +130,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         Emax = Maxval(Mat_DOS%E(:)) + 1.0d0 ! [eV] only within the width of VB (or a bit more, just in case...)
     else ! it's a photon
         Emax = 175.6d6*2.0d0/1836.0d0   ! [eV] excluding Bremsstrahlung, photon can't be more energetic than this
-    endif   
+    endif
 
     ! Make an energy grid for inelastic CS, taking into account finer resolution around ionization potentials:
     ! 1) For inelastic scttering grid:
@@ -191,6 +191,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
        endif
     enddo
     
+    !==============================
     kind_of_particle1:if (kind_of_particle .EQ. 'Electron') then
 
         write(temp_ch, '(f9.2)') Matter%temp
@@ -244,7 +245,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             !print*, 'IMFP file last modified on:', IMFP_last_modified
             if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
                 NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
-                print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+                print*, 'File with CDF was modified more recently than the electron MFP => recalculating MFP'
             endif
 
             ! Check if the file is consistent with the grid set:
@@ -252,7 +253,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
             if (Nsiz /= N) then
                 NumPar%redo_IMFP = .true. ! Grid mismatch, recalculate IMFPs
-                print*, 'Energy grid mismatch in MFP file => recalculating MFP'
+                print*, 'Energy grid mismatch in electron MFP file => recalculating MFP'
             endif
             close(FN)
         endif
@@ -269,6 +270,8 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             write(*, '(a)') trim(adjustl(Input_files))
             write(*, '(a)') ' '
         endif
+
+    !==============================
     else if (kind_of_particle .EQ. 'Hole') then
         FN = 202
         if (KCS .EQ. 'BEB') then ! BEB vs CDF cross section:
@@ -294,12 +297,41 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         Input_files = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char1))
         if (allocated(File_names%F)) File_names%F(3) = trim(adjustl(temp_char1)) ! save for later use
 
-        file_exist = .false.                !This file must be overwriten before each calculation.
-        call All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, kind_of_particle) ! calculate all IMFPs
-        open(FN, file=trim(adjustl(Input_files)))
-        write(*,'(a,a,a)') 'Calculated inelastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file'
-        write(*, '(a)') trim(adjustl(Input_files))
-        write(*, '(a)') ' '
+        !file_exist = .false.                !This file must be overwriten before each calculation.
+        inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
+        ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
+        if (file_exist) then
+            call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
+            !print*, 'IMFP file last modified on:', IMFP_last_modified
+            if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
+                print*, 'File with CDF was modified more recently than the hole MFP => recalculating MFP'
+            endif
+
+            ! Check if the file is consistent with the grid set:
+            open(FN, file=trim(adjustl(Input_files)), action='read')
+            call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
+            if (Nsiz /= N) then
+                NumPar%redo_IMFP = .true. ! Grid mismatch, recalculate IMFPs
+                print*, 'Energy grid mismatch in hole MFP file => recalculating MFP'
+            endif
+            close(FN)
+        endif
+
+        if (file_exist .and. .not.NumPar%redo_IMFP) then    ! read from the file:
+            write(*,'(a,a,a)') 'IMFPs of an electron in ', trim(adjustl(Material_name)), ' are already in the file:'
+            write(*, '(a)') trim(adjustl(Input_files))
+            write(*, '(a)') ' '
+            open(FN, file=trim(adjustl(Input_files)), action='read')
+        else    ! create and write to the file:
+            call All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, kind_of_particle) ! calculate all IMFPs
+            open(FN, file=trim(adjustl(Input_files)))
+            write(*,'(a,a,a)') 'Calculated inelastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file'
+            write(*, '(a)') trim(adjustl(Input_files))
+            write(*, '(a)') ' '
+        endif
+
+    !==============================
     else kind_of_particle1 ! photon
         !if (KCS .EQ. 'BEB') then ! BEB vs CDF cross section:
         if (.not.allocated(Target_atoms(1)%Ritchi(size(Target_atoms))%E0)) then ! no CDF known, use EPDL97 database:
@@ -332,14 +364,14 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             !print*, 'IMFP file last modified on:', IMFP_last_modified
             if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
                 NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
-                print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+                print*, 'File with CDF was modified more recently than the photon MFP => recalculating MFP'
             endif
             ! Check if the file is consistent with the grid set:
             open(newunit=FN, file=trim(adjustl(Input_files)), ACTION='READ')
             call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
             if (Nsiz /= N) then
                 NumPar%redo_IMFP = .true. ! Grid mismatch, recalculate IMFPs
-                print*, 'Energy grid mismatch in MFP file => recalculating MFP'
+                print*, 'Energy grid mismatch in photon MFP file => recalculating MFP'
             endif
             close(FN)
         endif
@@ -359,6 +391,8 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         endif
     endif kind_of_particle1
 
+
+   !===================================
    !Now write the output into the file:
    e_range = 0.0d0 ! start with the range calculations
    dEdx1 = 0.0d0
@@ -402,6 +436,8 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
    enddo
    flush(FN)
    NumPar%redo_IMFP = redo_MFP_default ! defualt it for the next kind of particle
+
+
 
    !######################### Now do the same for elastic mean free path of an electron and hole:
    kind_of_part2:if (kind_of_particle .EQ. 'Electron') then
@@ -538,7 +574,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                     call count_lines_in_file(FN2, Nsiz) ! module "Dealing_with_EADL"
                     if (Nsiz /= Nelast) then
                         NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
-                        print*, 'Energy grid mismatch in MFP file => recalculating MFP'
+                        print*, 'Energy grid mismatch in elastic electron MFP file => recalculating MFP'
                     endif
                     close(FN2)
                 endif
@@ -619,6 +655,8 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
             Elastic_MFP%Total%L(:) = 1.0d30
          endselect ! el_elastic_CS
+
+    !==============================
     else if (kind_of_particle .EQ. 'Hole') then
 !         write(temp_char, '(f7.2, a)') Matter%temp, '_K'
 !         Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Hole_EMFPs_'//trim(adjustl(temp_char))//'.dat'
@@ -693,12 +731,43 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 File_names%F(5) = trim(adjustl(temp_char2)) ! save for later use
             endif
             FN2 = 204
-            file_exist = .false.
-            call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
-            open(FN2, file=trim(adjustl(Input_elastic_file)))
-            write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file'
-            write(*, '(a)') trim(adjustl(Input_elastic_file))
-            write(*, '(a)') ' '
+            !file_exist = .false.
+            inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
+
+            ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
+            if (file_exist) then
+                call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
+                !print*, 'IMFP file last modified on:', IMFP_last_modified
+                if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                    NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                    print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+                endif
+                ! Check if the file is consistent with the grid set:
+                open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                call count_lines_in_file(FN2, Nsiz) ! module "Dealing_with_EADL"
+                !print*, 'Nelast', Nelast, Nsiz
+
+                if (Nsiz /= Nelast) then
+                    NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
+                    print*, 'Energy grid mismatch in hole elastic MFP file => recalculating MFP'
+                endif
+                close(FN2)
+            endif
+
+            if (file_exist .and. .not.NumPar%redo_EMFP) then    ! read from the file:
+                write(*,'(a,a,a)') 'Calculated with '//trim(adjustl(KCS(2:)))//' EMFPs of a hole in ', &
+                    trim(adjustl(Material_name)), ' are already in the file:'
+                write(*, '(a)') trim(adjustl(Input_elastic_file))
+                write(*, '(a)') ' '
+                open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+            else    ! create and write to the file:
+                call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
+                open(FN2, file=trim(adjustl(Input_elastic_file)))
+                write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file'
+                write(*, '(a)') trim(adjustl(Input_elastic_file))
+                write(*, '(a)') ' '
+            endif
+
          case (0) ! Mott cross-sections
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
 
@@ -722,7 +791,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 call count_lines_in_file(FN2, Nsiz) ! module "Dealing_with_EADL"
                 if (Nsiz /= Nelast) then
                     NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
-                    print*, 'Energy grid mismatch in MFP file => recalculating MFP'
+                    print*, 'Energy grid mismatch hole elastic  MFP file => recalculating MFP'
                 endif
                 close(FN2)
             endif
@@ -756,9 +825,12 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
          endselect
     endif kind_of_part2
     
-    ! Now write the elastic output into the file:
+
+    ! Now write the elastic output into (or read from) the file:
     if (kind_of_particle .NE. 'Photon') then
+
         select case (NumPar%kind_of_EMFP)
+
         case (2)    ! DSF: resolved emission vs absorption
          do i = 1, Nelast
            if (.not. file_exist .or. NumPar%redo_EMFP) then  ! if file didn't exist and we just created it:
@@ -770,6 +842,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
              if (.not. read_well) goto 2016
            endif
          enddo
+
         case default ! no resolution of emission vs absorption
          do i = 1, Nelast
            if (.not. file_exist .or. NumPar%redo_EMFP) then  ! if file didn't exist and we just created it:
@@ -785,6 +858,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     endif
     NumPar%redo_EMFP = .false. ! default it for the next kind of particles
     
+
     !rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
     ! And only in this case calculate the electron (or hole) range:
     if (do_range) then
@@ -848,6 +922,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     endif
     !rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
     
+
     ! Calculating hole diffusion coefficients:
     if ((kind_of_particle .EQ. 'Hole') .AND. (Matter%Hole_mass .LT. 1.0d5)) then
         open(333, File = trim(adjustl(Output_path))//'/Hole_selfdiffusion_coeff_in_'//trim(adjustl(Material_name))//'.dat')
@@ -1041,7 +1116,7 @@ end subroutine All_elastic_scattering
 ! Forms all IMFPs for all shells of all atoms, parallelized with openmp
 subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, kind_of_particle)
     integer, intent(in) :: N  ! number of energy points
-    type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
+    type(Atom), dimension(:), intent(inout), target :: Target_atoms  ! all data for target atoms
     type(All_MFP), dimension(:), allocatable, intent(inout) :: Total_el_MFPs   ! electron mean free paths for all shells
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Solid), intent(in) :: Matter ! properties of material
@@ -1169,7 +1244,7 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
     integer N, Ord, Va, IMFP_last_modified, Nsiz
     integer i, j, k, Nat, Nshl, FN, FN2, FN3
     character(100) Input_files, Input_files11, Input_files2, Input_files3, Path_name, command, charge_name, charge_kind, CS_name, ch_temp
-    logical file_exist, file_exist2
+    logical file_exist, file_exist2, file_exist3, file_exist4, all_files_exist
     !------------------------------
 
     read_well = .true.  ! so far so good
@@ -1264,6 +1339,14 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
     endif
 
     inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
+    inquire(file=trim(adjustl(Input_files2)),exist=file_exist2)    ! check if input file excists
+    inquire(file=trim(adjustl(Input_files11)),exist=file_exist3)    ! check if input file excists
+    inquire(file=trim(adjustl(Input_files3)),exist=file_exist4)    ! check if input file excists
+    if (file_exist .and. file_exist2 .and. file_exist3 .and. file_exist4) then ! all needed files exist
+        all_files_exist = .true.
+    else ! not all needed files exist
+        all_files_exist = .false.
+    endif
 
     ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
     if (file_exist) then
@@ -1271,7 +1354,7 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
         !print*, 'IMFP file last modified on:', IMFP_last_modified
         if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
             NumPar%redo_IMFP_SHI = .true. ! Material parameters changed, recalculate IMFPs
-            print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+            print*, 'File with CDF was modified more recently than the SHI MFP => recalculating MFP'
         endif
         ! Check if the file is consistent with the grid set:
         FN = 200
@@ -1279,12 +1362,12 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
         call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
         if (Nsiz /= N) then
             NumPar%redo_IMFP_SHI = .true. ! Grid mismatch, recalculate IMFPs
-            print*, 'Energy grid mismatch in MFP file => recalculating MFP'
+            print*, 'Energy grid mismatch in SHI MFP file => recalculating MFP'
         endif
         close(FN)
     endif
 
-    if (file_exist .and. .not.NumPar%redo_IMFP_SHI) then
+    if (all_files_exist .and. .not.NumPar%redo_IMFP_SHI) then
         write(*,'(a,a,a,a,a)') 'IMFP and dEdx of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' are already in the files:'
         write(*, '(a,a,a)') trim(adjustl(Input_files)), ' and ', trim(adjustl(Input_files2))
         write(*, '(a)') ' ' 

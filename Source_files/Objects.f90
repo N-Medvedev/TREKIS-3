@@ -139,6 +139,8 @@ type :: Flag
     real(8) :: Zout_dz
     ! Time grid:
     real(8), dimension(:), allocatable :: time_grid ! grid_points in time
+    ! Which method of diff.cross section calculation to use:
+    integer :: CS_method    ! CS energy integration grid: -1=old; 0=new; 1=save-files
 end type Flag
 !==============================================
 
@@ -192,6 +194,15 @@ type :: CDF ! parameters entering Ritchi-CDF:
 end type CDF
 !==============================================
 
+!==============================================
+! Precalculated differential cross section:
+type diff_CS
+   real(8) :: E
+   real(8), dimension(:), allocatable :: dsdhw
+   real(8), dimension(:), allocatable :: hw
+end type diff_CS
+!==============================================
+
 
 !==============================================
 ! Target atom as an object:
@@ -209,10 +220,11 @@ type :: Atom ! atom as an object contains the following info:
    real(8), dimension(:), allocatable :: Ek ! [eV] average kinetic energy of all shells (from EADL)
    real(8), dimension(:), allocatable :: Auger  ! [fs] auger-decay time for all shells
    real(8), dimension(:), allocatable :: Radiat ! [fs] radiative-decay time for all shells
-   class(CDF), dimension(:), allocatable :: Ritchi  ! Ritchi CDF defined for each shell
+   type(CDF), dimension(:), allocatable :: Ritchi  ! Ritchi CDF defined for each shell
    integer, dimension(:), allocatable :: PQN   ! principal quantum number of this shell
    integer, dimension(:), allocatable :: KOCS  ! Kind of cross section for electrons and holes (0=CDF, 1=BEB, ...)
    integer, dimension(:), allocatable :: KOCS_SHI  ! Kind of cross section for SHI (0=CDF, 1=BEB, ...)
+   type(diff_CS), dimension(:), allocatable :: Int_diff_CS  ! table of integral of differential cross secion for each shell
 end type Atom
 !==============================================
 
@@ -253,14 +265,6 @@ type Cylinder_distr
 end type Cylinder_distr
 !==============================================
 
-
-!==============================================
-! Differential cross section:
-type El_CS
-   real(8) :: E
-   real(8), dimension(:), allocatable :: dsdhw
-   real(8), dimension(:), allocatable :: hw
-end type El_CS
 
 
 !==============================================

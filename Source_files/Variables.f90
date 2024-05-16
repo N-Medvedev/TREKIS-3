@@ -15,17 +15,16 @@ type(Error_handling) Error_message	! error messages are dealed with as objects
 type(All_names) :: File_names   ! all file names for printing out stuff
 type(Atom), dimension(:), allocatable :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
 type(Ion) :: SHI   ! declare SHI as an object with atributes "Ion"
-type(All_MFP), dimension(:), allocatable, target :: Total_el_MFPs   ! electron mean free paths for all shells
-type(All_MFP), dimension(:), allocatable, target :: Total_Hole_MFPs ! hole mean free paths for all shells
-type(All_MFP), dimension(:), allocatable, target :: Total_Photon_MFPs   ! photon mean free paths for all shells
+type(All_MFP), dimension(:), allocatable :: Total_el_MFPs   ! electron mean free paths for all shells
+type(All_MFP), dimension(:), allocatable :: Total_Hole_MFPs ! hole mean free paths for all shells
+type(All_MFP), dimension(:), allocatable :: Total_Photon_MFPs   ! photon mean free paths for all shells
 
-type(All_MFP), dimension(:), allocatable, target :: SHI_MFP         ! SHI mean free paths for all shells
-type(All_MFP), dimension(:), allocatable, target :: diff_SHI_MFP    ! SHI differential mean free paths for all shells
+type(All_MFP), dimension(:), allocatable :: SHI_MFP         ! SHI mean free paths for all shells
+type(All_MFP), dimension(:), allocatable :: diff_SHI_MFP    ! SHI differential mean free paths for all shells
 type(CDF) :: CDF_Phonon ! declare CDF for phonons
-!type(MFP), target :: Elastic_MFP         ! elastic mean free path of an electron
-!type(MFP), target :: Elastic_Hole_MFP    ! elastic mean free path of a hole
-type(MFP_elastic), target :: Elastic_MFP         ! elastic mean free path of an electron
-type(MFP_elastic), target :: Elastic_Hole_MFP    ! elastic mean free path of a hole
+type(MFP_elastic) :: Elastic_MFP         ! elastic mean free path of an electron
+type(MFP_elastic) :: Elastic_Hole_MFP    ! elastic mean free path of a hole
+type(diff_CS), dimension(:), allocatable :: Int_diff_CS_phonon  ! table of integral of differential cross secion for phonons
 
 type(Solid) :: Matter   ! all material parameters
 type(Density_of_states) :: Mat_DOS  ! material DOS
@@ -94,6 +93,8 @@ real(8), dimension(:), allocatable :: Out_diff_coeff
 character(100), parameter :: dashline = '--------------------------------------------------------'
 character(100), parameter :: starline = '********************************************************'
 !-----------------------------------------------
+
+
 contains
 
 subroutine get_path_separator(path_sep, Error_message, read_well)

@@ -1298,7 +1298,7 @@ subroutine SHI_energy_transfer(SHI_loc, MFP_Object, Target_atoms, Matter, Mat_DO
         
         E_cur = Target_atoms(Nat_cur)%Ip(Nshl_cur)  ! exactly ionization potential [eV]
         ! find the closest value in the precalculated array of energy losses:
-        call Find_in_array_monoton(MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E, Target_atoms(Nat_cur)%Ip(Nshl_cur), M_temp)
+        call Find_in_array_monoton(MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E, Target_atoms(Nat_cur)%Ip(Nshl_cur), M_temp) ! "Reading_files_and_parameters"
         if (M_temp .GT. 1) then
             call Interpolate(5, MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp-1), &
                 MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp), MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp-1), &
@@ -1323,7 +1323,7 @@ subroutine SHI_energy_transfer(SHI_loc, MFP_Object, Target_atoms, Matter, Mat_DO
             dE = Target_atoms(Nat_cur)%Ip(Nshl_cur)  ! [eV]
         endif
         
-    case default ! BEB cross section:
+    case default ! BEB cross section (NOT WORKING FOR SHI!):
         call SHI_TotIMFP(SHI_loc, Target_atoms, Nat_cur, Nshl_cur, dL, dEdx, Matter, Mat_DOS, NumPar) ! get total MFP; from module "Cross_sections"
         call random_number(RN)
         dL = dL/RN   ! [A] sampled MFP

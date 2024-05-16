@@ -17,6 +17,13 @@ real(8) :: m_Thom_factor, m_five_sixteenth
 real(8), parameter :: m_two_third = 2.0d0/3.0d0
 real(8), parameter :: m_Pi_6 = (g_Pi/6.0d0)**(1.0d0/3.0d0)
 
+! number of energy grid points for integration of CDF-cross sections:
+integer, parameter :: m_N_grid_SHI = 1000
+integer, parameter :: m_N_p_grid_SHI = 100
+integer, parameter :: m_N_grid_e_inelast = 100
+integer, parameter :: m_N_grid_e_elast = 200
+
+
 parameter (m_Thom_factor = 20.6074224164d0)        ! [1] Constant for Eq.(2.5)
 parameter (m_five_sixteenth = 5.0d0/16.0d0)
 
@@ -862,17 +869,19 @@ end subroutine Tot_Phot_IMFP
 
 subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, NumPar, kind_of_particle)
     real(8), intent(in) :: Ele  ! electron energy [eV]
-    type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
+    type(Atom), dimension(:), intent(inout), target :: Target_atoms  ! all data for target atoms
     integer, intent(in) :: Nat, Nshl    ! number of atom, number of shell
     real(8), intent(out) :: Sigma, dEdx   ! calculated inverse mean free path (cross-section) [1/A], and the energy losses [eV/A]
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Solid), intent(in) :: Matter ! properties of material
     type(Flag), intent(in) :: NumPar
     character(8), intent(in) :: kind_of_particle
-       
-    integer i, j, n, Mnum
-    real(8) Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, temp1, temp2, Eplasmon, Egap, Mass
+    !----------------------
+    integer :: i, j, n, Mnum, Nsiz
+    real(8) :: Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, temp1, temp2, Eplasmon, Egap, Mass
+    real(8) :: E_low, E_high
     
+
     Emin = Target_atoms(Nat)%Ip(Nshl)   ! [eV] ionization potential of the shell is minimum possible transferred energy
     Egap = Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))   ! band gap [eV]
     if (Emin .LE. 1.0d-3) Emin = 1.0d-3 ! for metals there is no band gap
@@ -902,7 +911,33 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
             if (Ele .LT. Emax) Emax = Ele ! no more than the total electron energy
         endif
     endif
-    
+
+    select case (NumPar%CS_method)
+    case (-1)  ! Old integration grid
+      n = 20*(MAX(INT(Emin),10))    ! number of integration steps
+      Nsiz = get_diff_CS_grid_size(NumPar%CS_method, n, Emin, Emax) ! below OLD
+    case default  ! new integartion grid
+      n = m_N_grid_e_inelast ! number defining number of integration steps in intervals
+      ! Define the interval of integration where the peak are (requires fined grid):
+      E_low = max( minval(Target_atoms(Nat)%Ritchi(Nshl)%E0 - 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emin )
+      E_high = min( maxval(Target_atoms(Nat)%Ritchi(Nshl)%E0 + 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emax )
+      Nsiz = get_diff_CS_grid_size(NumPar%CS_method, n, Emin, Emax, E0_min=E_low, E0_max=E_high) ! below
+    end select
+
+
+    ! If the tabulated integrated differential CS are to be saved, allocate arrays:
+    select case (NumPar%CS_method)
+    case (1)
+      if (.not.allocated(Target_atoms(Nat)%Int_diff_CS(Nshl)%hw)) then
+         allocate(Target_atoms(Nat)%Int_diff_CS(Nshl)%hw(Nsiz))
+      endif
+
+      if (.not.allocated(Target_atoms(Nat)%Int_diff_CS(Nshl)%dsdhw)) then
+         allocate(Target_atoms(Nat)%Int_diff_CS(Nshl)%dsdhw(Nsiz))
+      endif
+    end select
+
+
     select case (Target_atoms(Nat)%KOCS(Nshl)) ! which inelastic cross section to use (BEB vs CDF):
     case (1) ! CDF cross section
       DLTA:if (NumPar%kind_of_DR == 4) then  ! Delta-CDF
@@ -911,16 +946,20 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
        Sigma = MFP_from_sigma(Sigma, Matter%At_Dens)   ! [A] below
        dEdx = energy_loss_delta(Ele, g_me, 1.0d0, Emin, Matter%At_Dens, g_me, Target_atoms(Nat)%Ritchi(Nshl), .true.) ! [eV/A] below
       else DLTA  ! Ritchie-CDF:
-       n = 20*(MAX(INT(Emin),10))    ! number of integration steps
-       dE = (Emax - Emin)/(real(n)) ! differential of transferred momentum [kg*m/s]
-       i = 1       ! to start integration
+
+       i = 0       ! to start integration
        E = Emin    ! to start integration
+       !dE = (Emax - Emin)/(real(n)) ! differential of transferred energy [eV]
+
        Ltot1 = 0.0d0
        Ltot0 = 0.0d0
        call Diff_cross_section(Ele, E, Target_atoms, Nat, Nshl, Ltot0, Mass, Matter, Mat_DOS, NumPar)
        ddEdx = 0.0d0
        do while (E .LE. Emax) ! integration
-          dE = (1.0d0/(E+1.0d0) + E)/real(n)
+          i = i + 1
+          !dE = (1.0d0/(E+1.0d0) + E)/real(n)
+          dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low, E0_max=E_high)   ! below
+
           ! If it's Simpson integration:
           a =  E + dE/2.0d0
           call Diff_cross_section(Ele, a, Target_atoms, Nat, Nshl, dL, Mass, Matter, Mat_DOS, NumPar)
@@ -935,6 +974,10 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
           ddEdx = ddEdx + E*temp2
           Ltot0 = dL
           E = E + dE  ! [eV]
+
+          !print*, 'a', Ele, i, Nsiz, dE, (1.0d0/(E+1.0d0) + E)/real(n)
+          !print*, 'min', E_low, Emin
+          !print*, 'max', E_high, Emax
        enddo
 !        if (Ele == 1.0d4) then
 !           print*, 'Ele', Ele
@@ -956,7 +999,81 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
        ddEdx = dSigma_w_int_BEB(Ele, (Ele-1.0d0)/2.0d0, Target_atoms(Nat)%Ip(Nshl), Target_atoms(Nat)%Ek(Nshl), Target_atoms(Nat)%Nel(Nshl)) ! cross section integrated with energy [A^2*eV]
        dEdx = Mass*temp1*ddEdx ! energy losses [eV/A]
     end select
+
+    !pause 'TotIMFP'
 end subroutine TotIMFP
+
+
+pure function get_diff_CS_grid_size(CS_method, n, Emin, Emax, E0_min, E0_max) result(Nsiz)
+   integer Nsiz
+   integer, intent(in) :: CS_method, n ! integration grid index; number of grid points
+   real(8), intent(in) :: Emin, Emax
+   real(8), intent(in), optional :: E0_min, E0_max
+   !------------------
+   real(8) :: E, dE
+   integer :: i
+
+   E = Emin    ! to start integration
+   i = 0
+   do while (E .LE. Emax) ! integration
+      i = i + 1
+
+      !dE = (1.0d0/(E+1.0d0) + E)/real(n)
+      if ( present(E0_min) .and. present(E0_max) ) then
+         dE = define_dE(CS_method, n, E, E0_min=E0_min, E0_max=E0_max)   ! below
+
+      elseif (present(E0_min)) then
+         dE = define_dE(CS_method, n, E, E0_min=E0_min)   ! below
+
+      elseif (present(E0_max)) then
+         dE = define_dE(CS_method, n, E, E0_max=E0_max)   ! below
+
+      else
+         dE = define_dE(CS_method, n, E) ! below
+
+      endif
+
+      E = E + dE  ! [eV]
+   enddo
+
+   Nsiz = i
+end function get_diff_CS_grid_size
+
+
+
+pure function define_dE(CS_method, n, E, E0_min, E0_max) result(dE)
+   real(8) dE
+   integer, intent(in) :: CS_method, n ! integration grid index; number of grid points
+   real(8), intent(in) :: E
+   real(8), intent(in), optional :: E0_min, E0_max ! both must be present for NEW grid
+   !-----------------------
+   real(8) :: dE_min
+
+   dE_min = 0.001d0   ! [eV] step smaller than this is not allowed
+
+   select case (CS_method)
+   case (-1)   ! Old default
+      dE = (1.0d0/(E+1.0d0) + E)/dble(n)
+
+   case default ! new integration grid
+      if ( (present(E0_min)) .and. (present(E0_max)) ) then
+         if ( (E > E0_min) .and. (E < E0_max) ) then   ! fine grid in the interval
+            dE = (E0_max - E0_min)/dble(n)
+         elseif (E > E0_max) then ! high-energy - too far from the peak, no need for fine resolution
+            dE = E/dble(n)
+         else ! low energy - too far from the peak, no need for fine resolution (usually unused, but anyway...)
+            dE = (E-E0_min)/dble(n) ! step not smaller than this
+         endif
+
+      else ! use old grid
+         dE = (1.0d0/(E+1.0d0) + E)/dble(n)  ! start with old, if there are no parameters for the new
+      endif
+   end select
+
+   dE = max(dE, dE_min)  ! step not smaller than this
+end function define_dE
+
+
 
 
 pure function MFP_from_sigma(sigma, nat) result(lambda)
@@ -1425,15 +1542,27 @@ subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Ma
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Flag), intent(in) :: NumPar
     real(8), intent(in) :: Mass, Emin, Emax ! electron/hole mass; min and max energies for integration
-    real(8) L_cur, Ltot0, Ltot1, a, b, temp1, temp2, dE, dL
+    !---------------------
+    real(8) L_cur, Ltot0, Ltot1, a, b, temp1, temp2, dE, dL, E_low, E_high
     integer n, i
 
     
  if (NumPar%kind_of_DR .EQ. 4) then    ! Delta-CDF
     E = get_inelastic_energy_transfer(Ele, Matter, Target_atoms, numpar, Nat, Nshl, Emin)  ! below
  else
-    n = 10*(MAX(INT(Emin),10))    ! number of integration steps
-    dE = (Emax - Emin)/(real(n)) ! differential of transferred momentum [kg*m/s]
+
+    select case (NumPar%CS_method)
+    case (-1)  ! Old integration grid
+      n = 10*(MAX(INT(Emin),10))    ! number of integration steps
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax) ! below OLD
+    case default  ! new integartion grid
+      n = m_N_grid_e_inelast ! number defining number of integration steps in intervals
+      ! Define the interval of integration where the peak are (requires fined grid):
+      E_low = max( minval(Target_atoms(Nat)%Ritchi(Nshl)%E0 - 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emin )
+      E_high = min( maxval(Target_atoms(Nat)%Ritchi(Nshl)%E0 + 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emax )
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax, E0_min=E_low, E0_max=E_high) ! below
+    end select
+
     i = 1       ! to start integration
     E = Emin    ! to start integration
     Ltot1 = 0.0d0
@@ -1443,7 +1572,10 @@ subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Ma
     !ddEdx = 0.0d0
 
     do while (L_cur .GT. L_need)
-        dE = (1.0d0/(E+1.0d0) + E)/real(n)
+        !dE = (1.0d0/(E+1.0d0) + E)/real(n)
+        !dE = define_dE(n, E)   ! below OLD
+        dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low, E0_max=E_high)   ! below
+
         ! If it's Simpson integration:
         a =  E + dE/2.0d0
         call Diff_cross_section(Ele, a, Target_atoms, Nat, Nshl, dL, Mass, Matter, Mat_DOS, NumPar)
@@ -1662,7 +1794,9 @@ subroutine Diff_cross_section(Ele, hw, Target_atoms, Nat, Nshl, Diff_IMFP, Mass,
     
     dLs = 0.0d0 ! starting integration, mean free path per energy [A/eV]^(-1)
     hq = qmin    ! transient transferred momentum for integration [kg*m/s]
-    n = 100
+    !n = 100 ! number of grid points in momentum integration OLD
+    n = m_N_p_grid_SHI
+
     dq = (qmax - qmin)/real(n) ! differential of transferred momentum [kg*m/s]
     dLs0 = 0.0d0
     do while (hq .LT. qmax) ! no matter how many points, go till the end
@@ -1707,10 +1841,10 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     type(Flag), intent(in) :: NumPar
     type(Density_of_states), intent(in) :: Mat_DOS
     character(8), intent(in) :: kind_of_particle
-    
+    !---------------------
     integer i, j, n, Mnum
     real(8) Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, RN, temp1, temp2, qdebay, Edebay, Mtarget, L_cur, L_need, Mass
-    real(8) :: Zt, Zeff
+    real(8) :: Zt, Zeff, E_low, E_high
     real(8), pointer :: Ee
     
     call random_number(RN)
@@ -1751,7 +1885,17 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     if (Edebay .GE. Emax) Emax = Edebay ! single atom vs phonon
     if (Ee .LT. Emax) Emax = Ee ! no more than the total electron energy
 
-    n = 10*(MAX(INT(Emin),10))    ! number of integration steps
+    select case (NumPar%CS_method)
+    case (-1)  ! Old integration grid
+      n = 10*(MAX(INT(Emin),10))    ! number of integration steps
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax) ! below OLD
+    case default  ! new integartion grid
+      n = m_N_grid_e_elast ! NEW
+      E_low = max( minval(CDF_Phonon%E0 - 5.0d0*CDF_Phonon%Gamma) , Emin )
+      E_high = min( maxval(CDF_Phonon%E0 + 5.0d0*CDF_Phonon%Gamma) , Emax )
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax, E0_min=E_low, E0_max=E_high) ! below
+    end select
+
     dE = (Emax - Emin)/(real(n)) ! differential of transferred energy
     i = 1       ! to start integration
     E = Emin    ! to start integration
@@ -1761,7 +1905,10 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     call Diff_cross_section_phonon(Ele, E, NumPar, Matter, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS)  ! below
     ddEdx = 0.0e0
     do while (L_cur .GT. L_need)
-        dE = (1.0d0/(E+1.0d0) + E)/real(n)
+        !dE = (1.0d0/(E+1.0d0) + E)/real(n)
+        !dE = define_dE(n, E)   ! below OLD
+        dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low, E0_max=E_high)   ! below
+
         ! If it's Simpson integration:
         a =  E + dE/2.0d0
         call Diff_cross_section_phonon(Ele, a, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS) ! below
@@ -1816,10 +1963,10 @@ subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DO
     type(Solid), intent(in) :: Matter
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Flag), intent(in) :: NumPar
-    
+    !----------------
     integer i, j, i0, j0, k0, n, n0, Nmax
     real(8) Emin, Emax, E, E0, dE, dL, Ltot1, Ltot0, ddEdx, a, b, temp1, temp2, MSHI, Zeff
-    real(8) Egap, Eplasmon
+    real(8) Egap, Eplasmon, E_low, E_high, E_low0, E_high0
     
     call Equilibrium_charge_SHI(SHI, Target_atoms)  ! get Barcas' equilibrium charge from module Cross_sections
     Ele = SHI%E  ! energy of the particle [eV]
@@ -1839,23 +1986,49 @@ subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DO
     endif 
     
     Nmax = 50
-    n = 10*(MAX(INT(Emin),Nmax))    ! number of integration steps
     i = 0       ! to start integration
     E = Emin    ! to start integration
-    
+
+
+    select case (NumPar%CS_method)
+    case (-1)  ! Old integration grid
+      n = 10*(MAX(INT(Emin),Nmax))    ! number of integration steps OLD
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax) ! below OLD
+    case default  ! new integartion grid
+      n = m_N_grid_SHI ! number defining number of integration steps in intervals
+      ! Define the interval of integration where the peak are (requires fined grid):
+      E_low = max( minval(Target_atoms(Nat)%Ritchi(Nshl)%E0 - 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emin )
+      E_high = min( maxval(Target_atoms(Nat)%Ritchi(Nshl)%E0 + 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emax )
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax, E0_min=E_low, E0_max=E_high) ! below
+    end select
+
+
+    ! Allocate arrays, if required:
     loss_f:if (present(dSedE)) then    ! first, count how many lines:
         if (.not. allocated(dSedE)) then
             allocate(dSedE(size(Target_atoms))) ! nmumber of atoms
             do i0 = 1, size(Target_atoms)   ! number of atoms
-                allocate(dSedE(i0)%ELMFP(size(Target_atoms(i0)%Ip))) ! number of atoms
+                allocate(dSedE(i0)%ELMFP(size(Target_atoms(i0)%Ip))) ! number of shells
                 do j0 = 1, size(Target_atoms(i0)%Ip) ! number of shells
-                    n0 = 10*(MAX(INT(Target_atoms(i0)%Ip(j0)),Nmax))
+
                     E0 = Target_atoms(i0)%Ip(j0)    ! [eV] to start counting
-                    dE = (Emax - E0)/real(n0) ! differential of transferred momentum [kg*m/s]
+
+                    select case (NumPar%CS_method)
+                    case (-1)  ! Old integration grid
+                        n0 = 10*(MAX(INT(Target_atoms(i0)%Ip(j0)),Nmax)) ! OLD
+                    case default  ! new integartion grid
+                        n0 = m_N_grid_SHI
+                        ! Define the interval of integration where the peak are (requires fined grid):
+                        E_low0 = max( minval(Target_atoms(i0)%Ritchi(j0)%E0 - 5.0d0*Target_atoms(i0)%Ritchi(j0)%Gamma) , E0 )
+                        E_high0 = min( maxval(Target_atoms(i0)%Ritchi(j0)%E0 + 5.0d0*Target_atoms(i0)%Ritchi(j0)%Gamma) , Emax )
+                    end select
+
+                    !dE = (Emax - E0)/real(n0) ! differential of transferred energy
                     k0 = 0
                     do while (E0 .LE. Emax) ! integration
                         k0 = k0 + 1
-                        dE = (1.0d0/(E0+1.0d0) + E0)/real(n0)
+                        !dE = (1.0d0/(E0+1.0d0) + E0)/real(n0)
+                        dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low0, E0_max=E_high0)   ! below
                         E0 = E0 + dE  ! [eV]
                     enddo
                     allocate(dSedE(i0)%ELMFP(j0)%E(k0))
@@ -1866,9 +2039,10 @@ subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DO
                     dSedE(i0)%ELMFP(j0)%dEdx = 0.0d0
                 enddo
             enddo
-            dE = (Emax - Emin)/(real(n)) ! differential of transferred momentum [kg*m/s]
+            !dE = (Emax - Emin)/(real(n)) ! differential of transferred momentum [kg*m/s]
         endif
     endif loss_f
+
 
     select case (Target_atoms(Nat)%KOCS_SHI(Nshl)) ! which inelastic cross section to use (BEB vs CDF):
     case (1) ! CDF cross section
@@ -1881,7 +2055,10 @@ subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DO
           if (present(dSedE)) then
              if (i > size(dSedE(Nat)%ELMFP(Nshl)%E)) exit
           endif
-          dE = (1.0d0/(E+1.0d0) + E)/real(n)
+          !dE = (1.0d0/(E+1.0d0) + E)/real(n)
+          !dE = define_dE(n, E)   ! below OLD
+          dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low, E0_max=E_high)   ! below
+
           ! If it's Simpson integration:
           a =  E + dE/2.0d0
           call SHI_Diff_cross_section(Ele, MSHI, Emax, a, Target_atoms, Nat, Nshl, dL, Matter, Mat_DOS, NumPar)
@@ -1903,6 +2080,7 @@ subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DO
        Sigma = 1.0d0/(g_Pi*g_a0*Ele)*MSHI/g_me*Zeff*Zeff*Ltot1     ! [1/A]
        if (Sigma > 1d30) Sigma = 1d30 ! get rid of infinities
        dEdx =  1.0d0/(g_Pi*g_a0*Ele)*MSHI/g_me*Zeff*Zeff*ddEdx     ! energy losses [eV/A]
+
     case default ! BEB cross section:
        Sigma = Sigma_BEB_SHI(Ele, Emax, Target_atoms(Nat)%Ip(Nshl),Target_atoms(Nat)%Ek(Nshl),Target_atoms(Nat)%Nel(Nshl), MSHI, Zeff) ! [A^2] cross section
        temp1 = Matter%At_Dens*1d-24*(Target_atoms(Nat)%Pers)/SUM(Target_atoms(:)%Pers)
@@ -2033,7 +2211,7 @@ subroutine SHI_Diff_cross_section(Ele, MSHI, Emax, hw, Target_atoms, Nat, Nshl, 
 
     dLs = 0.0e0 ! starting integration, mean free path per energy [A/eV]^(-1)
     hq = qmin    ! transient transferred momentum for integration [sqrt(eV/J) /m] (not [kg*m/s])
-    n = 100
+    n = 100 ! number of grid points in momentum space
     !n = 200
     dq = (qmax - qmin)/real(n) ! differential of transferred momentum [kg*m/s]
     dLs0 = 0.0e0
@@ -2070,14 +2248,14 @@ subroutine SHI_TotIMFP_BK(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat
     type(Solid), intent(in) :: Matter
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Flag), intent(in) :: NumPar
-    
+    !----------------
     real(8) :: Ele      ! energy [eV]    
     real(8) :: M_SHI    ! atomic mass of SHI
     real(8) :: Z_SHI    ! nuclear charge of SHI
     
     integer i, j, n
     real(8) Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, temp1, temp2, MSHI, Zeff
-    real(8) Egap, Eplasmon
+    real(8) Egap, Eplasmon, E_low, E_high
     
     call Equilibrium_charge_SHI(SHI, Target_atoms)  ! get Barcas' equilibrium charge from module Cross_sections
     Ele = SHI%E  ! energy of the particle [eV]
@@ -2096,7 +2274,20 @@ subroutine SHI_TotIMFP_BK(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat
         endif
     endif 
     
-    n = 10*(MAX(INT(Emin),10))    ! number of integration steps
+
+    select case (NumPar%CS_method)
+    case (-1)  ! Old integration grid
+      n = 10*(MAX(INT(Emin),10))    ! number of integration steps OLD
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax) ! below OLD
+    case default  ! new integartion grid
+      n = m_N_grid_SHI ! number defining number of integration steps in intervals
+      ! Define the interval of integration where the peak are (requires fined grid):
+      E_low = max( minval(Target_atoms(Nat)%Ritchi(Nshl)%E0 - 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emin )
+      E_high = min( maxval(Target_atoms(Nat)%Ritchi(Nshl)%E0 + 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emax )
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax, E0_min=E_low, E0_max=E_high) ! below
+    end select
+
+
     dE = (Emax - Emin)/(real(n)) ! differential of transferred momentum [kg*m/s]
     i = 1       ! to start integration
     E = Emin    ! to start integration
@@ -2105,7 +2296,10 @@ subroutine SHI_TotIMFP_BK(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat
     call SHI_Diff_cross_section_BK(SHI, Emax, E, Target_atoms, Nat, Nshl, Ltot0, Matter, Mat_DOS, NumPar)
     ddEdx = 0.0e0
     do while (E .LE. Emax) ! integration
-        dE = (1.0d0/(E+1.0d0) + E)/real(n)
+        !dE = (1.0d0/(E+1.0d0) + E)/real(n)
+        !dE = define_dE(n, E)   ! below OLD
+        dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low, E0_max=E_high)   ! below
+
         ! If it's Simpson integration:
         a =  E + dE/2.0e0
         call SHI_Diff_cross_section_BK(SHI, Emax, a, Target_atoms, Nat, Nshl, dL, Matter, Mat_DOS, NumPar)
@@ -2152,7 +2346,9 @@ subroutine SHI_Diff_cross_section_BK(SHI, Emax, hw, Target_atoms, Nat, Nshl, Dif
 
     dLs = 0.0d0 ! starting integration, mean free path per energy [A/eV]^(-1)
     hq = qmin    ! transient transferred momentum for integration [kg*m/s]
-    n = 100
+    !n = 100 ! number of grid points in momentum space OLD
+    n = m_N_p_grid_SHI
+
     dq = (qmax - qmin)/real(n) ! differential of transferred momentum [kg*m/s]
     dLs0 = 0.0d0
     do while (hq .LT. qmax) ! no matter how many points, go till the end
@@ -2267,7 +2463,7 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
     real(8), dimension(:), allocatable, intent(inout), optional :: d_hw  ! d hw [eV]
     !--------------------
     integer :: i, j, n, Mnum
-    real(8) :: Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx
+    real(8) :: Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, E_low, E_high
     real(8) :: a, b, temp1, temp2, qdebay, Edebay, Mtarget, Mass, pref
     real(8), pointer :: Ee
 
@@ -2305,8 +2501,19 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
     if (Ee .LT. Emax) Emax = Ee ! no more than the total electron energy
     Emax = pref * Emax  ! if user defined some prefactor (e.g. negatve for phonon absorption)
 
-    n = 20*(MAX(INT(Emin),10))    ! number of integration steps
-    dE = (Emax - Emin)/(dble(n)) ! differential of transferred energy
+    select case (NumPar%CS_method)
+    case (-1)  ! Old integration grid
+      n = 20*(MAX(INT(Emin),10))    ! number of integration steps OLD
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax) ! below OLD
+    case default  ! new integartion grid
+      n = m_N_grid_e_elast ! NEW
+      ! Define the interval of integration where the peak are (requires fined grid):
+      E_low = max( minval(CDF_Phonon%E0 - 5.0d0*CDF_Phonon%Gamma) , Emin )
+      E_high = min( maxval(CDF_Phonon%E0 + 5.0d0*CDF_Phonon%Gamma) , Emax )
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax, E0_min=E_low, E0_max=E_high) ! below
+    end select
+
+    !dE = (Emax - Emin)/(dble(n)) ! differential of transferred energy
     i = 0       ! to start integration
     E = Emin    ! to start integration
     Ltot1 = 0.0d0
@@ -2315,7 +2522,11 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
     ddEdx = 0.0e0
     do while (abs(E) .LE. abs(Emax)) ! integration
         i = i + 1 ! index
-        dE = (1.0d0/(E+1.0d0) + E)/dble(n)
+        !dE = (1.0d0/(E+1.0d0) + E)/dble(n)
+        !dE = define_dE(n, E)  ! below OLD
+        dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low, E0_max=E_high)   ! below
+
+
         dE = pref * dE  ! if user requested a prefactor
         ! If it's Simpson integration:
         a =  E + dE/2.0d0
@@ -2421,7 +2632,7 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
 
     dLs = 0.0d0  ! starting integration, mean free path per energy [A/eV]^(-1)
     hq = qmin    ! transient transferred momentum for integration [not kg*m/s!]
-    n = 100
+    n = 100 ! number of grid points in momentum space
     dq = (qmax - qmin)/dble(n) ! differential of transferred momentum [not kg*m/s!]
     dLs0 = 0.0d0
     do while (abs(hq) .LT. abs(qmax)) ! no matter how many points, go till the end

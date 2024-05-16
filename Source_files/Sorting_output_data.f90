@@ -15,7 +15,7 @@ private  ! hides items not listed on public statement
 public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time, print_parameters
 
 character(10), parameter :: m_Version = '3.1.3'
-character(12), parameter :: m_Update = '08.05.2024'
+character(12), parameter :: m_Update = '15.05.2024'
 
 contains
 
@@ -187,6 +187,17 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
     if(NumPar%Plasmon_Emax) then
         write(print_to, '(a)') ' Plasmon maximal energy is used as upper integration limit during cross-section calculation'
     endif
+
+
+    select case (NumPar%CS_method)
+    case (-1)   ! Old
+        write(print_to, '(a)') ' (using old integration energy grid)'
+    case (1)    ! tabulated files
+        write(print_to, '(a)') ' (using tabulated files with integrated diff.CS)'
+    case default    ! New
+        write(print_to, '(a)') ' (using new integration energy grid)'
+    end select
+
 
     if (NumPar%kind_of_EMFP .EQ. 2) then
         write(ch_temp, '(a)') 'calculated with DSF cross-sections'
@@ -480,7 +491,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
         if (file_opened) close(FN3)             ! and if it is, close it
     endif
     
-    !Angular distribution of velosities of electrons:
+    !Angular distribution of velocities of electrons:
     FN3 = 500
     ch_temp = 'Electrons_theta_distribution.txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
@@ -508,7 +519,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
 
 
 
-    !Angular distribution of velosities of holes:
+    !Angular distribution of velocities of holes:
     FN3 = 5001
     ch_temp = 'VB_holes_theta_distribution.txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
@@ -1114,7 +1125,7 @@ subroutine Allocate_out_arrays(target_atoms, Out_Distr, Mat_DOS, Out_tot_Ne, Out
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Eh
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Ehkin
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Eat_dens  ! [eV/A^3] atom's energy energy   
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_theta, Out_theta_h ! el and holes angular velosity distr.
+    real(8), dimension(:,:), allocatable, intent(inout) :: Out_theta, Out_theta_h ! el and holes angular velocity distr.
     real(8), dimension(:), allocatable, intent(inout) :: Out_theta1 
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_field_all
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ee_vs_E_Em
@@ -1217,7 +1228,7 @@ subroutine Allocate_out_arrays_old(target_atoms, Out_Distr, Out_tot_Ne, Out_tot_
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Eh
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Ehkin
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Eat_dens  ! [eV/A^3] atom's energy energy   
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_theta, Out_theta_h   ! el and hole angular velosity distr.
+    real(8), dimension(:,:), allocatable, intent(inout) :: Out_theta, Out_theta_h   ! el and hole angular velocity distr.
     real(8), dimension(:), allocatable, intent(inout) :: Out_theta1 
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_field_all
     
