@@ -143,19 +143,19 @@ endif
 3012 continue ! if the ion skipped, go on from here:
 
 
-! Electron MFPs:
+! 1) Electron MFPs:
 if (NumPar%verbose) call print_time_step('Starting electron mean-free-paths calculations:', msec=.true.)
 kind_of_particle = 'Electron'
 call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_el_MFPs, &
         Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, aidCS, kind_of_particle, File_names) ! from module Analytical_IMPS
 
-! Hole MFPs:
+! 2) Hole MFPs:
 if (NumPar%verbose) call print_time_step('Starting VB hole mean-free-paths calculations:', msec=.true.)
 kind_of_particle = 'Hole'
 call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_Hole_MFPs, & 
           Elastic_Hole_MFP, Error_message, read_well, DSF_DEMFP_H, Mat_DOS, NumPar, aidCS, kind_of_particle, File_names) ! from module Analytical_IMPS
 
-! Photon MFPs:
+! 3) Photon MFPs:
 if (NumPar%include_photons) then ! only if we include photons:
     if (NumPar%verbose) call print_time_step('Starting photon mean-free-paths calculations:', msec=.true.)
     kind_of_particle = 'Photon'

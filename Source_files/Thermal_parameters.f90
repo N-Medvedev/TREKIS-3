@@ -103,8 +103,8 @@ subroutine Get_thermal_parameters(Output_path, CDF_Phonon, Target_atoms, Matter,
       end select
 
       ! Get differential mean free path [A]:
-      call Tot_EMFP(E_cur, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, Mat_DOS, 'electron', Zeff, &
-                    dsdhw=ds_E(i)%dsdhw, d_hw = ds_E(i)%hw)   ! module "Cross_sections"
+      !call Tot_EMFP(E_cur, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, Mat_DOS, 'electron', Zeff, &
+      !              dsdhw=ds_E(i)%dsdhw, d_hw = ds_E(i)%hw)   ! module "Cross_sections"
 
       ! Convert it into CS:
       do j = 1, size(ds_E(i)%dsdhw)

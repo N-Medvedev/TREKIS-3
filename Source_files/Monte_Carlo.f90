@@ -1908,7 +1908,7 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
             !dE = 0.0d0  ! Testing
         else if (NumPar%kind_of_EMFP .EQ. 1) then      ! CDF phonon peaks
             ! => dE [eV] transferred energy:
-            call Electron_energy_transfer(Eel, EMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, kind_of_particle)
+            call Electron_energy_transfer(Eel, EMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, aidCS, kind_of_particle)
         else                                    ! Atomic cross-sections of Mott 
             dE = 0.0d0                          ! [eV] transferred energy
             do ii = 1, size(Target_atoms)        ! for all atomic spicies:
@@ -2148,7 +2148,6 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
         else inel_vs_el  !Elastic
             ! => find EMFP of hole [A] needed for calculation of transferred energy:
             call Next_free_path(Eel, Elastic_Hole_MFP%Total%E, Elastic_Hole_MFP%Total%L, HEMFP)
-            !call Electron_energy_transfer(Eel, HEMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, kind_of_particle) ! => dE [eV] transferred energy
 
             !print*, 'Hole', NumPar%kind_of_EMFP
 
@@ -2164,7 +2163,7 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
 !                 pause '------------------ HOLE --------------------'
             else if (NumPar%kind_of_EMFP .EQ. 1) then      ! CDF phonon peaks
                 ! => dE [eV] transferred energy:
-                call Electron_energy_transfer(Eel, HEMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, kind_of_particle)
+                call Electron_energy_transfer(Eel, HEMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, aidCS, kind_of_particle)
             else                                    ! Atomic cross-sections of Mott
                 dE = 0.0d0                          ! [eV] transferred energy
                 do ii = 1, size(Target_atoms)        ! for all atomic spicies:
