@@ -1,9 +1,9 @@
-SiC         ! material name
+Al         ! material name
 18           ! SHI atomic number
 70        ! [MeV] total SHI energy
 -1          ! [proton mass] if mass of the SHI is NONSTANDARD isotop; if standard, put any NEGATIVE number
-10.0         ! [fs] total time analyzed
-10.0d0 0    ! [fs] timestep, how often the data are saved; kind of time-grid: 0=linear, 1=logarithmic
+100.0         ! [fs] total time analyzed
+10.0d0 1    ! [fs] timestep, how often the data are saved; kind of time-grid: 0=linear, 1=logarithmic
 0.0d0       ! [eV] Cut-off energy (electrons with lower energies are excluded from calculation)
 10.0        ! [A] thickness of the layer analyzed
 300.0       ! [K] temperature of the target
@@ -14,15 +14,17 @@ SiC         ! material name
 0           ! Include plasmon integration limit
 -1.0d30	    ! [me] effective valence hole mass in units of electron mass
 1           ! include radiative decay of deep holes? (0=no, 1=yes)
-0.0 10.0d0  6.18d0  ! [eV] Work function (<=0 - no emission); [A] surface barrier length; [eV] barrier height for electron emission
+-1.0 10.0d0  6.18d0  ! [eV] Work function (<=0 - no emission); [A] surface barrier length; [eV] barrier height for electron emission
 10           ! number of MC iterations to be performed
 -1          ! number of threads for parallel calculations with OpenMP (1=nonparrelelized; -1=all available threads)
 
+grid    1   ! E-grid index: -1=old; 0=new; 1=save-files
 
 verbose             ! To printout time of reaching each time-grid point
 print_CDF           ! printout cdf file
 print_optical_cdf   ! printout optical CDF reconstructed from the fitted loss-function
-redo_MFP            ! recalculate mean free paths for all
+
+!redo_MFP            ! recalculate mean free paths for all
 !redo_MFP_SHI        ! recalculate mean free paths for SHI
 !gnuplot jpeg        ! gnuplot plots in format: jpeg; png; gif; eps; pdf; no; (by default is it jpeg)
 !very-verbose        ! To printout time of each collision (really A LOT of printout!)
