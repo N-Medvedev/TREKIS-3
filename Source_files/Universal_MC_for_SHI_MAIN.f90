@@ -99,7 +99,7 @@ call get_add_data(Numpar) ! module "Reading_files_and_parameters"
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! Reading input file:
 call Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, dt, Output_path, Output_path_SHI, Material_name, &
-        NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names)  ! module  'Reading_files_and_parameters'
+        NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names, aidCS)  ! module  'Reading_files_and_parameters'
 if (.not. read_well) goto 2012  ! if we couldn't read the input files, there is nothing else to do, go to end
 call get_num_shells(Target_atoms, Nshtot) ! from module 'Reading_files_and_parameters'
 
@@ -147,20 +147,20 @@ endif
 if (NumPar%verbose) call print_time_step('Starting electron mean-free-paths calculations:', msec=.true.)
 kind_of_particle = 'Electron'
 call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_el_MFPs, &
-        Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names=File_names) ! from module Analytical_IMPS
+        Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, aidCS, kind_of_particle, File_names) ! from module Analytical_IMPS
 
 ! Hole MFPs:
 if (NumPar%verbose) call print_time_step('Starting VB hole mean-free-paths calculations:', msec=.true.)
 kind_of_particle = 'Hole'
 call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_Hole_MFPs, & 
-          Elastic_Hole_MFP, Error_message, read_well, DSF_DEMFP_H, Mat_DOS, NumPar, kind_of_particle, File_names) ! from module Analytical_IMPS
+          Elastic_Hole_MFP, Error_message, read_well, DSF_DEMFP_H, Mat_DOS, NumPar, aidCS, kind_of_particle, File_names) ! from module Analytical_IMPS
 
 ! Photon MFPs:
 if (NumPar%include_photons) then ! only if we include photons:
     if (NumPar%verbose) call print_time_step('Starting photon mean-free-paths calculations:', msec=.true.)
     kind_of_particle = 'Photon'
     call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_Photon_MFPs, &
-            Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names=File_names) ! from module Analytical_IMPS
+            Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, aidCS, kind_of_particle, File_names) ! from module Analytical_IMPS
 else
    allocate(Total_Photon_MFPs(0))
 endif
@@ -237,7 +237,7 @@ do MC_stat = 1, NMC   ! MC iterations to be averaged
 
     ! Perform all the MC calculations within this subroutine:
     call Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
-     Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, &
+     Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, aidCS, &
      Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, &
      Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
      Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &

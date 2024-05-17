@@ -213,6 +213,19 @@ type diff_CS
    ! for each energy point on the grid:
    type(diff_CS_dE), dimension(:), allocatable :: diffCS
 end type diff_CS
+
+
+type Array_dCS
+    type(diff_CS), dimension(:), allocatable :: Int_diff_CS  ! table of integral of differential cross secion for each shell
+end type Array_dCS
+
+
+type All_diff_CS    ! collection of all integrated differential cross sections (dCS)
+    type(Array_dCS), dimension(:), allocatable :: EIdCS ! Electron inelastic (for each type of atom)
+    type(diff_CS) :: EEdCS  ! Electron elastic dCS
+    type(diff_CS) :: HIdCS  ! Hole inelastic dCS
+    type(diff_CS) :: HEdCS  ! Hole elastic dCS
+end type All_diff_CS
 !==============================================
 
 
@@ -236,7 +249,6 @@ type :: Atom ! atom as an object contains the following info:
    integer, dimension(:), allocatable :: PQN   ! principal quantum number of this shell
    integer, dimension(:), allocatable :: KOCS  ! Kind of cross section for electrons and holes (0=CDF, 1=BEB, ...)
    integer, dimension(:), allocatable :: KOCS_SHI  ! Kind of cross section for SHI (0=CDF, 1=BEB, ...)
-   type(diff_CS), dimension(:), allocatable :: Int_diff_CS  ! table of integral of differential cross secion for each shell
 end type Atom
 !==============================================
 

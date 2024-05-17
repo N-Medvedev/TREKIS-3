@@ -30,7 +30,7 @@ contains    ! the MC code itself is all here:
 
 
 subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
-            Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, &
+            Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, aidCS, &
             Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, &
             Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
             Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_theta1, &
@@ -81,6 +81,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
     real(8), dimension(:), intent(inout) :: Out_E_field         ! total enegry of field
     type(Error_handling), intent(inout) :: Error_message	! error messages are dealed with as objects
     type(Differential_MFP), dimension(:), intent(in) :: DSF_DEMFP, DSF_DEMFP_H
+    type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
     real(8), dimension(:), intent(inout) :: Out_diff_coeff
     !------------------------------------------
     
@@ -202,7 +203,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
                     CDF_Phonon, Matter, target_atoms, &
                     Total_el_MFPs, Elastic_MFP, Tot_Nel, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, &
                     Error_message, Em_electrons, &
-                    Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar)
+                    Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar, aidCS)
             case (3)    ! hole
                 if (NumPar%very_verbose) then
                     text_line = 'Hole     time in thread #'//trim(adjustl(text_ch))//' in MC:'
@@ -212,7 +213,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
                     Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
                     Total_Hole_MFPs, Elastic_Hole_MFP, Tot_Nel, Tot_Nphot, NOP, &
                     Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
-                    At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar)
+                    At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar, aidCS)
             case (4)    ! photon
                 if (NumPar%very_verbose) then
                     text_line = 'Photon   time in thread #'//trim(adjustl(text_ch))//' in MC:'
@@ -1785,7 +1786,7 @@ end subroutine SHI_Monte_Carlo
 ! Monte-carlo of an electron
 subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, CDF_Phonon, Matter, target_atoms, &
             Total_el_MFPs, Elastic_MFP, Tot_Nel, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, Em_electrons, &
-            Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar)
+            Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar, aidCS)
     integer, intent(in) :: Lowest_Ip_At, Lowest_Ip_Shl ! number of atom and of shell which correspond to the lowest ionization potential
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
     type(CDF), intent(in) :: CDF_Phonon ! declare CDF for phonons
@@ -1811,7 +1812,8 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
     real(8), dimension(:,:), intent(inout) :: Out_Elat  ! [eV/A^3] lattuce energy density vs time vs R
     type(Differential_MFP), dimension(:), intent(in) :: DSF_DEMFP
     type(Flag), intent(inout) :: NumPar
-        
+    type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
+    !---------------------------
     real(8) Eel, RN, dE, dE_cur, mh, R, Em_Penetr, MFP_tot
     real(8) theta0, phi0, theta2, phi2, phi1, theta1, theta, phi, htheta, hphi
     real(8) IMFP, EMFP, L, X, Y, Z, dE_loc
@@ -1844,7 +1846,7 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
         ! => find IMFP of electron [A] needed for calculation of transferred energy:
         call Next_free_path(Eel, Total_el_MFPs(Nat_cur)%ELMFP(Nshl_cur)%E, Total_el_MFPs(Nat_cur)%ELMFP(Nshl_cur)%L, IMFP)
         ! => dE [eV] transferred energy:
-        call Electron_energy_transfer(Eel, Target_atoms, Nat_cur, Nshl_cur, IMFP, dE, Matter, Mat_DOS, NumPar, kind_of_particle)
+        call Electron_energy_transfer(Eel, Target_atoms, Nat_cur, Nshl_cur, IMFP, dE, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle)
         call Update_electron_angles(All_electrons(NOP)%E, dE, theta, phi)    ! => theta, phi
         
         ! 222222222222222222222222222222222
@@ -2014,7 +2016,7 @@ endsubroutine calculate_emission
 subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, &
             Hole_IMFP, Hole_EMFP, Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
             Total_Hole_MFPs, Elastic_Hole_MFP, Tot_Nel, Tot_Nphot, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
-            At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar)
+            At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar, aidCS)
     type(Electron), dimension(:), intent(inout), allocatable :: All_electrons   ! define array of electrons
     type(Hole), dimension(:), intent(inout), allocatable :: All_holes           ! define array of holes
     type(Photon), dimension(:), intent(inout), allocatable :: All_photons       ! define array of photons
@@ -2028,7 +2030,6 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
     !type(MFP), intent(in), target :: Elastic_Hole_MFP                        ! elastic mean free path
     type(MFP_elastic), intent(in) :: Elastic_Hole_MFP            ! elastic mean free path
     real(8), intent(in) :: t_cur
-    type(Flag), intent(inout) :: NumPar
     real(8), dimension(:,:), intent(in) :: El_IMFP    ! total IMFP for electron, to use in a subroutine, we need this shape of an array
     real(8), dimension(:,:), intent(in) :: El_EMFP    ! to use in a subroutine, we need this shape of an array
     real(8), dimension(:,:), intent(in) :: Hole_IMFP    ! total IMFP for electron, to use in a subroutine, we need this shape of an array
@@ -2041,6 +2042,8 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
     real(8), dimension(:), intent(inout) :: Out_R   ! [A] radius for distributions
     real(8), dimension(:), intent(inout) :: Out_V  ! inverse volume of cilinder layers [1/A^3]
     real(8), dimension(:,:), intent(inout) :: Out_Elat  ! [eV/A^3] lattuce energy density vs time vs R
+    type(Flag), intent(inout) :: NumPar
+    type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
     !-------------------------
     real(8) Eel, Egap, RN, dE, dE_cur, mh, R, MFP_tot, Ehole, t_Auger, t_Radiat
     real(8) theta0, phi0, theta2, phi2, theta, phi, phi1, theta1, htheta, hphi, hphi1, htheta1, hphi2, htheta2, Etest
@@ -2078,7 +2081,7 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             ! => find IMFP of incident hole [A] needed for calculation of transferred energy                        
             call Next_free_path(Eel, Total_Hole_MFPs(Nat_cur)%ELMFP(Nshl_cur)%E, Total_Hole_MFPs(Nat_cur)%ELMFP(Nshl_cur)%L, HIMFP)
             ! => dE [eV] transferred energy:
-            call Electron_energy_transfer(Eel, Target_atoms, Nat_cur, Nshl_cur, HIMFP, dE, Matter, Mat_DOS, NumPar, kind_of_particle)
+            call Electron_energy_transfer(Eel, Target_atoms, Nat_cur, Nshl_cur, HIMFP, dE, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle)
             ! => htheta, hphi of ionized electron, htheta1, hphi1 angles of incident hole:
             call Update_holes_angles_el(All_holes(NOP), Eel, dE, htheta, hphi, htheta1, hphi1)
 

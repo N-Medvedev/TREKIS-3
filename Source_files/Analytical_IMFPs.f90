@@ -90,7 +90,7 @@ end subroutine printout_optical_CDF
 !EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
 ! Calculates electron mean free paths with parallelization via openmp:
 subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_el_MFPs, &
-                        Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, kind_of_particle, File_names)
+                        Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, aidCS, kind_of_particle, File_names)
     character(100), intent(in) :: Output_path   ! path to the folder where the file is/will be stored
     character(100), intent(in) :: Material_name ! name of the material
     type(Atom), dimension(:), intent(inout), target :: Target_atoms  ! all data for target atoms
@@ -102,9 +102,10 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     logical, intent(out) :: read_well    ! did we read the file without an error?
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Differential_MFP), dimension(:), intent(in) :: DSF_DEMFP
+    type(Flag), intent(inout) :: NumPar
+    type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
+    character(8), intent(in) :: kind_of_particle
     type(All_names), intent(inout) :: File_names    ! file names to use later for gnuplot printing
-    type(Flag), intent(inout) :: NumPar    
-    character(8), intent(in) :: kind_of_particle    
     !--------------------------
     integer :: FN, FN1, FN2, FN3, FN4, FN_diff     ! file numbers where to save the output
     integer :: N, Nelast, Nsiz, N_diff_siz
@@ -158,10 +159,10 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             ! For diff.CS save tables:
             select case (NumPar%CS_method)
             case (1)
-                if (.not. allocated(Target_atoms(j)%Int_diff_CS(k)%diffCS)) then
+                if (.not. allocated(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS)) then
                     ! for each energy grid point there will be its own table:
-                    allocate(Target_atoms(j)%Int_diff_CS(k)%E(N))
-                    allocate(Target_atoms(j)%Int_diff_CS(k)%diffCS(N))
+                    allocate(aidCS%EIdCS(j)%Int_diff_CS(k)%E(N))
+                    allocate(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(N))
                 endif
             endselect
 
@@ -303,7 +304,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             write(*, '(a)') ' '
             open(FN, file=trim(adjustl(Input_files)), action='read')
         else    ! create and write to the file:
-            call All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, kind_of_particle) ! calculate all IMFPs
+            call All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, aidCS, kind_of_particle) ! calculate all IMFPs
             open(FN, file=trim(adjustl(Input_files)))
             write(*,'(a,a,a)') 'Calculated inelastic mean free paths of an electron in ', trim(adjustl(Material_name)), ' are stored in the file'
             write(*, '(a)') trim(adjustl(Input_files))
@@ -363,7 +364,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             write(*, '(a)') ' '
             open(FN, file=trim(adjustl(Input_files)), action='read')
         else    ! create and write to the file:
-            call All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, kind_of_particle) ! calculate all IMFPs
+            call All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, aidCS, kind_of_particle) ! calculate all IMFPs
             open(FN, file=trim(adjustl(Input_files)))
             write(*,'(a,a,a)') 'Calculated inelastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file'
             write(*, '(a)') trim(adjustl(Input_files))
@@ -488,13 +489,13 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             do k = 1, Nshl  ! for all orbitals
                 do i = 1, N ! for all energy grid points
                     ! Construct the file name:
-                    Target_atoms(j)%Int_diff_CS(k)%E(i) = Total_el_MFPs(j)%ELMFP(k)%E(i)
+                    aidCS%EIdCS(j)%Int_diff_CS(k)%E(i) = Total_el_MFPs(j)%ELMFP(k)%E(i)
 
                     ! Name of the atom and shell:
                     temp_char = trim(adjustl(full_CS_file( 8 : LEN(trim(adjustl(full_CS_file)))-4 ))) //'_'// &
                                 trim(adjustl(Target_atoms(j)%Name))//'_'//trim(adjustl(Target_atoms(j)%Shell_name(k)))
                     ! Add energy grid point:
-                    write(temp_char1,'(f14.3)') Target_atoms(j)%Int_diff_CS(k)%E(i)
+                    write(temp_char1,'(f14.3)') aidCS%EIdCS(j)%Int_diff_CS(k)%E(i)
                     ! Combine the info into file name:
                     temp_char = trim(adjustl(temp_char))//'_'//trim(adjustl(temp_char1))//'.dat'
                     ! Full name of the file with diff.CS for this energy grid point, element and shell:
@@ -503,29 +504,29 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                     if ((.not. file_exist) .or. (.not.diff_CS_file_exists) .or. NumPar%redo_IMFP) then  ! if file doesn't exist
                         open(FN_diff, file=trim(adjustl(diff_CS_file)))   ! create it
                         ! Write the data into this file:
-                        N_diff_siz = size(Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%dsdhw)
+                        N_diff_siz = size(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw)
                         do i_diff_CS = 1, N_diff_siz
-                            write(FN_diff, '(es,es)') Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%hw(i_diff_CS), &
-                                                      Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(i_diff_CS)
+                            write(FN_diff, '(es,es)') aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw(i_diff_CS), &
+                                                      aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(i_diff_CS)
                         enddo ! i_diff_CS
                     else    ! if file exist, read from it:
                         open(FN_diff, file=trim(adjustl(diff_CS_file)), action='read')
                         ! Read the data from this file:
                         call Count_lines_in_file(FN_diff, N_diff_siz) ! count how many line the file contains
                         ! Allocate the diff.CS tables:
-                        if (.not.allocated(Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%dsdhw)) then
-                            allocate(Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(N_diff_siz))
+                        if (.not.allocated(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw)) then
+                            allocate(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(N_diff_siz))
                         endif
-                        if (.not.allocated(Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%hw)) then
-                            allocate(Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%hw(N_diff_siz))
+                        if (.not.allocated(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw)) then
+                            allocate(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw(N_diff_siz))
                         endif
 
                         do i_diff_CS = 1, N_diff_siz
-                            read(FN_diff,*) Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%hw(i_diff_CS), &
-                                            Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(i_diff_CS)
+                            read(FN_diff,*) aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw(i_diff_CS), &
+                                            aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(i_diff_CS)
                         enddo ! i_diff_CS
                     endif
-                    !print*, j,k, i, Target_atoms(j)%Int_diff_CS(k)%E(i), trim(adjustl(diff_CS_file))
+                    !print*, j,k, i, aidCS%EIdCS(j)%Int_diff_CS(k)%E(i), trim(adjustl(diff_CS_file))
                     close (FN_diff)
                 enddo ! k
             enddo ! k
@@ -1216,13 +1217,14 @@ end subroutine All_elastic_scattering
 
 
 ! Forms all IMFPs for all shells of all atoms, parallelized with openmp
-subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, kind_of_particle)
+subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, aidCS, kind_of_particle)
     integer, intent(in) :: N  ! number of energy points
     type(Atom), dimension(:), intent(inout), target :: Target_atoms  ! all data for target atoms
     type(All_MFP), dimension(:), allocatable, intent(inout) :: Total_el_MFPs   ! electron mean free paths for all shells
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Solid), intent(in) :: Matter ! properties of material
     type(Flag), intent(in) :: NumPar
+    type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
     character(8), intent(in) :: kind_of_particle
     !-----------------------
     real(8) IMFP_calc, dEdx, Ele, dE(N), Emin
@@ -1243,9 +1245,9 @@ subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matt
                 do k = 1, Nshl  ! for all shells of each atom:
 
                     ! Save energy point for diff.CS tables:
-                    Target_atoms(j)%Int_diff_CS(k)%E(i) = Ele  ! [eV] electron energy on the grid
+                    aidCS%EIdCS(j)%Int_diff_CS(k)%E(i) = Ele  ! [eV] electron energy on the grid
 
-                    call allocate_diff_CS_tables(Ele, i, Target_atoms, j, k, Matter, Mat_DOS, NumPar, kind_of_particle) ! from module "Cross_sections"
+                    call allocate_diff_CS_tables(Ele, i, Target_atoms, j, k, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle) ! module "Cross_sections"
                 enddo ! k
             enddo ! k = 1, size(Target_atoms(j)%Ip)  ! for all shells of each atom:
         enddo ! j = 1,size(Target_atoms)  ! for all atoms:
@@ -1265,12 +1267,12 @@ subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matt
           Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
           do k = 1, Nshl  ! for all shells of each atom:
 
-             call TotIMFP(Ele, i, Target_atoms, j, k, IMFP_calc, dEdx, Matter, Mat_DOS, NumPar, kind_of_particle) ! from module "Cross_sections"
+             call TotIMFP(Ele, i, Target_atoms, j, k, IMFP_calc, dEdx, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle) ! from module "Cross_sections"
              !Total_el_MFPs(j)%ELMFP(k)%E(i) = Ele
              Total_el_MFPs(j)%ELMFP(k)%L(i) = IMFP_calc
              Total_el_MFPs(j)%ELMFP(k)%dEdx(i) = dEdx
 
-             !print*, j, k, i, Ele, Total_el_MFPs(j)%ELMFP(k)%L(i), Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%dsdhw( size(Target_atoms(j)%Int_diff_CS(k)%diffCS(i)%dsdhw) )
+             !print*, j, k, i, Ele, Total_el_MFPs(j)%ELMFP(k)%L(i), aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw( size(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw) )
           enddo ! k = 1, size(Target_atoms(j)%Ip)  ! for all shells of each atom:
         enddo ! j = 1,size(Target_atoms)  ! for all atoms:
         call progress(' Progress of calculation: ', i, N)

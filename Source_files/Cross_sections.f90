@@ -867,7 +867,7 @@ subroutine Tot_Phot_IMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, NumP
 end subroutine Tot_Phot_IMFP
 
 
-subroutine TotIMFP(Ele, i_E, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, NumPar, kind_of_particle)
+subroutine TotIMFP(Ele, i_E, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle)
     real(8), intent(in) :: Ele  ! electron energy [eV]
     integer, intent(in) :: i_E   ! energy grid point in the array
     type(Atom), dimension(:), intent(inout), target :: Target_atoms  ! all data for target atoms
@@ -876,6 +876,7 @@ subroutine TotIMFP(Ele, i_E, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_D
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Solid), intent(in) :: Matter ! properties of material
     type(Flag), intent(in) :: NumPar
+    type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
     character(8), intent(in) :: kind_of_particle
     !----------------------
     integer :: i, j, n, Mnum, Nsiz
@@ -978,8 +979,10 @@ subroutine TotIMFP(Ele, i_E, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_D
           if (it_is_electron) then
             select case (NumPar%CS_method)
             case (1) ! save data:
-               Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i) = E  ! [eV] hw
-               Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) = Ltot1 ! [1/A] d(1/L)/d(hw)
+               !Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i) = E  ! [eV] hw
+               !Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) = Ltot1 ! [1/A] d(1/L)/d(hw)
+               aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i) = E  ! [eV] hw
+               aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) = Ltot1 ! [1/A] d(1/L)/d(hw)
             end select
           endif
        enddo ! while (E .LE. Emax)
@@ -1000,11 +1003,11 @@ subroutine TotIMFP(Ele, i_E, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_D
        if (it_is_electron) then
          select case (NumPar%CS_method)
          case (1) ! save data:
-            do i = 1, size(Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw)
-               if (Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) < 1.0d-15) then
-                  Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) = 1.0d20
+            do i = 1, size(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw)
+               if (aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) < 1.0d-15) then
+                  aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) = 1.0d20
                else
-                  Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) = 1.0d0/(Mass*Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i)) ! [A]
+                  aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) = 1.0d0/(Mass*aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i)) ! [A]
                endif
             enddo ! i
          end select
@@ -1025,14 +1028,15 @@ end subroutine TotIMFP
 
 
 
-subroutine allocate_diff_CS_tables(Ele, i_E, Target_atoms, Nat, Nshl, Matter, Mat_DOS, NumPar, kind_of_particle)
+subroutine allocate_diff_CS_tables(Ele, i_E, Target_atoms, Nat, Nshl, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle)
     real(8), intent(in) :: Ele  ! electron energy [eV]
     integer, intent(in) :: i_E   ! energy grid point in the array
-    type(Atom), dimension(:), intent(inout), target :: Target_atoms  ! all data for target atoms
+    type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
     integer, intent(in) :: Nat, Nshl    ! number of atom, number of shell
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Solid), intent(in) :: Matter ! properties of material
     type(Flag), intent(in) :: NumPar
+    type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
     character(8), intent(in) :: kind_of_particle
     !----------------------
     integer :: i, j, n, Mnum, Nsiz
@@ -1091,14 +1095,14 @@ subroutine allocate_diff_CS_tables(Ele, i_E, Target_atoms, Nat, Nshl, Matter, Ma
     ! If the tabulated integrated differential CS are to be saved, allocate arrays:
     select case (NumPar%CS_method)
     case (1)
-      if (.not.allocated(Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw)) then
-         allocate(Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(Nsiz))
+      if (.not.allocated(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw)) then
+         allocate(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(Nsiz))
       endif
 
-      if (.not.allocated(Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw)) then
-         allocate(Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(Nsiz))
+      if (.not.allocated(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw)) then
+         allocate(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(Nsiz))
       endif
-      !print*, Nat, Nshl, i_E, size(Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw)
+      !print*, Nat, Nshl, i_E, size(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw)
     end select
 end subroutine allocate_diff_CS_tables
 
@@ -1555,7 +1559,7 @@ end function energy_loss_delta
 !---------------------------
 !Differential CS and subroutines:
 
-subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_tot, dE_out, Matter, Mat_DOS, NumPar, kind_of_particle)
+subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_tot, dE_out, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle)
     real(8), intent(in) :: Ele  ! electron energy [eV]
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
     integer, intent(in) :: Nat, Nshl    ! number of atom, number of shell
@@ -1564,8 +1568,9 @@ subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_to
     type(Solid), intent(in) :: Matter
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Flag), intent(in) :: NumPar
+    type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
     character(8), intent(in) :: kind_of_particle
-
+    !--------------------------
     real(8) Emin, Emax, E, RN, L_need, L_cur, Eplasmon, Egap
     real(8) Mass
     integer Mnum
@@ -1604,7 +1609,7 @@ subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_to
     
     select case (Target_atoms(Nat)%KOCS(Nshl)) ! which inelastic cross section to use (BEB vs CDF):
     case (1) ! CDF cross section energy transfer:
-        call Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mat_DOS, NumPar, Mass, Emin, Emax)
+        call Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mat_DOS, NumPar, Mass, aidCS, Emin, Emax)   ! below
     case default ! do BEB energy transfer:
         call Electron_NRG_transfer_BEB(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mass, Emin, Emax)
     end select
@@ -1625,7 +1630,7 @@ subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_to
 end subroutine Electron_energy_transfer_inelastic
 
 
-subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mat_DOS, NumPar, Mass, Emin, Emax)
+subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mat_DOS, NumPar, Mass, aidCS, Emin, Emax)
     real(8), intent(in) :: Ele  ! electron energy [eV]
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
     integer, intent(in) :: Nat, Nshl    ! number of atom, number of shell
@@ -1634,7 +1639,9 @@ subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Ma
     type(Solid), intent(in) :: Matter
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Flag), intent(in) :: NumPar
-    real(8), intent(in) :: Mass, Emin, Emax ! electron/hole mass; min and max energies for integration
+    real(8), intent(in) :: Mass     ! electron/hole mass
+    type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
+    real(8), intent(in) :: Emin, Emax ! min and max energies for integration
     !---------------------
     real(8) :: L_cur, Ltot0, Ltot1, a, b, temp1, temp2, dE, dL, E_low, E_high
     real(8) :: hw_1, hw_2, hw_cur
@@ -1689,17 +1696,17 @@ subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Ma
     case (1) ! Use tabulated diff.CS from precalculated files
 
        ! Find the transferred energy from precalculated table of integrated diff.CS:
-       call Find_in_array_monoton(Target_atoms(Nat)%Int_diff_CS(Nshl)%E, Ele, i_E) ! "Reading_files_and_parameters"
+       call Find_in_array_monoton(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%E, Ele, i_E) ! "Reading_files_and_parameters"
        ! For this energy, find the sampled d(CS)/d(hw):
-       call Find_in_monoton_array_decreasing(Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw, L_need, i_hw) ! "Reading_files_and_parameters"
+       call Find_in_monoton_array_decreasing(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw, L_need, i_hw) ! "Reading_files_and_parameters"
        ! Get the corresponding transferred energy value:
-       if ( (i_hw == 1) .or. ((i_hw == size(Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw))) ) then ! no need to interpolate
-          hw_1 = Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw)
+       if ( (i_hw == 1) .or. ((i_hw == size(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw))) ) then ! no need to interpolate
+          hw_1 = aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw)
        else ! interpolate between the values:
-          call Interpolate(1, Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw), &
-                        Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw+1), &
-                        Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw), &
-                        Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw+1), L_need, hw_1)  ! module "Reading_files_and_parameters"
+          call Interpolate(1, aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw), &
+                        aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw+1), &
+                        aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw), &
+                        aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw+1), L_need, hw_1)  ! module "Reading_files_and_parameters"
        endif
        hw_cur = hw_1 ! first part of it is done
 
@@ -1707,25 +1714,25 @@ subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Ma
        if (i_E > 1) then ! try adding the second part
          i_E = i_E - 1 ! point in energy on the other side
          ! For this energy, find the sampled d(CS)/d(hw):
-         call Find_in_monoton_array_decreasing(Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw, L_need, i_hw) ! "Reading_files_and_parameters"
+         call Find_in_monoton_array_decreasing(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw, L_need, i_hw) ! "Reading_files_and_parameters"
          ! Get the corresponding transferred energy value:
-         if ( (i_hw == 1) .or. ((i_hw == size(Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw))) ) then ! no need to interpolate
-            hw_2 = Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw)
+         if ( (i_hw == 1) .or. ((i_hw == size(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw))) ) then ! no need to interpolate
+            hw_2 = aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw)
          else ! interpolate between the values:
-            call Interpolate(1, Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw), &
-                        Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw+1), &
-                        Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw), &
-                        Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw+1), L_need, hw_2)  ! module "Reading_files_and_parameters"
+            call Interpolate(1, aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw), &
+                        aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw+1), &
+                        aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw), &
+                        aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i_hw+1), L_need, hw_2)  ! module "Reading_files_and_parameters"
          endif
          ! Interpolate the transferred energy between the two electron-energy-grid points:
          call Interpolate(1, &
-                       Target_atoms(Nat)%Int_diff_CS(Nshl)%E(i_E), &
-                       Target_atoms(Nat)%Int_diff_CS(Nshl)%E(i_E+1), &
+                       aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%E(i_E), &
+                       aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%E(i_E+1), &
                        hw_1, hw_2, &
                        Ele, hw_cur)  ! module "Reading_files_and_parameters"
 
-          !print*, Ele, Target_atoms(Nat)%Int_diff_CS(Nshl)%E(i_E), Target_atoms(Nat)%Int_diff_CS(Nshl)%E(i_E+1)
-          !print*, i_hw, L_need, Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw), Target_atoms(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw+1)
+          !print*, Ele, aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%E(i_E), aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%E(i_E+1)
+          !print*, i_hw, L_need, aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw), aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i_hw+1)
           !print*, E, hw_1, hw_2, hw_cur
        endif
        ! Interpolated transferred energy from the precalculated diff.CS tables:

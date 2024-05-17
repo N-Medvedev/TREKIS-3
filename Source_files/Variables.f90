@@ -24,7 +24,8 @@ type(All_MFP), dimension(:), allocatable :: diff_SHI_MFP    ! SHI differential m
 type(CDF) :: CDF_Phonon ! declare CDF for phonons
 type(MFP_elastic) :: Elastic_MFP         ! elastic mean free path of an electron
 type(MFP_elastic) :: Elastic_Hole_MFP    ! elastic mean free path of a hole
-type(diff_CS), dimension(:), allocatable :: Int_diff_CS_phonon  ! table of integral of differential cross secion for phonons
+
+type(All_diff_CS) :: aidCS    ! all integrated differential cross sections
 
 type(Solid) :: Matter   ! all material parameters
 type(Density_of_states) :: Mat_DOS  ! material DOS

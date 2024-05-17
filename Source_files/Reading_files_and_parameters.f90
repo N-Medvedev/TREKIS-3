@@ -104,7 +104,7 @@ end subroutine get_file_stat
 
 
 subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, dt, Output_path, Output_path_SHI, &
-           Material_name, NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names)
+           Material_name, NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names, aidCS)
    type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(CDF), intent(inout) :: CDF_Phonon   ! CDF parameters for phonon to be read from a file
    type(Solid), intent(inout) :: Matter   ! all material parameters
@@ -120,7 +120,8 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    logical, intent(out) :: read_well    ! did we read the file without an error?
    type(All_names), intent(out) :: File_names
    type(Flag), intent(inout) :: NumPar
-   
+   type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
+   !---------------------
    real(8) M, SUM_DOS
    integer FN, Reason, i, temp, temp1, temp2(1), temper, FN2
    character(100)   Material_file   ! file with material parameters, name MUST coinside with 'Material_name'!!!
@@ -353,7 +354,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    open(unit = Error_message%File_Num, FILE = trim(adjustl(File_name)))
    
    ! read CDF-material parameters
-   call reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, Error_message, read_well) ! below
+   call reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, aidCS, Error_message, read_well) ! below
    if (.not. read_well) goto 2015
    
    do i = 1, size(Target_atoms) ! all atoms
@@ -648,15 +649,16 @@ end subroutine print_time_step
 
 
 
-subroutine reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, Error_message, read_well)
+subroutine reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, aidCS, Error_message, read_well)
    character(100), intent(in) :: Material_file, Short_material_file  ! files with material parameters (full or short)
    type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(Flag), intent(inout) :: NumPar ! numerical parameters
    type(CDF), intent(inout) :: CDF_Phonon   ! CDF parameters for phonon to be read from a file
    type(Solid), intent(inout) :: Matter   ! all material parameters
+   type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
    type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
    logical, intent(inout) :: read_well  ! did we read the file well?
-   
+   !-------------------------
    real(8) M
    integer FN2, Reason, i, j, k, l, N, Shl, CDF_coef, Shl_num, comment_start
    character(100) Error_descript, temp, read_line
@@ -863,14 +865,6 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
             allocate(Target_atoms(j)%Ritchi(Shl)) ! allocate Ritchi-functions' coefficiants for each shell
          endif
 
-         select case (NumPar%CS_method)
-         case (1)
-            if (.not. allocated(Target_atoms(j)%Int_diff_CS)) then
-               allocate(Target_atoms(j)%Int_diff_CS(Shl)) ! allocate table of integral of differential cross secion for each shell
-            endif
-         end select
-
-
          do k = 1, Shl ! read all the data for each shell:
             READ(FN2,*,IOSTAT=Reason) CDF_coef, Shl_num, Target_atoms(j)%Ip(k), Target_atoms(j)%Nel(k), Target_atoms(j)%Auger(k) ! number of CDF functions, shell-designator, ionization potential, number of electrons, Auger-time
             call read_file(Reason, i, read_well) ! reports if everything read well
@@ -951,6 +945,21 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
       if (.not. allocated(CDF_Phonon%E0)) allocate(CDF_Phonon%E0(1), source = 0.0d0)
       if (.not. allocated(CDF_Phonon%Gamma)) allocate(CDF_Phonon%Gamma(1), source = 0.0d0)
    endif
+
+
+   ! Allocate differential cross section arrays if required:
+   select case (NumPar%CS_method)
+   case (1)
+      if (.not. allocated(aidCS%EIdCS)) then
+         allocate(aidCS%EIdCS(size(Target_atoms))) ! for each atom type
+      endif
+      ! Each shell:
+      do j = 1, N  ! read for each element its shells data:
+         if (.not.allocated(aidCS%EIdCS(j)%Int_diff_CS)) then
+            allocate(aidCS%EIdCS(j)%Int_diff_CS( size(Target_atoms(j)%Ip) )) ! allocate table of integral of differential cross secion for each shell
+         endif
+      enddo
+   end select
 
 2014 continue   ! if we must skip to the end for some reason
    if (.not. read_well) print*, trim(adjustl(Material_file))
@@ -1070,7 +1079,6 @@ subroutine copy_atomic_data_back(Target_atoms, Atoms_temp, Egap, N_e_VB, i, Nsiz
    deallocate(Target_atoms(i)%KOCS)
    deallocate(Target_atoms(i)%KOCS_SHI)
    if (allocated(Target_atoms(i)%Ritchi)) deallocate(Target_atoms(i)%Ritchi)
-   if (allocated(Target_atoms(i)%Int_diff_CS)) deallocate(Target_atoms(i)%Int_diff_CS)
 
    allocate(Target_atoms(i)%Shell_name(Shl)) ! allocate shell-names for each shell
    allocate(Target_atoms(i)%Shl_num(Shl)) ! allocate shell disignator for each shell
@@ -1083,7 +1091,6 @@ subroutine copy_atomic_data_back(Target_atoms, Atoms_temp, Egap, N_e_VB, i, Nsiz
    allocate(Target_atoms(i)%KOCS(Shl)) ! allocate kind of inelastic cross sections
    allocate(Target_atoms(i)%KOCS_SHI(Shl)) ! allocate kind of inelastic cross sections
    allocate(Target_atoms(i)%Ritchi(Shl)) ! allocate Ritchi-functions' coefficiants for each shell
-   allocate(Target_atoms(i)%Int_diff_CS(Shl)) ! allocate table of integral of differential cross secion for each shell
 
    Target_atoms(i)%Shell_name(1:Shl) = Atoms_temp(i)%Shell_name(1:Shl)
    Target_atoms(i)%Shl_num(1:Shl) = Atoms_temp(i)%Shl_num(1:Shl)
@@ -1143,7 +1150,6 @@ subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
       allocate(Atoms_temp(i)%KOCS(Shl)) ! allocate kind of inelastic cross sections
       allocate(Atoms_temp(i)%KOCS_SHI(Shl)) ! allocate kind of inelastic cross sections
       allocate(Atoms_temp(i)%Ritchi(Shl)) ! allocate Ritchi-functions' coefficiants for each shell
-      allocate(Atoms_temp(i)%Int_diff_CS(Shl)) ! allocate arrays of precalculated integrated diff.CS for each shell
 
       Atoms_temp(i)%Shell_name = Target_atoms(i)%Shell_name
       Atoms_temp(i)%Shl_num = Target_atoms(i)%Shl_num
@@ -1168,24 +1174,6 @@ subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
             Atoms_temp(i)%Ritchi(j)%alpha = Target_atoms(i)%Ritchi(j)%alpha
          enddo
       endif
-
-      if (allocated(Target_atoms(i)%Int_diff_CS)) then ! allocate arrays of precalculated integrated diff.CS for each shell
-         do j = 1, size(Atoms_temp(i)%Int_diff_CS) ! all shells
-            if (allocated(Target_atoms(i)%Int_diff_CS(j)%E)) then ! energy
-               Nj = size(Target_atoms(i)%Int_diff_CS(j)%E)
-               allocate(Atoms_temp(i)%Int_diff_CS(j)%E(Nj))
-               Atoms_temp(i)%Int_diff_CS(j)%E = Target_atoms(i)%Int_diff_CS(j)%E
-            endif
-            if (allocated(Target_atoms(i)%Int_diff_CS(j)%diffCS)) then   ! all shells
-               Nj = size(Target_atoms(i)%Int_diff_CS(j)%diffCS)
-               do k = 1, Nj   ! diff.CS
-                  allocate(Atoms_temp(i)%Int_diff_CS(j)%diffCS(k)%hw(Nj))
-                  allocate(Atoms_temp(i)%Int_diff_CS(j)%diffCS(k)%dsdhw(Nj))
-               enddo ! k
-            endif
-         enddo ! j
-      endif
-
    enddo ! i
 end subroutine copy_atomic_data
 
