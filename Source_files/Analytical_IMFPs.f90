@@ -193,7 +193,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
       endif
     endselect
 
-    ! 2) For elastic scttering grid:
+    ! 2) For elastic scattering grid:
     !if (kind_of_particle .NE. 'Photon') then ! elastic only for massive particles:
     if (.not.it_is_photon) then
         ! Set the grid for electron energies in ELASTIC cross-section:
@@ -305,13 +305,13 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             ! Check if the file is consistent with the grid set:
             open(FN, file=trim(adjustl(Input_files)), action='read')
             call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
+
             if (Nsiz /= N) then
                 NumPar%redo_IMFP = .true. ! Grid mismatch, recalculate IMFPs
                 print*, 'Energy grid mismatch in electron MFP file => recalculating MFP'
             endif
             close(FN)
         endif
-
 
         ! Check if precalculated diff.CS is required:
         select case (NumPar%CS_method)
@@ -1533,7 +1533,7 @@ subroutine All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elas
             !Elastic_MFP%E(i) = Ele      ! [eV] energy; Grid was already preset, reuse it!
             Elastic_MFP%L(i) = EMFP     ! [A] elastic mean free path
             Elastic_MFP%dEdx(i) = dEdx  ! [eV/A] energy loss
-            call progress(' Progress of calculation: ', i, Nelast)
+            if (NumPar%verbose) call progress(' Progress of calculation: ', i, Nelast)
         enddo
 !$omp end do
 !$omp end parallel
@@ -1615,7 +1615,7 @@ subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matt
              !print*, j, k, i, Ele, Total_el_MFPs(j)%ELMFP(k)%L(i), aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw( size(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw) )
           enddo ! k = 1, size(Target_atoms(j)%Ip)  ! for all shells of each atom:
         enddo ! j = 1,size(Target_atoms)  ! for all atoms:
-        call progress(' Progress of calculation: ', i, N)
+        if (NumPar%verbose) call progress(' Progress of calculation: ', i, N)
     enddo
 !$omp end do
 !$omp end parallel
@@ -1832,7 +1832,7 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
     endif
 
     if (all_files_exist .and. .not.NumPar%redo_IMFP_SHI) then
-        write(*,'(a,a,a,a,a)') 'IMFP and dEdx of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' are already in the files:'
+        write(*,'(a,a,a,a,a)') 'IMFP and dEdx of ', trim(adjustl(SHI%Name)) ,' in ', trim(adjustl(Material_name)), ' are already in the files:'
         write(*, '(a,a,a)') trim(adjustl(Input_files)), ' and ', trim(adjustl(Input_files2))
         write(*, '(a)') ' ' 
         FN = 200
@@ -1902,7 +1902,7 @@ subroutine Get_ion_range(Input_files3,N,SHI_MFP,Target_atoms,dEdx_tot) ! calcula
                 SHI_range(i) = SHI_range(i) + 0.5d0*(1.0d0/dEdx_tot(j)+1.0d0/dEdx_tot(j-1))*(SHI_MFP(1)%ELMFP(1)%E(j)-SHI_MFP(1)%ELMFP(1)%E(j-1))
             endif
         enddo
-        call progress(' Progress of calculation: ', i, N)
+        !if (NumPar%verbose) call progress(' Progress of calculation: ', i, N)
     enddo
     
     FN3 = 202
@@ -1944,6 +1944,8 @@ subroutine Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin
    real(8), dimension(N) :: dE  ! energy grid [eV]
    real(8), dimension(:), allocatable :: Temp_grid
 
+   print*, '* Calculating mean free paths and energy loss, it may take few minutes *'
+
    Nat = size(Target_atoms) ! how many atoms
    
 !    dE = 0.0d0
@@ -1984,7 +1986,7 @@ subroutine Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin
           SHI_IMFP(j, :, :) = 1.0d28     ! [A]
        endwhere
        Zeff(j) = SHI_1%Zeff   ! equilibrium charge
-       call progress(' Progress of calculation: ', j, N)
+       if (NumPar%verbose) call progress(' Progress of calculation: ', j, N)
    enddo
 !$omp end do
 !$omp end parallel

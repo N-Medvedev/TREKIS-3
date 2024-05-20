@@ -6,8 +6,7 @@
 ! With contributions from D. Zainutdinov, F. Akhmetov, P. Babaev, S. Gorbunov
 !
 ! The code simulates a Swift Heavy Ion impact in solids,
-! where the properties of any solid target are provided
-! as input files.
+! where the properties of any solid target are provided as input files.
 !
 ! The main references describing the model are:
 ! 1) N.A. Medvedev, R.A. Rymzhanov, A.E. Volkov, J. Phys. D. Appl. Phys. 48 (2015) 355303

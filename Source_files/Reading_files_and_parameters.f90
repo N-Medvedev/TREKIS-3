@@ -150,7 +150,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    NumPar%do_gnuplot = .true. ! gnuplot by default
    NumPar%plot_extension = 'jpeg' ! default jpeg-files
    NumPar%get_thermal = .false.   ! default: no thermal parameters
-   NumPar%CS_method = 0    ! choice of the method of CS integration (integration grid): default - NEW
+   NumPar%CS_method = 1    ! choice of the method of CS integration (integration grid): default - tabulated files
 
    !----------------
    ! Reading the input file:
@@ -500,8 +500,8 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
       ! Try to read which file extension to use:
       read(text_in, *, IOSTAT=Reason) text, i_read
       call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
-      if (.not. read_well) then  ! by default, use old grid
-         NumPar%CS_method = -1
+      if (.not. read_well) then  ! by default, use tabulated files
+         NumPar%CS_method = 1
       else ! useк provided grid index
          NumPar%CS_method = i_read
       endif

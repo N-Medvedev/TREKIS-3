@@ -21,7 +21,7 @@ real(8), parameter :: m_Pi_6 = (g_Pi/6.0d0)**(1.0d0/3.0d0)
 integer, parameter :: m_N_grid_SHI = 1000
 integer, parameter :: m_N_p_grid_SHI = 100
 integer, parameter :: m_N_grid_e_inelast = 100
-integer, parameter :: m_N_grid_e_elast = 200
+integer, parameter :: m_N_grid_e_elast = 20
 
 
 parameter (m_Thom_factor = 20.6074224164d0)        ! [1] Constant for Eq.(2.5)
@@ -1197,10 +1197,16 @@ subroutine allocate_diff_CS_elastic_tables(Ele, i_E, Target_atoms, CDF_Phonon, M
     case default  ! new integartion grid
       n = m_N_grid_e_elast ! NEW
       ! Define the interval of integration where the peak are (requires fined grid):
-      E_low = max( minval(CDF_Phonon%E0 - 5.0d0*CDF_Phonon%Gamma) , Emin )
-      E_high = min( maxval(CDF_Phonon%E0 + 5.0d0*CDF_Phonon%Gamma) , Emax )
+      !E_low = max( minval(CDF_Phonon%E0 - 5.0d0*CDF_Phonon%Gamma) , Emin )
+      !E_high = min( maxval(CDF_Phonon%E0 + 5.0d0*CDF_Phonon%Gamma) , Emax )
+      call get_E_low(minval(CDF_Phonon%E0 - 5.0d0*CDF_Phonon%Gamma), &
+                     maxval(CDF_Phonon%E0 + 5.0d0*CDF_Phonon%Gamma), &
+                     Emin, Emax, E_low, E_high)  ! below
       Nsiz = get_diff_CS_grid_size(NumPar%CS_method, n, Emin, Emax, E0_min=E_low, E0_max=E_high, dE_min=1.0e-5) ! below
+      !print*, Nsiz, get_diff_CS_grid_size(-1, n, Emin, Emax, dE_min=1.0e-5) ! below OLD
     end select
+    !pause 'allocate_diff_CS_elastic_tables'
+
 
     ! If the tabulated integrated differential CS are to be saved, allocate arrays:
     select case (NumPar%CS_method)
@@ -1230,19 +1236,51 @@ subroutine allocate_diff_CS_elastic_tables(Ele, i_E, Target_atoms, CDF_Phonon, M
 end subroutine allocate_diff_CS_elastic_tables
 
 
+pure subroutine get_E_low(E_low_bound, E_high_bound, Emin, Emax, E_low_out, E_high_out)
+   real(8), intent(in) :: E_low_bound, E_high_bound, Emin, Emax
+   real(8), intent(out) :: E_low_out, E_high_out
+   !-------------------
+   real(8) :: dE
 
-pure function get_diff_CS_grid_size(CS_method, n, Emin, Emax, E0_min, E0_max, dE_min) result(Nsiz)
+   if ((Emin > E_high_bound) .or. (Emax < E_low_bound)) then ! energy far above the CDF peak
+      E_low_out = Emin
+      E_high_out = Emax
+   else
+      E_low_out = max( E_low_bound , Emin )
+      E_high_out = min( E_high_bound , Emax )
+      if (abs(E_low_out - E_high_out) < 1.0d-3) then  ! too close to each other, shift them
+         E_low_out = Emin
+         E_high_out = Emax
+      else
+         ! Leave enough integration space from the low boundary, if required:
+         dE = (E_high_bound - E_low_bound) !*0.5d0
+         E_low_out = min( E_low_out , E_high_out-dE )
+         ! M   ake sure this value makes sence:
+         E_low_out = max( E_low_out, Emin )
+      endif
+   endif
+end subroutine get_E_low
+
+
+
+ function get_diff_CS_grid_size(CS_method, n, Emin, Emax, E0_min, E0_max, dE_min) result(Nsiz)
    integer Nsiz
    integer, intent(in) :: CS_method, n ! integration grid index; number of grid points
    real(8), intent(in) :: Emin, Emax
    real(8), intent(in), optional :: E0_min, E0_max, dE_min
    !------------------
-   real(8) :: E, dE
+   real(8) :: E, dE, E_start, E_end
    integer :: i
 
-   E = Emin    ! to start integration
+   ! Define integration limits:
+   call define_integration_limits(E_start, E_end, CS_method, Emin, Emax, E0_min, E0_max)   ! below
+
+   ! Integration grid:
+   !E = Emin    ! to start integration
+   E = E_start    ! to start integration
    i = 0
    do while (E .LE. Emax) ! integration
+   !do while (E .LE. E_end) ! integration
       i = i + 1
 
       ! Boundaries are defined:
@@ -1278,16 +1316,50 @@ pure function get_diff_CS_grid_size(CS_method, n, Emin, Emax, E0_min, E0_max, dE
             dE = define_dE(CS_method, n, E) ! below
          endif
       endif
-
       E = E + dE  ! [eV]
+
+!       if ( present(E0_min) .and. present(E0_max) ) then
+!          print*, i, E, dE, Emin, Emax, E0_min, E0_max
+!       else
+!          print*, i, E, dE, Emin, Emax !, E0_min, E0_max
+!       endif
+
    enddo
 
-   Nsiz = i
+   Nsiz = max( i, 10 ) ! not less than 10 points
+   !pause 'get_diff_CS_grid_size'
 end function get_diff_CS_grid_size
 
 
+pure subroutine define_integration_limits(E_start, E_end, CS_method, Emin, Emax, E0_min, E0_max)
+   real(8), intent(out) :: E_start, E_end
+   integer, intent(in) :: CS_method
+   real(8), intent(in) :: Emin, Emax
+   real(8), intent(in), optional :: E0_min, E0_max
+   !------------------
+   select case (CS_method)
+   case (-1)   ! Old default
+      E_start = Emin
+      E_end = Emax
+   case default ! New default
+      if (present(E0_min)) then
+         E_start = E0_min
+      else
+         E_start = Emin
+      endif
 
-pure function define_dE(CS_method, n, E, E0_min, E0_max, dE_min) result(dE)
+      if (present(E0_max)) then
+         E_end = E0_max
+      else
+         E_end = Emax
+      endif
+   end select
+
+end subroutine define_integration_limits
+
+
+
+ function define_dE(CS_method, n, E, E0_min, E0_max, dE_min) result(dE)
    real(8) dE
    integer, intent(in) :: CS_method, n ! integration grid index; number of grid points
    real(8), intent(in) :: E
@@ -1309,16 +1381,20 @@ pure function define_dE(CS_method, n, E, E0_min, E0_max, dE_min) result(dE)
       if ( (present(E0_min)) .and. (present(E0_max)) ) then
          if ( (E > E0_min) .and. (E < E0_max) ) then   ! fine grid in the interval
             dE = (E0_max - E0_min)/dble(n)
-         elseif (E > E0_max) then ! high-energy - too far from the peak, no need for fine resolution
+         else !if (E > E0_max) then ! high-energy - too far from the peak, no need for fine resolution
             dE = E/dble(n)
-         else ! low energy - too far from the peak, no need for fine resolution (usually unused, but anyway...)
-            dE = (E-E0_min)/dble(n) ! step not smaller than this
+         !else ! low energy - too far from the peak, no need for fine resolution (usually unused, but anyway...)
+         !   dE = (E-E0_min)/dble(n) ! step not smaller than this
          endif
 
       else ! use old grid
          dE = (1.0d0/(E+1.0d0) + E)/dble(n)  ! start with old, if there are no parameters for the new
       endif
    end select
+
+    if (dE < 0.0e0) then
+       print*, 'define_dE<0:', n, E, E0_min, E0_max
+    endif
 
    dE = max(dE, dE_min_use)  ! step not smaller than this
 end function define_dE
@@ -1877,7 +1953,7 @@ subroutine interpolate_transferred_energy(Ele, Int_diff_CS, L_need, hw_out)
    if ( (i_hw == 1) .or. ((i_hw == size(Int_diff_CS%diffCS(i_E)%hw))) ) then ! no need to interpolate
       hw_1 = Int_diff_CS%diffCS(i_E)%hw(i_hw)
    else ! interpolate between the values:
-      call Interpolate(1, Int_diff_CS%diffCS(i_E)%dsdhw(i_hw), &
+      call Interpolate(5, Int_diff_CS%diffCS(i_E)%dsdhw(i_hw), &
                         Int_diff_CS%diffCS(i_E)%dsdhw(i_hw+1), &
                         Int_diff_CS%diffCS(i_E)%hw(i_hw), &
                         Int_diff_CS%diffCS(i_E)%hw(i_hw+1), L_need, hw_1)  ! module "Reading_files_and_parameters"
@@ -1895,14 +1971,14 @@ subroutine interpolate_transferred_energy(Ele, Int_diff_CS, L_need, hw_out)
       if ( (i_hw == 1) .or. ((i_hw == size(Int_diff_CS%diffCS(i_E)%hw))) ) then ! no need to interpolate
          hw_2 = Int_diff_CS%diffCS(i_E)%hw(i_hw)
       else ! interpolate between the values:
-         call Interpolate(1, Int_diff_CS%diffCS(i_E)%dsdhw(i_hw), &
+         call Interpolate(5, Int_diff_CS%diffCS(i_E)%dsdhw(i_hw), &
                         Int_diff_CS%diffCS(i_E)%dsdhw(i_hw+1), &
                         Int_diff_CS%diffCS(i_E)%hw(i_hw), &
                         Int_diff_CS%diffCS(i_E)%hw(i_hw+1), L_need, hw_2)  ! module "Reading_files_and_parameters"
       endif
 
       ! Interpolate the transferred energy between the values for the two energy grid points:
-      call Interpolate(1, &
+      call Interpolate(5, &
                        Int_diff_CS%E(i_E), &
                        Int_diff_CS%E(i_E+1), &
                        hw_1, hw_2, &
@@ -2166,7 +2242,7 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
    !---------------------
    integer i, j, n, Mnum
    real(8) Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, RN, temp1, temp2, qdebay, Edebay, Mtarget, L_cur, L_need, Mass
-   real(8) :: Zt, Zeff, E_low, E_high, hw_cur
+   real(8) :: Zt, Zeff, E_low, E_high, hw_cur, E_start, E_end
    real(8), pointer :: Ee
     
    call random_number(RN)
@@ -2217,16 +2293,21 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     case (-1)  ! Old integration grid
       n = 10*(MAX(INT(Emin),10))    ! number of integration steps
       !Nsiz = get_diff_CS_grid_size(n, Emin, Emax) ! below OLD
+      ! Define integration limits:
+      call define_integration_limits(E_start, E_end, NumPar%CS_method, Emin, Emax)   ! below
     case default  ! new integartion grid
       n = m_N_grid_e_elast ! NEW
       E_low = max( minval(CDF_Phonon%E0 - 5.0d0*CDF_Phonon%Gamma) , Emin )
       E_high = min( maxval(CDF_Phonon%E0 + 5.0d0*CDF_Phonon%Gamma) , Emax )
       !Nsiz = get_diff_CS_grid_size(n, Emin, Emax, E0_min=E_low, E0_max=E_high) ! below
+      ! Define integration limits:
+      call define_integration_limits(E_start, E_end, NumPar%CS_method, Emin, Emax, E0_min=E_low, E0_max=E_high)   ! below
     end select
 
-    dE = (Emax - Emin)/(real(n)) ! differential of transferred energy
+    !dE = (Emax - Emin)/(real(n)) ! differential of transferred energy
     i = 1       ! to start integration
-    E = Emin    ! to start integration
+    !E = Emin    ! to start integration
+    E = E_start
     Ltot1 = 0.0d0
     Ltot0 = 0.0d0
     L_cur = 1.0d10
@@ -2251,6 +2332,7 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
         L_cur = 1.0d0/(Zeff*Zeff*Mass*Ltot1) ! include effective charge of target atoms
         E = E + dE  ! [eV]
         if (E .GE. Emax) exit
+        !if (E .GE. E_end) exit
     enddo
     if (E .GE. Emax) E = Emax
     dE_out = E ! energy transferred [eV]
@@ -2376,7 +2458,10 @@ subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DO
                     do while (E0 .LE. Emax) ! integration
                         k0 = k0 + 1
                         !dE = (1.0d0/(E0+1.0d0) + E0)/real(n0)
-                        dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low0, E0_max=E_high0)   ! below
+                        !print*, 'a', i0, j0, dE
+                        dE = define_dE(NumPar%CS_method, n0, E0, E0_min=E_low0, E0_max=E_high0)   ! below
+                        !print*, 'b', i0, j0, dE
+
                         E0 = E0 + dE  ! [eV]
                     enddo
                     allocate(dSedE(i0)%ELMFP(j0)%E(k0))
@@ -2401,7 +2486,11 @@ subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DO
        do while (E <= Emax) ! integration
           i = i + 1
           if (present(dSedE)) then
-             if (i > size(dSedE(Nat)%ELMFP(Nshl)%E)) exit
+             if (i > size(dSedE(Nat)%ELMFP(Nshl)%E)) then
+               print*, 'Trouble in SHI_TotIMFP: diff.array size exceeded', i, size(dSedE(Nat)%ELMFP(Nshl)%E)
+               print*, 'atom, shell: ', Nat, Nshl
+               exit
+             endif
           endif
           !dE = (1.0d0/(E+1.0d0) + E)/real(n)
           !dE = define_dE(n, E)   ! below OLD
@@ -2814,7 +2903,7 @@ subroutine Tot_EMFP(Ele, i_E, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, Num
     real(8), dimension(:), allocatable, intent(inout), optional :: dsdhw  ! d sigma / d hw [A^2/eV]
     real(8), dimension(:), allocatable, intent(inout), optional :: d_hw  ! d hw [eV]
     !--------------------
-    integer :: i, j, n, Mnum
+    integer :: i, j, n, Mnum, Nsiz
     real(8) :: Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, E_low, E_high
     real(8) :: a, b, temp1, temp2, qdebay, Edebay, Mtarget, Mass, pref
     real(8), pointer :: Ee
@@ -2862,27 +2951,29 @@ subroutine Tot_EMFP(Ele, i_E, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, Num
     select case (NumPar%CS_method)
     case (-1)  ! Old integration grid
       n = 20*(MAX(INT(Emin),10))    ! number of integration steps OLD
-      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax) ! below OLD
     case default  ! new integartion grid
       n = m_N_grid_e_elast ! NEW
       ! Define the interval of integration where the peak are (requires fined grid):
-      E_low = max( minval(CDF_Phonon%E0 - 5.0d0*CDF_Phonon%Gamma) , Emin )
-      E_high = min( maxval(CDF_Phonon%E0 + 5.0d0*CDF_Phonon%Gamma) , Emax )
-      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax, E0_min=E_low, E0_max=E_high) ! below
+      call get_E_low(minval(CDF_Phonon%E0 - 5.0d0*CDF_Phonon%Gamma), &
+                     maxval(CDF_Phonon%E0 + 5.0d0*CDF_Phonon%Gamma), &
+                     Emin, Emax, E_low, E_high)  ! below
     end select
 
     !dE = (Emax - Emin)/(dble(n)) ! differential of transferred energy
     i = 0       ! to start integration
-    E = Emin    ! to start integration
+    !E = Emin    ! to start integration
+    E = E_low
     Ltot1 = 0.0d0
     Ltot0 = 0.0d0
     call Diff_cross_section_phonon(Ele, E, NumPar, Matter, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS)  ! below
     ddEdx = 0.0e0
     do while (abs(E) .LE. abs(Emax)) ! integration
+    !do while (abs(E) .LE. abs(E_high)) ! integration
         i = i + 1 ! index
         !dE = (1.0d0/(E+1.0d0) + E)/dble(n)
         !dE = define_dE(n, E)  ! below OLD
         dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low, E0_max=E_high, dE_min=1.0e-5)   ! below
+
 
         dE = pref * dE  ! if user requested a prefactor
         ! If it's Simpson integration:
@@ -3116,8 +3207,12 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
 
 !         if ( (abs(Ele-1.0d0) < 1.0d-2) .and. ( abs(hw - 0.1d0) < 0.01d0) ) &
 !            print*, 'Diff_cross_section_phonon', Ele, hw, g_h*g_h*hq*hq/(2.0d0*Mtarget), dL
-    enddo    
-    Diff_IMFP = 1.0d0/(g_Pi*g_a0*Ele)*dLs/(1-exp(-hw/Ttarget*g_kb))
+    enddo
+    if (Ttarget > 1.0d-6) then   ! finite temperature
+      Diff_IMFP = 1.0d0/(g_Pi*g_a0*Ele)*dLs/(1-exp(-hw/Ttarget*g_kb))
+    else ! zero tempreature
+      Diff_IMFP = 1.0d0/(g_Pi*g_a0*Ele)*dLs
+    endif
 
     ! Clean up:
     nullify(Ee, dE)
