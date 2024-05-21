@@ -659,13 +659,14 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
    logical, intent(inout) :: read_well  ! did we read the file well?
    !-------------------------
-   real(8) M
-   integer FN2, Reason, i, j, k, l, N, Shl, CDF_coef, Shl_num, comment_start
+   real(8) :: M, temp_r(5)
+   integer FN2, Reason, i, j, k, l, N, Shl, CDF_coef, Shl_num, comment_start, Nsiz
    character(100) Error_descript, temp, read_line
    character(3) Name
    character(11) Shell_name
    character(30) Full_Name
    logical file_opened, file_exist, file_exist2
+   type(CDF) :: Ritchi_temp  ! Ritchi CDF
    
    FN2 = 201
    inquire(file=trim(adjustl(Material_file)),exist=file_exist)    ! check if the full input file exists
@@ -689,6 +690,10 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
       goto 2014 ! go to the end of the subroutine, there is nothing else we could do
    endif
    
+   ! Defaults:
+   NumPar%VB_CDF_defined = .false.
+   !NumPar%phonon_CDF_defined = .false. ! unused
+
    i = 0
    !READ(FN2,*,IOSTAT=Reason) Matter%Target_name ! first line is the full material name
    Matter%Target_name = '' ! to start with
@@ -781,9 +786,91 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
 
    SP_CDF:if (.not. read_well) then ! check if there is a CDF
-      write(*,'(a)') ' No CDF parameters found in the file '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
+      ! Defaults:
       NumPar%kind_of_CDF = 1  ! single-pole CDF
       NumPar%kind_of_CDF_ph = 1 ! use single-pole approximation of phonon CDF
+
+      ! Check if there are partial CDF defined:
+      ! markers "VALENCE" or "PHONON"
+      backspace(FN2) ! read this line again:
+      Reason = 0  ! restart
+      do while (Reason == 0)
+         READ(FN2,'(a)',IOSTAT=Reason) temp
+         IF (Reason == 0)  THEN ! normal reading, try to interprete
+            if (LEN(trim(adjustl(temp))) > 0) then ! there is something written
+               select case( trim(adjustl(temp(1:3))) )
+               !--------------
+               case ('VAL', 'Val', 'val') ! valence CDF
+                  NumPar%VB_CDF_defined = .true.
+                  !print*, 'VB', NumPar%VB_CDF_defined
+
+                  READ(FN2,*,IOSTAT=Reason) CDF_coef, Shl_num, temp_r(1), temp_r(2), temp_r(3)
+                  if ((Reason == 0) .and. (CDF_coef > 0)) then ! there is CDF to be used in a cross section
+                     allocate(Ritchi_temp%E0(CDF_coef))
+                     allocate(Ritchi_temp%A(CDF_coef))
+                     allocate(Ritchi_temp%Gamma(CDF_coef))
+                     if (NumPar%kind_of_DR == 4) then
+                        allocate(Ritchi_temp%alpha(CDF_coef))
+                     endif
+                     do l = 1, CDF_coef    ! read all the CDF parameters:
+                        READ(FN2,*,IOSTAT=Reason) Ritchi_temp%E0(l), Ritchi_temp%A(l), Ritchi_temp%Gamma(l)
+                        call read_file(Reason, i, read_well) ! reports if everything read well
+                        if (.not. read_well) then
+                           write(*,'(a)') ' Could not interprete VB CDF parameters in '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
+                           NumPar%VB_CDF_defined = .false.
+                           exit
+                        endif
+                        ! For Delta-CDF:
+                        if (NumPar%kind_of_DR == 4) then
+                           call define_alpha(Ritchi_temp%A(l), Ritchi_temp%Gamma(l), Ritchi_temp%E0(l), Matter%Egap, Ritchi_temp%alpha(l))  ! below
+                        endif
+                     enddo
+                  else   ! something went wrong, use single-pole CDF
+                     write(*,'(a)') ' Could not interprete VB CDF parameters in '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
+                     NumPar%VB_CDF_defined = .false.
+                  endif
+
+               !--------------
+               case ('PHO', 'Pho', 'pho') ! phonon CDF
+                  NumPar%kind_of_CDF_ph = 0 ! user provided phonon CDF
+                  !print*, 'Phonons:', NumPar%kind_of_CDF_ph
+
+                  READ(FN2,*,IOSTAT=Reason) CDF_coef
+                  if (.not. allocated(CDF_Phonon%A)) allocate(CDF_Phonon%A(CDF_coef))
+                  if (.not. allocated(CDF_Phonon%E0)) allocate(CDF_Phonon%E0(CDF_coef))
+                  if (.not. allocated(CDF_Phonon%Gamma)) allocate(CDF_Phonon%Gamma(CDF_coef))
+                  if (NumPar%kind_of_DR .EQ. 4) then
+                     if (.not. allocated(CDF_Phonon%alpha)) allocate(CDF_Phonon%alpha(CDF_coef))   ! that's how many CDF functions
+                  endif
+                  do l = 1, CDF_coef    ! read all the CDF parameters for phonon peak:
+                     READ(FN2,*,IOSTAT=Reason) CDF_Phonon%E0(l), CDF_Phonon%A(l), CDF_Phonon%Gamma(l)
+                     call read_file(Reason, i, read_well) ! reports if everything read well
+                     if (.not. read_well) then
+                        write(*,'(a)') ' Could not interprete phonon CDF parameters in '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
+                        deallocate(CDF_Phonon%A)
+                        deallocate(CDF_Phonon%E0)
+                        deallocate(CDF_Phonon%Gamma)
+                        if (allocated(CDF_Phonon%alpha)) deallocate(CDF_Phonon%alpha)
+                        NumPar%kind_of_CDF_ph = 1 ! use single-pole
+                        exit
+                     endif
+                     ! For Delta-CDF:
+                     if (NumPar%kind_of_DR .EQ. 4) then
+                     call define_alpha(CDF_Phonon%A(l), CDF_Phonon%Gamma(l), CDF_Phonon%E0(l), 0.0d0, CDF_Phonon%alpha(l))  ! below
+                     endif
+                  enddo
+
+               end select
+            endif ! (LEN(trim(adjustl(temp))) > 0)
+         ENDIF ! (Reason == 0)
+      enddo ! while (Reason == 0)
+      !pause 'TEST CDF'
+
+      if (.not.NumPar%VB_CDF_defined) then
+         write(*,'(a)') ' No CDF parameters found in the file '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
+      else
+         write(*,'(a)') ' Only VB CDF found in the file '//trim(adjustl(Material_file))//'. For the rest, using single-pole approximation.'
+      endif
 
       ! Read the atomic parameters from EPICS-database:
       call check_atomic_parameters(NumPar, Target_atoms, Error_message=Error_message, read_well=read_well) ! from module 'Dealing_with_EADL'
@@ -800,8 +887,32 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
          endif
 
          do k = 1, Shl ! each shell
-            Target_atoms(j)%KOCS_SHI(k) = 1 ! Mark SHI CDF cross section for this shell
-            Target_atoms(j)%KOCS(k) = 1 ! Mark electron CDF cross section for this shell
+            Target_atoms(j)%KOCS_SHI(k) = 1   ! Mark SHI CDF cross section for this shell
+            Target_atoms(j)%KOCS(k) = 1      ! Mark electron CDF cross section for this shell
+
+            ! Special treatement for VB - it may be defined already:
+            if ( (j == 1) .and. (k == Shl) ) then ! VB
+               if ( NumPar%VB_CDF_defined ) then ! and only then
+                  Nsiz = size(Ritchi_temp%A)
+                  if (.not. allocated(Target_atoms(j)%Ritchi(k)%E0)) allocate(Target_atoms(j)%Ritchi(k)%E0(Nsiz))
+                  if (.not. allocated(Target_atoms(j)%Ritchi(k)%A)) allocate(Target_atoms(j)%Ritchi(k)%A(Nsiz))
+                  if (.not. allocated(Target_atoms(j)%Ritchi(k)%Gamma)) allocate(Target_atoms(j)%Ritchi(k)%Gamma(Nsiz))
+                  Target_atoms(j)%Ritchi(k)%E0 = Ritchi_temp%E0
+                  Target_atoms(j)%Ritchi(k)%A = Ritchi_temp%A
+                  Target_atoms(j)%Ritchi(k)%Gamma = Ritchi_temp%Gamma
+                  if (NumPar%kind_of_DR == 4) then
+                     if (.not. allocated(Target_atoms(j)%Ritchi(k)%alpha)) allocate(Target_atoms(j)%Ritchi(k)%alpha(Nsiz))
+                     Target_atoms(j)%Ritchi(k)%alpha = Ritchi_temp%alpha
+                  endif
+
+                  ! clean up:
+                  deallocate(Ritchi_temp%E0)
+                  deallocate(Ritchi_temp%A)
+                  deallocate(Ritchi_temp%Gamma)
+                  if (allocated(Ritchi_temp%alpha)) deallocate(Ritchi_temp%alpha)
+               endif
+            endif
+
             ! Define single CDF oscillator:
             if (.not. allocated(Target_atoms(j)%Ritchi(k)%E0)) allocate(Target_atoms(j)%Ritchi(k)%E0(1))
             if (.not. allocated(Target_atoms(j)%Ritchi(k)%A)) allocate(Target_atoms(j)%Ritchi(k)%A(1))
@@ -2245,7 +2356,7 @@ subroutine Linear_approx_2x1d_DSF(Array_dL, Array_dE, In_val, Value1)
    Nsiz = size(Array_dL)
 
    ! The following subroutine works for monotoneusly increasing array,
-   ! where as Array passed is decreaseing, so use negative array to find the correct index:
+   ! whereas the Array passed is decreaseing, so use negative array to find the correct index:
    call Find_in_array_monoton(-Array_dL, -In_val, Number)    ! find the closest value in the array to a given one
 
    if (Number == 1) then

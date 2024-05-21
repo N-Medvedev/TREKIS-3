@@ -574,25 +574,28 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
 
          do j = 1, N_shl
             if ( (i == 1) .and. (j == N_shl) ) then ! the valence band
-               NVB = Target_atoms(i)%Nel(j)/N_at_mol   ! valence electrons per atom
 
-               ! Set them according to the single-pole approximation:
-               Omega = w_plasma(1d6*Matter%At_dens*NVB)  ! function below, plasma frequency^2 [1/s]^2
+               if (.not.NumPar%VB_CDF_defined) then ! user did not define VB CDF in a file
+                  NVB = Target_atoms(i)%Nel(j)/N_at_mol   ! valence electrons per atom
 
-               Target_atoms(i)%Ritchi(j)%E0(1) = sqrt((g_h/g_e)*(g_h/g_e) * Omega)  ! [eV]
-               ! Gamma set equal to E0 without effective mass (empirical approximation):
-               Target_atoms(i)%Ritchi(j)%Gamma(1) = Target_atoms(i)%Ritchi(j)%E0(1)
-               ! A is set vie normalization (sum rule):
-               Target_atoms(i)%Ritchi(j)%A(1) = 1.0d0   ! just to get sum rule to renormalize below
-               ! Get sum rule:
-               Omega = w_plasma(1d6*Matter%At_dens)   ! below
-               call sumrules(Target_atoms(i)%Ritchi(j)%A, Target_atoms(i)%Ritchi(j)%E0, Target_atoms(i)%Ritchi(j)%Gamma, &
+                  ! Set them according to the single-pole approximation:
+                  Omega = w_plasma(1d6*Matter%At_dens*NVB)  ! function below, plasma frequency^2 [1/s]^2
+
+                  Target_atoms(i)%Ritchi(j)%E0(1) = sqrt((g_h/g_e)*(g_h/g_e) * Omega)  ! [eV]
+                  ! Gamma set equal to E0 without effective mass (empirical approximation):
+                  Target_atoms(i)%Ritchi(j)%Gamma(1) = Target_atoms(i)%Ritchi(j)%E0(1)
+                  ! A is set vie normalization (sum rule):
+                  Target_atoms(i)%Ritchi(j)%A(1) = 1.0d0   ! just to get sum rule to renormalize below
+                  ! Get sum rule:
+                  Omega = w_plasma(1d6*Matter%At_dens)   ! below
+                  call sumrules(Target_atoms(i)%Ritchi(j)%A, Target_atoms(i)%Ritchi(j)%E0, Target_atoms(i)%Ritchi(j)%Gamma, &
                               ksum, fsum, Target_atoms(i)%Ip(j), Omega) ! below
 
-               Target_atoms(i)%Ritchi(j)%A(1) = NVB/ksum
+                  Target_atoms(i)%Ritchi(j)%A(1) = NVB/ksum
 
-               ! To calculate the sum rules in VB, we need molecular density, not atomic:
-               Omega = w_plasma(1d6*Matter%At_dens/N_at_mol)   ! below
+                  ! To calculate the sum rules in VB, we need molecular density, not atomic:
+                  Omega = w_plasma(1d6*Matter%At_dens/N_at_mol)   ! below
+               endif ! (.not.NumPar%VB_CDF_defined)
             else ! core shell
                NVB = Target_atoms(i)%Nel(j)    ! core electrons per atom
                contrib = Target_atoms(i)%Pers/N_at_mol  ! contribution of the atoms into the compound
@@ -614,7 +617,8 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
                               ksum, fsum, Target_atoms(i)%Ip(j), Omega) ! below
 
                Target_atoms(i)%Ritchi(j)%A(1) = NVB/ksum
-            endif
+            endif ! ( (i == 1) .and. (j == N_shl) )
+
             ! Sum rules:
             if (NumPar%verbose) then
                call sumrules(Target_atoms(i)%Ritchi(j)%A, Target_atoms(i)%Ritchi(j)%E0, Target_atoms(i)%Ritchi(j)%Gamma, &
@@ -1833,7 +1837,9 @@ subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_to
     case default ! do BEB energy transfer:
         call Electron_NRG_transfer_BEB(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mass, Emin, Emax)
     end select
-    if (E .GE. Emax) E = Emax
+    ! Make sure it's within the alllwed limits:
+    if (E < Emin) E = Emin
+    if (E > Emax) E = Emax
     dE_out = E  ! energy transfer [eV]
     
     !if (trim(adjustl(NumPar%kind_of_particle)) .EQ. 'Electron') then 

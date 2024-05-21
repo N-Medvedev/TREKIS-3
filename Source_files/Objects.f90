@@ -141,6 +141,8 @@ type :: Flag
     real(8), dimension(:), allocatable :: time_grid ! grid_points in time
     ! Which method of diff.cross section calculation to use:
     integer :: CS_method    ! CS energy integration grid: -1=old; 0=new; 1=save-files
+    ! Flags for marking parts of user-defined CDF:
+    logical :: VB_CDF_defined, phonon_CDF_defined
 end type Flag
 !==============================================
 
