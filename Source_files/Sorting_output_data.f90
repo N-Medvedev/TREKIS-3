@@ -740,7 +740,8 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     if (file_opened) close(FN3)             ! and if it is, close it
     
 
-    !=============================== Electron radial temperature
+    !===============================
+    !Electron radial temperature:
     FN3 = 303
     !File_name = trim(adjustl(File_name2))//'/Radial_electron_temperature[K].txt'
     ch_temp = 'Radial_electron_temperature[K].txt'

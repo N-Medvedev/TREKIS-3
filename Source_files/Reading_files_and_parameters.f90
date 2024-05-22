@@ -132,6 +132,7 @@ subroutine set_default_numpar(Numpar)
    NumPar%kind_of_DR = 0    ! target electron dispersion relation used in CDF calculations
    NumPar%dt_flag = 1      ! kind of time-grid (0=linear;1=log)
    NumPar%CDF_elast_Zeff = 0 ! kind of effective charge of target atoms (1=1, 0=Barkas-like Zeff)
+   NumPar%out_dim = 1         ! dimensionality of the output plots: 0 = eV/A^3 (old); 1=eV/atom
    ! Printout for testing:
    NumPar%verbose = .false.
    NumPar%very_verbose = .false.
@@ -145,7 +146,7 @@ subroutine set_default_numpar(Numpar)
    NumPar%Zout_min = 0.0d0
    NumPar%Zout_max = 0.0d0
    NumPar%Zout_dz = 0.0d0
-   NumPar%field_dt = 0.0d0      ! time-grid for fields update
+   NumPar%field_dt = 0.0d0    ! time-grid for fields update
 end subroutine set_default_numpar
 
 
@@ -557,9 +558,19 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
       read(text_in, *, IOSTAT=Reason) text, i_read
       call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
       if (.not. read_well) then  ! by default, use tabulated files
-         NumPar%CS_method = 1
+         !NumPar%CS_method = 1   ! was specified above in the default NumPar
+         print*, 'Could not interprete grid index in line: ', trim(adjustl(text_in)), ', using default'
       else ! useк provided grid index
          NumPar%CS_method = i_read
+      endif
+
+   case ('UNITS', 'Units', 'units')
+      read(text_in, *, IOSTAT=Reason) text, i_read
+      call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
+      if (.not. read_well) then  ! default
+         print*, 'Could not interprete units index in line: ', trim(adjustl(text_in)), ', using default'
+      else  ! use the provided name for DOS file:
+         NumPar%out_dim = i_read
       endif
 
    case ('CDF', 'Cdf', 'cdf')
@@ -641,6 +652,7 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
 
    case ('INFO', 'Info', 'info')
       print*, trim(adjustl(starline))
+      print*, trim(adjustl(starline))
       print*, 'TREKIS-3 stands for: Time-Resolved Electron Kinteics in SHI-Irradiated Solids'
       print*, 'For all details and instruction, address the files !READ_ME_TREKIS_3.doc or !READ_ME_TREKIS_3.pdf'
       print*, 'DISCLAIMER'
@@ -655,6 +667,7 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
          'Should you use this code to create initial conditions for further molecular dynamics simulations of atomic response to the electronic excitation by a swift heavy ion (e.g. with LAMMPS), the following citation is required:', &
          ' 3) R. Rymzhanov, N. Medvedev, A. E. Volkov, J. Phys. D. Appl. Phys. 50 (2017) 475301', &
          'In a publication, we recommend that at least the following parameters should be mentioned for reproducibility of the results: material, its structure, density, speed of sound, the used CDF coefficients, which processes were included (active) in the simulation, ion type, its energy, the model for SHI charge, number of MC iterations.'
+      print*, trim(adjustl(starline))
       print*, trim(adjustl(starline))
    endselect
 end subroutine interpret_additional_data_INPUT

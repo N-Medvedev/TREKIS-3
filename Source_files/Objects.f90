@@ -145,6 +145,7 @@ type :: Flag
     logical :: VB_CDF_defined, phonon_CDF_defined
     character(100) :: CDF_file  ! optional name of file with CDF
     character(100) :: DOS_file  ! optional name of file with DOS
+    integer :: out_dim  ! dimensionality of the output plots: 0 = eV/A^3 (old); 1=eV/atom
 end type Flag
 !==============================================
 
