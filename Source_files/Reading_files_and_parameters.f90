@@ -48,11 +48,15 @@ end interface Trapeziod
 
 public :: Find_in_array, Find_in_array_monoton, Linear_approx, get_file_stat, get_num_shells, print_time_step
 public :: Read_input_file, Linear_approx_2x1d_DSF, Find_VB_numbers, read_file_here, read_SHI_MFP, get_add_data, m_INPUT_file, &
-          Find_in_monoton_array_decreasing
+          Find_in_monoton_array_decreasing, set_default_numpar
 
 
 character(25), parameter :: m_form_factors_file = 'Atomic_form_factors.dat'
 character(25), parameter :: m_INPUT_file = 'INPUT_PARAMETERS.txt'
+character(10), parameter :: m_INPUT_CDF = 'INPUT_CDF'
+character(10), parameter :: m_INPUT_DOS = 'INPUT_DOS'
+character(10), parameter :: m_INPUT_DSF = 'INPUT_DSF'
+!character(10), parameter :: m_INPUT_EADL = 'INPUT_EADL'
 
 contains
 
@@ -103,6 +107,48 @@ subroutine get_file_stat(File_name, device_ID, Inode_number, File_mode, Number_o
 end subroutine get_file_stat
 
 
+
+subroutine set_default_numpar(Numpar)
+   type(Flag), intent(inout) :: NumPar
+   !------------------------
+   ! Default to start with:
+   NumPar%redo_IMFP = .false. ! don't recalculate inelastic MFPs, if possible
+   NumPar%redo_EMFP = .false. ! don't recalculate elastic MFPs, if possible
+   NumPar%redo_IMFP_SHI = .false. ! don't recalculate elastic MFPs, if possible
+   NumPar%include_photons = .false. ! no photons by default (unless user includes them)
+   NumPar%plasmon_Emax = .false. ! do not include plasmon integration limit in inelastic CDF
+   NumPar%field_include = .false.   ! no fields (bc NOT READY!)
+   NumPar%print_CDF = .false. ! don't print CDF file out
+   NumPar%print_CDF_optical = .false.  ! don't print optical CDF
+   NumPar%do_gnuplot = .true. ! gnuplot by default
+   NumPar%plot_extension = 'jpeg' ! default jpeg-files
+   NumPar%get_thermal = .false.   ! default: no thermal parameters
+   NumPar%CS_method = 1    ! choice of the method of CS integration (integration grid): default - tabulated files
+   NumPar%DOS_file = ''    ! no optional name, to use default
+   NumPar%kind_of_EMFP = 1 ! kind of inelastic mean free path (0=atomic; 1=CDF, 2=DSF)
+   NumPar%kind_of_CDF = 1   ! kind of CDF used for inelastic CS: 0=Ritchie; 1=Single=pole
+   NumPar%kind_of_CDF_ph = 1  ! kind of CDF used for elastic CS: 0=Ritchie; 1=Single=pole
+   NumPar%kind_of_DR = 0    ! target electron dispersion relation used in CDF calculations
+   NumPar%dt_flag = 1      ! kind of time-grid (0=linear;1=log)
+   NumPar%CDF_elast_Zeff = 0 ! kind of effective charge of target atoms (1=1, 0=Barkas-like Zeff)
+   ! Printout for testing:
+   NumPar%verbose = .false.
+   NumPar%very_verbose = .false.
+   ! Flags for marking parts of user-defined CDF:
+   NumPar%VB_CDF_defined = .false.
+   NumPar%phonon_CDF_defined = .false.
+   ! Parameters for MD (unfinished)
+   NumPar%MD_dt = 1.0d0
+   NumPar%MD_grid = 0
+   NumPar%Num_Z_points = 0
+   NumPar%Zout_min = 0.0d0
+   NumPar%Zout_max = 0.0d0
+   NumPar%Zout_dz = 0.0d0
+   NumPar%field_dt = 0.0d0      ! time-grid for fields update
+end subroutine set_default_numpar
+
+
+
 subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, dt, Output_path, Output_path_SHI, &
            Material_name, NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names, aidCS)
    type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
@@ -137,20 +183,6 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    logical file_exist    ! to check where file to be open exists
    logical file_opened   ! to check if a file is still opened
 
-   !----------------
-   ! Default to start with:
-   NumPar%redo_IMFP = .false. ! don't recalculate inelastic MFPs, if possible
-   NumPar%redo_EMFP = .false. ! don't recalculate elastic MFPs, if possible
-   NumPar%redo_IMFP_SHI = .false. ! don't recalculate elastic MFPs, if possible
-   NumPar%include_photons = .false. ! no photons by default (unless user includes them)
-   NumPar%plasmon_Emax = .false. ! do not include plasmon integration limit in inelastic CDF
-   NumPar%field_include = .false.   ! no fields (bc NOT READY!)
-   NumPar%print_CDF = .false. ! don't print CDF file out
-   NumPar%print_CDF_optical = .false.  ! don't print optical CDF
-   NumPar%do_gnuplot = .true. ! gnuplot by default
-   NumPar%plot_extension = 'jpeg' ! default jpeg-files
-   NumPar%get_thermal = .false.   ! default: no thermal parameters
-   NumPar%CS_method = 1    ! choice of the method of CS integration (integration grid): default - tabulated files
 
    !----------------
    ! Reading the input file:
@@ -177,9 +209,14 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    READ(FN,*,IOSTAT=Reason) Material_name
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2013
-   Material_file = 'INPUT_CDF/'//trim(adjustl(Material_name))//'.cdf' ! that's the file where material properties must be storred, or alternatively:
-   Short_material_file = 'INPUT_EADL/'//trim(adjustl(Material_name))//'.scdf' ! that's the file where short version of material properties must be storred
-   DOS_file = 'INPUT_DOS/'//trim(adjustl(Material_name))//'.dos'      ! that's the file where material DOS must be storred!
+   !Material_file = 'INPUT_CDF/'//trim(adjustl(Material_name))//'.cdf' ! that's the file where material properties must be storred, or alternatively:
+   !Short_material_file = 'INPUT_EADL/'//trim(adjustl(Material_name))//'.scdf'
+   !DOS_file = 'INPUT_DOS/'//trim(adjustl(Material_name))//'.dos'      ! that's the file where material DOS must be storred!
+
+   ! File where material properties are storred:
+   Material_file = trim(adjustl(m_INPUT_CDF))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Material_name))//'.cdf'
+   Short_material_file = trim(adjustl(m_INPUT_CDF))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Material_name))//'.scdf'
+
    !//trim(adjustl(Material_name))//'_Electron_DSF_Differential_EMFPs.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
    
    READ(FN,*,IOSTAT=Reason) SHI%Zat   ! atomic number
@@ -227,9 +264,16 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
 
    temper = int(Matter%temp)    ! material temperature
    write(temp_char1, '(i)') temper
-   DSF_file = 'INPUT_DSF/'//trim(adjustl(Material_name))//'/'//trim(adjustl(Material_name))//'_Electron_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
-   DSF_file_h = 'INPUT_DSF/'//trim(adjustl(Material_name))//'/'//trim(adjustl(Material_name))//'_Hole_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
-
+   !DSF_file = 'INPUT_DSF/'//trim(adjustl(Material_name))//'/'//trim(adjustl(Material_name))//'_Electron_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
+   !DSF_file_h = 'INPUT_DSF/'//trim(adjustl(Material_name))//'/'//trim(adjustl(Material_name))//'_Hole_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
+   ! File where DSF differential EMFP for this material are storred:
+   DSF_file = trim(adjustl(m_INPUT_DSF))//trim(adjustl(NumPar%path_sep))// &
+              trim(adjustl(Material_name))//trim(adjustl(NumPar%path_sep))// &
+              trim(adjustl(Material_name))//'_Electron_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'
+   ! Same for holes:
+   DSF_file_h = trim(adjustl(m_INPUT_DSF))//trim(adjustl(NumPar%path_sep))// &
+                trim(adjustl(Material_name))//trim(adjustl(NumPar%path_sep))// &
+                trim(adjustl(Material_name))//'_Hole_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'
    
    READ(FN,*,IOSTAT=Reason) SHI%Kind_Zeff, SHI%fixed_Zeff   ! 0=Barkas; 1=Bohr; 2=Nikolaev-Dmitriev; 3=Schiwietz-Grande, 4 - fixed value;
    call read_file(Reason, i, read_well) ! reports if everything read well
@@ -308,6 +352,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
 #endif
    endif
    
+
    !------------------------------------------------------
    ! Read optional parameters:
    read_well = .true.   ! to start with
@@ -323,7 +368,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       allocate(File_names%F(100))
    endif
 
-   
+
    !------------------------------------------------------
    ! Create an output folder:
    Output_path = 'OUTPUT_'//trim(adjustl(Material_name)) ! that should be a folder with output
@@ -353,7 +398,9 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    endif
    open(unit = Error_message%File_Num, FILE = trim(adjustl(File_name)))
    
-   ! read CDF-material parameters
+
+   !------------------------------------------------------
+   ! Read CDF-material parameters:
    call reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, aidCS, Error_message, read_well) ! below
    if (.not. read_well) goto 2015
    
@@ -387,10 +434,16 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
        if (SHI%E .GE. 175.0d6/2.0d0*SHI%Mass) goto 2015
    endif
 
-   call reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_message, read_well)    ! read material DOS
+
+   !------------------------------------------------------
+   ! Read VB DOS file:
+   if (LEN(trim(adjustl(NumPar%DOS_file))) > 0 ) then ! user provided the name:
+      DOS_file = trim(adjustl(m_INPUT_DOS))//trim(adjustl(NumPar%path_sep))//trim(adjustl(NumPar%DOS_file))
+   else ! assume default name:
+      DOS_file = trim(adjustl(m_INPUT_DOS))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Material_name))//'.dos'
+   endif
+   call reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar, Error_message, read_well)    ! read material DOS
    if (.not. read_well) goto 2015
-
-
 
    temp_char1 = 'OUTPUT_'//trim(adjustl(Material_name))//'_DOS_analysis.dat'
    File_names%F(9) = trim(adjustl(temp_char1))  ! save for plotting later
@@ -481,6 +534,7 @@ end subroutine read_form_factors
 subroutine interpret_additional_data_INPUT(text_in, NumPar)
    character(*), intent(in) :: text_in ! text read from the file
    type(Flag), intent(inout) :: NumPar ! numerical parameters
+   !character(*), intent(inout) :: DOS_file   ! optional name of the file with DOS
    !------------------------------------
    character(100) :: text, text2, ch_temp
    integer :: i, Reason, i_read
@@ -504,6 +558,15 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
          NumPar%CS_method = 1
       else ! useк provided grid index
          NumPar%CS_method = i_read
+      endif
+
+   case ('DOS', 'Dos', 'dos')
+      read(text_in, *, IOSTAT=Reason) text, text2
+      call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
+      if (.not. read_well) then  ! default
+         print*, 'Could not interprete DOS-file name in line: ', trim(adjustl(text_in)), ', using default'
+      else  ! use the provided name for DOS file:
+         NumPar%DOS_file = trim(adjustl(text2))
       endif
 
    case ('gnuplot', 'plot', 'gnu', 'GNUPLOT', 'PLOT', 'GNU')
@@ -594,10 +657,6 @@ subroutine get_add_data(NumPar)
    !---------------
    character(1000) :: string
    integer :: i_arg, count_args, N_arg
-
-   ! Default values (don't print a lot of stuff):
-   NumPar%verbose = .false.
-   NumPar%very_verbose = .false.
 
    ! Count how many arguments the user provided:
    N_arg = COMMAND_ARGUMENT_COUNT() ! Fortran intrinsic function
@@ -1406,36 +1465,46 @@ subroutine read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_
 end subroutine read_short_scdf
 
 
-subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_message, read_well)    ! read material DOS
+subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar, Error_message, read_well)    ! read material DOS
     character(100), intent(in) :: DOS_file  ! file with material DOS
     type(Density_of_states), intent(inout) :: Mat_DOS  ! materail DOS
     type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
+    type(Flag), intent(inout) :: NumPar ! numerical parameters
     logical, intent(inout) :: read_well  ! did we read the file well?
     type(Solid), intent(in) :: Matter
     type(Atom), dimension(:), intent(in) :: Target_atoms
-    
+    !--------------------------------------
     real(8), dimension(:,:), allocatable :: Temp_DOS
     real(8) Sum_DOS, loc_DOS, E, dE, Sum_DOS_inv
     integer FN2, i, N, Reason, M
-    character(100) Error_descript
+    character(100) :: Error_descript, Free_DOS
     logical file_opened, file_exist, file_exist2
     FN2 = 202
     inquire(file=trim(adjustl(DOS_file)),exist=file_exist)    ! check if input file excists
-    inquire(file='INPUT_DOS/Free_electron_DOS.dos',exist=file_exist2)    ! check if input file excists
+    !inquire(file='INPUT_DOS/Free_electron_DOS.dos',exist=file_exist2)    ! check if input file excists
+    Free_DOS = trim(adjustl(m_INPUT_DOS))//trim(adjustl(NumPar%path_sep))//'Free_electron_DOS.dos'
+    inquire(file=trim(adjustl(Free_DOS)),exist=file_exist2)    ! check if input file excists
+
     if (file_exist) then
        print*, 'DOS file is there: ', trim(adjustl(DOS_file))
        open(unit = FN2, FILE = trim(adjustl(DOS_file)), status = 'old', readonly)   ! if yes, open it and read
+       ! Save DOS file name for output:
+       NumPar%DOS_file = trim(adjustl(DOS_file))
     elseif (file_exist2) then   ! Free-electron DOS approximation
        print*, 'DOS file ', trim(adjustl(DOS_file)), ' is not found, '
        print*, 'free-electron DOS approximation is used for valence band holes'
-       open(unit = FN2, FILE = 'INPUT_DOS/Free_electron_DOS.dos', status = 'old', readonly)   ! if yes, open it and read
+       open(unit = FN2, FILE = trim(adjustl(Free_DOS)), status = 'old', readonly)   ! if yes, open it and read
+       ! Save DOS file name for output:
+       NumPar%DOS_file = trim(adjustl(Free_DOS))
     else ! no DOS, try atomic approxiamtion instead...
        print*, 'Neither file ', trim(adjustl(DOS_file)), ' nor Free_electron_DOS.dos'
-       print*, 'containing density of states are not found.'
+       print*, 'containing density of states are found.'
        print*, 'The calculations proceed within the atomic approximation for energy levels.'
-       Error_descript = 'Files '//trim(adjustl(DOS_file))//' and INPUT_DOS/Free_electron_DOS.dos are not found!'    ! description of an error
+       Error_descript = 'Files '//trim(adjustl(DOS_file))//' and '//trim(adjustl(Free_DOS))//' are not found!'    ! description of an error
        call Save_error_details(Error_message, 6, Error_descript) ! write it into the error-log file
        read_well = .false.  ! no file found
+       ! Save DOS file name for output:
+       NumPar%DOS_file = ''   ! nothing
        goto 2016
     endif
 

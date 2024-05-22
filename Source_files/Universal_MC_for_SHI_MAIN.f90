@@ -66,7 +66,7 @@ use Objects
 use Variables
 use Gnuplotting_subs, only: Gnuplot_ion, Gnuplot_electron_hole, Gnuplot_transients
 use Reading_files_and_parameters, only: Read_input_file, get_num_shells, Find_VB_numbers, print_time_step, &
-                                    get_add_data
+                                    get_add_data, set_default_numpar
 use Sorting_output_data, only: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, &
                             Deallocate_out_arrays, parse_time, print_parameters
 use Cross_sections, only: SHI_TotIMFP, Equilibrium_charge_SHI, get_single_pole
@@ -92,6 +92,9 @@ call date_and_time(values=c1) ! standard FORTRAN time and date
 write(*, 1005) ctim(5), ctim(6), ctim(7), ctim(3), ctim(2), ctim(1)
 
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+! Set default values of flags, proir to reading them from screen or file:
+call set_default_numpar(Numpar) ! module "Reading_files_and_parameters"
+
 ! Get additional options provided by the user in the command line:
 call get_add_data(Numpar) ! module "Reading_files_and_parameters"
 

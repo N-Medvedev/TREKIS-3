@@ -15,7 +15,7 @@ private  ! hides items not listed on public statement
 public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time, print_parameters
 
 character(10), parameter :: m_Version = '3.2.0'
-character(12), parameter :: m_Update = '20.05.2024'
+character(12), parameter :: m_Update = '22.05.2024'
 
 contains
 
@@ -113,6 +113,12 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
         write(print_to, '(a)') ' Effective mass of valence holes: '//trim(adjustl(ch_temp))//' [me]'
     else
         write(print_to, '(a)') ' Effective mass of valence holes is calculated from DOS'
+    endif
+
+    if (LEN(trim(adjustl(NumPar%DOS_file))) > 0 ) then ! user provided the name:
+        write(print_to, '(a)') ' DOS file used: '//trim(adjustl(NumPar%DOS_file))
+    else ! assume default name:
+        write(print_to, '(a)') ' No DOS file was found, not even free-electron one!'
     endif
 
     write(print_to,'(a)') trim(adjustl(dashline))
@@ -268,7 +274,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
         write(print_to, '(a)') ' The following atomic parameters of the target are used:'
         do j = 1, size(Target_atoms)  ! for each element, its shells data:
             write(print_to, '(a)') trim(adjustl(Target_atoms(j)%Name))//' atom:'
-            write(print_to, '(a)') ' Shell  Quantum_n  Ne    Ip[eV]  Ekin[eV]  t(Auger)[fs]  t(Rad)[fs]  k-sum  f-sum'
+            write(print_to, '(a)') ' Shell  Quantum_n  Ne    Ip[eV]  Ekin[eV]  t(Auger)[fs]  t(Rad)[fs]   k-sum    f-sum'
             do k = 1, Target_atoms(j)%N_shl ! all the data for each shell:
 
                 if ( (j == 1) .and. (k == Target_atoms(j)%N_shl) ) then ! the valence band
@@ -283,11 +289,11 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
                               ksum, fsum, Target_atoms(j)%Ip(k), Omega) ! module "Cross_sections"
 
                 if ((j .EQ. 1) .AND. (k .EQ. Target_atoms(j)%N_shl)) then   ! VB
-                  write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2,f9.2)') Target_atoms(j)%Shell_name(k), '   ', &
+                  write(print_to,'(a,a,f8.2,f10.2,f10.2,es12.2,es12.2, f9.2,f9.2)') Target_atoms(j)%Shell_name(k), '   ', &
                         Target_atoms(j)%Nel(k), Target_atoms(j)%Ip(k), Target_atoms(j)%Ek(k), Target_atoms(j)%Auger(k), &
                         Target_atoms(j)%Radiat(k), ksum, fsum
                 else    ! core shell
-                  write(print_to,'(a,i3,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2,f9.2)') Target_atoms(j)%Shell_name(k), &
+                  write(print_to,'(a,i3,f8.2,f10.2,f10.2,es12.2,es12.2, f9.2,f9.2)') Target_atoms(j)%Shell_name(k), &
                         Target_atoms(j)%PQN(k), Target_atoms(j)%Nel(k), Target_atoms(j)%Ip(k), &
                         Target_atoms(j)%Ek(k), Target_atoms(j)%Auger(k), &
                         Target_atoms(j)%Radiat(k), ksum, fsum
@@ -300,7 +306,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
         Omega = w_plasma( 1d6*Matter%At_dens/N_at_mol, Mass=Mean_Mass )  ! module "Cross_sections"
         call sumrules(CDF_Phonon%A, CDF_Phonon%E0, CDF_Phonon%Gamma, ksum, fsum, 1.0d-8, Omega) ! module "Cross_sections"
         if (ksum > 1.0d-2) then
-            write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2, f9.2)') 'Phonons', &
+            write(print_to,'(a,a,f8.2,f10.2,f10.2,es12.2,es12.2, f9.2, f9.2)') 'Phonons', &
                         '       ', N_at_mol, 0.0d0, 0.0d0, 0.0d0, 0.0d0, ksum, fsum
         else ! print too small values
             write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, es12.2, es12.2)') 'Phonons', &
@@ -356,7 +362,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     !-------------------------------------------------
     real(8) :: t, as1, tim_glob, out_val
     integer :: c1(8), i, j,k,l,N, Nat, N_R, FN, FN1, FN2, FN3, FN31, FN4, Lowest_Ip_At, Lowest_Ip_Shl !, NOTP
-    character(300) :: command, charge_name, charge_kind, File_name, File_name1, File_name2, File_name3, File_name4, C_time, ch_temp
+    character(300) :: command, charge_name, charge_kind, File_name, File_name1, File_name2, File_name3, File_name4, C_time, ch_temp, ch_temp2
     character(30) :: ch1, ch2, ch3
     character(LEN=25) :: FMT
     logical :: file_exist, file_opened
@@ -458,7 +464,6 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
         call copy_file(trim(adjustl(m_INPUT_file)), trim(adjustl(File_names%F(10))))   ! below
     endif
 
-    
     !========================================================
     !Parameters of this calculation:
     FN1 = 299
@@ -468,13 +473,15 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
 
     call print_parameters(FN1, SHI, Material_name, Target_atoms, Matter, NumPar, CDF_Phonon, Tim, dt, NMC, Num_th, .true., .true.) ! see above
 
-    write(FN1, '(a,f6.3,a)') 'Ion equilibrium charge: ', SHI%Zeff, ' [electron charge]'
-    write(FN1, '(a,f9.2,a)') 'MC calculated energy loss: ', Out_tot_E(N)/Matter%Layer, ' [eV/A]'
+    write(ch_temp2, '(f6.3)' ) SHI%Zeff
+    write(FN1, '(a)') 'Ion equilibrium charge:         '//trim(adjustl(ch_temp2))//' [electron charge]'
+    write(ch_temp2, '(f9.2)' ) Out_tot_E(N)/Matter%Layer
+    write(FN1, '(a)') 'MC calculated energy loss (Se): '//trim(adjustl(ch_temp2))//' [eV/A]'
 
     call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
     as1=dble(24*60*60*(c1(3)-ctim(3))+3600*(c1(5)-ctim(5))+60*(c1(6)-ctim(6))+(c1(7)-ctim(7))+(c1(8)-ctim(8))*0.001)	! sec
     call parse_time(as1,C_time) ! module "Sorting_output_data.f90"
-    write(FN1, '(a,a)') 'Duration of calculation: ', trim(adjustl(C_time))
+    write(FN1, '(a)')      'Duration of calculation:        '//trim(adjustl(C_time))
     write(FN1,'(a)') trim(adjustl(dashline))
 
     inquire(unit=FN1,opened=file_opened)    ! check if this file is opened
