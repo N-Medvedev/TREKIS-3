@@ -143,6 +143,7 @@ type :: Flag
     integer :: CS_method    ! CS energy integration grid: -1=old; 0=new; 1=save-files
     ! Flags for marking parts of user-defined CDF:
     logical :: VB_CDF_defined, phonon_CDF_defined
+    character(100) :: CDF_file  ! optional name of file with CDF
     character(100) :: DOS_file  ! optional name of file with DOS
 end type Flag
 !==============================================

@@ -121,6 +121,8 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
         write(print_to, '(a)') ' No DOS file was found, not even free-electron one!'
     endif
 
+    write(print_to, '(a)') ' CDF file used: '//trim(adjustl(NumPar%CDF_file))
+
     write(print_to,'(a)') trim(adjustl(dashline))
     ! Parameters:
     if (SHI%Zat .GT. 0) then ! dynamical calculations

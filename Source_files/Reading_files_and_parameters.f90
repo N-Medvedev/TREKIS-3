@@ -125,6 +125,7 @@ subroutine set_default_numpar(Numpar)
    NumPar%get_thermal = .false.   ! default: no thermal parameters
    NumPar%CS_method = 1    ! choice of the method of CS integration (integration grid): default - tabulated files
    NumPar%DOS_file = ''    ! no optional name, to use default
+   NumPar%CDF_file = ''    ! no optional name, to use default
    NumPar%kind_of_EMFP = 1 ! kind of inelastic mean free path (0=atomic; 1=CDF, 2=DSF)
    NumPar%kind_of_CDF = 1   ! kind of CDF used for inelastic CS: 0=Ritchie; 1=Single=pole
    NumPar%kind_of_CDF_ph = 1  ! kind of CDF used for elastic CS: 0=Ritchie; 1=Single=pole
@@ -170,11 +171,11 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    !---------------------
    real(8) M, SUM_DOS
    integer FN, Reason, i, temp, temp1, temp2(1), temper, FN2
-   character(100)   Material_file   ! file with material parameters, name MUST coinside with 'Material_name'!!!
+   character(100)   Material_file   ! file with material parameters
    character(100)   Short_material_file ! short version of the 'material parameters file'
    character(100)   File_name   ! file name if needed to use
-   character(100)   DOS_file    ! file with material DOS, name MUST coinside with 'Material_name'!!!
-   character(100)   DSF_file, DSF_file_h    ! file with DSF differential cross-sections, name MUST coinside with 'Material_name'!!!
+   character(100)   DOS_file    ! files with material DOS and CDF
+   character(100)   DSF_file, DSF_file_h    ! file with DSF differential cross-sections
    character(100)   Error_descript  ! to write a description of an error, if any
    character(100)   Temp_char, temp_char1
    character(3) Name    ! for reading elements names
@@ -212,11 +213,6 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    !Material_file = 'INPUT_CDF/'//trim(adjustl(Material_name))//'.cdf' ! that's the file where material properties must be storred, or alternatively:
    !Short_material_file = 'INPUT_EADL/'//trim(adjustl(Material_name))//'.scdf'
    !DOS_file = 'INPUT_DOS/'//trim(adjustl(Material_name))//'.dos'      ! that's the file where material DOS must be storred!
-
-   ! File where material properties are storred:
-   Material_file = trim(adjustl(m_INPUT_CDF))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Material_name))//'.cdf'
-   Short_material_file = trim(adjustl(m_INPUT_CDF))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Material_name))//'.scdf'
-
    !//trim(adjustl(Material_name))//'_Electron_DSF_Differential_EMFPs.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
    
    READ(FN,*,IOSTAT=Reason) SHI%Zat   ! atomic number
@@ -401,6 +397,13 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
 
    !------------------------------------------------------
    ! Read CDF-material parameters:
+   if (LEN(trim(adjustl(NumPar%CDF_file))) > 0 ) then ! user provided the name:
+      Material_file = trim(adjustl(m_INPUT_CDF))//trim(adjustl(NumPar%path_sep))//trim(adjustl(NumPar%CDF_file))
+      Short_material_file = trim(adjustl(m_INPUT_CDF))//trim(adjustl(NumPar%path_sep))//trim(adjustl(NumPar%CDF_file))
+   else ! assume default name:
+      Material_file = trim(adjustl(m_INPUT_CDF))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Material_name))//'.cdf'
+      Short_material_file = trim(adjustl(m_INPUT_CDF))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Material_name))//'.scdf'
+   endif
    call reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, aidCS, Error_message, read_well) ! below
    if (.not. read_well) goto 2015
    
@@ -534,7 +537,6 @@ end subroutine read_form_factors
 subroutine interpret_additional_data_INPUT(text_in, NumPar)
    character(*), intent(in) :: text_in ! text read from the file
    type(Flag), intent(inout) :: NumPar ! numerical parameters
-   !character(*), intent(inout) :: DOS_file   ! optional name of the file with DOS
    !------------------------------------
    character(100) :: text, text2, ch_temp
    integer :: i, Reason, i_read
@@ -558,6 +560,15 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
          NumPar%CS_method = 1
       else ! useк provided grid index
          NumPar%CS_method = i_read
+      endif
+
+   case ('CDF', 'Cdf', 'cdf')
+      read(text_in, *, IOSTAT=Reason) text, text2
+      call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
+      if (.not. read_well) then  ! default
+         print*, 'Could not interprete CDF-file name in line: ', trim(adjustl(text_in)), ', using default'
+      else  ! use the provided name for DOS file:
+         NumPar%CDF_file = trim(adjustl(text2))
       endif
 
    case ('DOS', 'Dos', 'dos')
@@ -732,11 +743,15 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    inquire(file=trim(adjustl(Short_material_file)),exist=file_exist2)    ! check if the short input file exists
    if (file_exist) then
       open(unit = FN2, FILE = trim(adjustl(Material_file)), status = 'old', readonly)   ! yes, open full file and read
+      ! Save CDF-file name for output:
+      NumPar%CDF_file = trim(adjustl(Material_file))
       ! Find out when this file was last modified:
       call get_file_stat(trim(adjustl(Material_file)), Last_modification_time=NumPar%Last_mod_time_CDF) ! above
       !print*, 'CDF file last modified on:', NumPar%Last_mod_time_CDF
    else if (file_exist2) then ! if at least short version exists, the rest can be used within atomic approximation
       open(unit=FN2, FILE = trim(adjustl(Short_material_file)), status = 'old', readonly)   ! yes, open full file and read
+      ! Save CDF-file name for output:
+      NumPar%CDF_file = trim(adjustl(Short_material_file))
       ! Find out when this file was last modified:
       call get_file_stat(trim(adjustl(Short_material_file)), Last_modification_time=NumPar%Last_mod_time_CDF) ! above
       call read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_message, read_well)
