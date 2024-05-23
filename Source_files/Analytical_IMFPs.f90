@@ -2173,7 +2173,8 @@ subroutine go_thru_grid(Emin, Emax, E_sp_eps, special_point, scale_dE, Ngrid, ar
       N = N + 1   ! count points
       if (E_cur < 0.1d0-(dE_min)*0.5d0) then
          dE = dE_min
-      elseif (E_cur < 1.0d0-dE_min*0.5d0) then
+      !elseif (E_cur < 1.0d0-dE_min*0.5d0) then
+      elseif (E_cur < 50.0d0-dE_min*0.5d0) then
          !dE = 0.1d0
          dE = dE_min * 10.0d0
       else if (E_cur < 100.0d0-dE_min*0.5d0) then
