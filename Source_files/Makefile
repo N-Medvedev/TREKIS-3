@@ -16,4 +16,6 @@ default:
 clean:
 	rm -f *.o
 	rm -f *.mod
+	rm -f *.yaml
+	rm -f *.optrpt
 	rm -f TREKIS.x

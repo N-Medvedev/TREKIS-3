@@ -15,7 +15,7 @@ private  ! hides items not listed on public statement
 public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time, print_parameters
 
 character(10), parameter :: m_Version = '3.2.0'
-character(12), parameter :: m_Update = '22.05.2024'
+character(12), parameter :: m_Update = '29.05.2024'
 
 contains
 
@@ -267,6 +267,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
     if (NumPar%verbose) then
         if (NumPar%very_verbose) then
             write(print_to,'(a)') ' Very-verbose option is on, TREKIS will print A LOT of extra stuff...'
+            write(print_to,'(a)') ' I mean, really, A LOT...'
         else
             write(print_to,'(a)') ' Verbose option is on, TREKIS will print a lot of extra stuff...'
         endif
