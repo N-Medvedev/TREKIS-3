@@ -903,7 +903,9 @@ subroutine TotIMFP(Ele, i_E, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_D
         Emax = (Ele + Emin)/2.0e0 ! [eV] maximum energy transfer, accounting for equality of electrons
         Mass = 1.0d0
     else if (trim(adjustl(kind_of_particle)) .EQ. 'Hole') then
-        it_is_hole = .true.
+        if ( (Nat == 1) .and. (Nshl == size(Target_atoms(Nat)%Ip) ) ) then ! for VB holes, only VB
+            it_is_hole = .true.
+        endif
         if(Matter%hole_mass .GE. 0) then
             Mass = Matter%hole_mass
         else                    ! Define mass from DOS
@@ -1833,7 +1835,7 @@ subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_to
     select case (Target_atoms(Nat)%KOCS(Nshl)) ! which inelastic cross section to use (BEB vs CDF):
     case (1) ! CDF cross section energy transfer:
         call Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mat_DOS, NumPar, Mass, &
-                                       aidCS, Emin, Emax, trim(adjustl(kind_of_particle)))   ! below
+                                       aidCS, Emin, Emax, trim(adjustl(kind_of_particle)), L_tot, RN)   ! below
     case default ! do BEB energy transfer:
         call Electron_NRG_transfer_BEB(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mass, Emin, Emax)
     end select
@@ -1856,7 +1858,7 @@ subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_to
 end subroutine Electron_energy_transfer_inelastic
 
 
-subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mat_DOS, NumPar, Mass, aidCS, Emin, Emax, kind_of_particle)
+subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mat_DOS, NumPar, Mass, aidCS, Emin, Emax, kind_of_particle, L_tot, RN)
    real(8), intent(in) :: Ele  ! electron energy [eV]
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
    integer, intent(in) :: Nat, Nshl    ! number of atom, number of shell
@@ -1869,9 +1871,10 @@ subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Ma
    type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
    real(8), intent(in) :: Emin, Emax ! min and max energies for integration
    character(*), intent(in) :: kind_of_particle
+   real(8), intent(in) :: L_tot, RN
    !---------------------
    real(8) :: L_cur, Ltot0, Ltot1, a, b, temp1, temp2, dE, dL, E_low, E_high
-   real(8) :: hw_1, hw_2, hw_cur
+   real(8) :: hw_1, hw_2, hw_cur, dE_out_SAVE
    integer :: n, i, i_E, i_hw
 
     
@@ -1920,6 +1923,7 @@ subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Ma
         E = E + dE  ! [eV]
         if (E .GE. Emax) exit
        enddo
+!        dE_out_SAVE = E
 
     case (1) ! Use tabulated diff.CS from precalculated files
 
@@ -1933,6 +1937,14 @@ subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Ma
 
        ! Output energy transfer:
        E = hw_cur ! [eV]
+
+       !if (abs(dE_out_SAVE - hw_cur)/dE_out_SAVE > 0.1e0) then
+!          print*, '---------------------'
+!          print*,  trim(adjustl(kind_of_particle)), Ele, dE_out_SAVE, hw_cur, L_need, L_tot, RN
+!          print*, '---------------------'
+         !pause 'Electron_energy_transfer_elastic'
+       !endif
+
     endselect
 
    endif ! (NumPar%kind_of_DR .EQ. 4)
@@ -1940,17 +1952,31 @@ end subroutine Electron_NRG_transfer_CDF
 
 
 
-subroutine interpolate_transferred_energy(Ele, Int_diff_CS, L_need, hw_out)
+subroutine interpolate_transferred_energy(Ele, Int_diff_CS, L_need, hw_out, single_inter)
    real(8), intent(in) :: Ele ! [eV] particle energy
    real(8), intent(in) :: L_need ! sampled mean free path (CS)
    type(diff_CS), intent(in) :: Int_diff_CS  ! table of integral of differential cross secion
    real(8), intent(out) :: hw_out   ! [eV] transferred energy
+   logical, intent(in), optional :: single_inter
    !----------------------
    integer :: i_E, i_hw
    real(8) :: hw_1, hw_2
+   logical :: do_single
 
-   ! Find the transferred energy from precalculated table of integrated diff.CS:
+   if (present(single_inter)) then
+      do_single = single_inter
+   else
+      do_single = .false.
+   endif
+
+   ! Find the array of the transferred energy from precalculated table of integrated diff.CS:
    call Find_in_array_monoton(Int_diff_CS%E, Ele, i_E) ! "Reading_files_and_parameters"
+
+   ! Take care of the situation when the energy is exactly on the grid point (it may cause a problem):
+   if (i_E > 1) then
+      !print*, 'i_E:', abs(Int_diff_CS%E(i_E) - Ele), abs(Int_diff_CS%E(i_E-1) - Ele)
+      if ( abs(Int_diff_CS%E(i_E-1) - Ele) < 1.0e-6 ) i_E = i_E - 1
+   endif
 
    ! For this energy, find the sampled d(CS)/d(hw):
    call Find_in_monoton_array_decreasing(Int_diff_CS%diffCS(i_E)%dsdhw, L_need, i_hw) ! "Reading_files_and_parameters"
@@ -1965,6 +1991,7 @@ subroutine interpolate_transferred_energy(Ele, Int_diff_CS, L_need, hw_out)
                         Int_diff_CS%diffCS(i_E)%hw(i_hw+1), L_need, hw_1)  ! module "Reading_files_and_parameters"
    endif
    hw_out = hw_1 ! first part of it is done
+   if (do_single) return ! no need in the second part
 
    ! Interpolate for the next nearest point in energy:
    if (i_E > 1) then ! try adding the second part
@@ -2248,7 +2275,7 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
    !---------------------
    integer i, j, n, Mnum
    real(8) Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, RN, temp1, temp2, qdebay, Edebay, Mtarget, L_cur, L_need, Mass
-   real(8) :: Zt, Zeff, E_low, E_high, hw_cur, E_start, E_end
+   real(8) :: Zt, Zeff, E_low, E_high, hw_cur, E_start, E_end, dE_out_SAVE, prefact
    real(8), pointer :: Ee
     
    call random_number(RN)
@@ -2319,6 +2346,7 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     L_cur = 1.0d10
     call Diff_cross_section_phonon(Ele, E, NumPar, Matter, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS)  ! below
     ddEdx = 0.0e0
+    prefact = Zeff*Zeff*Mass  ! include effective charge of target atoms
     do while (L_cur .GT. L_need)
         !dE = (1.0d0/(E+1.0d0) + E)/real(n)
         !dE = define_dE(n, E)   ! below OLD
@@ -2335,34 +2363,47 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
         ddEdx = ddEdx + E*temp2
         Ltot0 = dL
         !L_cur = 1.0d0/Mass/Ltot1
-        L_cur = 1.0d0/(Zeff*Zeff*Mass*Ltot1) ! include effective charge of target atoms
+        !L_cur = 1.0d0/(Zeff*Zeff*Mass*Ltot1) ! include effective charge of target atoms
+        L_cur = 1.0d0/(prefact*Ltot1)  ! include effective charge of target atoms
         E = E + dE  ! [eV]
         if (E .GE. Emax) exit
         !if (E .GE. E_end) exit
+        !print*, Ele, E, L_cur, L_need
     enddo
     if (E .GE. Emax) E = Emax
     dE_out = E ! energy transferred [eV]
     nullify(Ee)
+
+    dE_out_SAVE = dE_out
     !print*, '1:', trim(adjustl(kind_of_particle)), Ele, dE_out
     !call print_time_step('time 1:', msec=.true.)
 
    !------------------------
    case (1) ! Use tabulated diff.CS from precalculated files
-       ! Interpolated transferred energy from the precalculated diff.CS tables:
-       select case (trim(adjustl(kind_of_particle)))
-       case('Electron')
+      select case (trim(adjustl(kind_of_particle)))
+      case('Electron')
          call interpolate_transferred_energy(Ele, aidCS%EEdCS, L_need, hw_cur)  ! below
-       case('Hole')
+      case('Hole')
          call interpolate_transferred_energy(Ele, aidCS%HEdCS, L_need, hw_cur)  ! below
-       end select
+      end select
 
-       ! Output energy transfer:
-       if (hw_cur .GE. Ele) hw_cur = Ele
-       dE_out = hw_cur ! [eV]
+      ! Output energy transfer:
+      if (hw_cur .GE. Ele) hw_cur = Ele
+      dE_out = hw_cur ! [eV]
    endselect
 
    !print*, '2:', trim(adjustl(kind_of_particle)), Ele, dE_out
    !call print_time_step('time 2:', msec=.true.)
+   !print*, '---------------------'
+
+!    if (abs(dE_out_SAVE - dE_out)/dE_out > 0.1e0) then
+!       print*, '---------------------'
+!       print*,  trim(adjustl(kind_of_particle)), Ele, dE_out_SAVE, dE_out, L_need, L_tot, RN
+!
+!       print*, '---------------------'
+!       !pause 'Electron_energy_transfer_elastic'
+!    endif
+
 end subroutine Electron_energy_transfer_elastic
 
 

@@ -1122,7 +1122,13 @@ subroutine From_where_in_VB(Mat_DOS, dE_cur, E)
             call random_number(RN)
             Tot_N = RN*Sum_DOS   ! chose this electron
             call Find_in_array_monoton(Mat_DOS%int_DOS, Tot_N, N_temmp) ! make increasing array
-            dE_cur = Mat_DOS%E(N_temmp)    ! add this energy to the band gap [eV]
+            !dE_cur = Mat_DOS%E(N_temmp)    ! add this energy to the band gap [eV]
+            if (N_temmp > 1) then   ! interpolate
+                dE_cur = Mat_DOS%E(N_temmp-1) + (Mat_DOS%E(N_temmp) - Mat_DOS%E(N_temmp-1)) * &
+                         (Tot_N-Mat_DOS%int_DOS(N_temmp-1))/(Mat_DOS%int_DOS(N_temmp) - Mat_DOS%int_DOS(N_temmp-1))
+            else    ! exact value
+                dE_cur = Mat_DOS%E(N_temmp)
+            endif
         endif
      else   ! search only in a part of VB:
         if (.not. allocated(Mat_DOS%E)) then  ! VB is treated as atomic energy level:
@@ -1139,7 +1145,13 @@ subroutine From_where_in_VB(Mat_DOS, dE_cur, E)
                 call random_number(RN)
                 Tot_N = RN*Sum_DOS   ! chose this electron
                 call Find_in_array_monoton(Mat_DOS%int_DOS, Tot_N, N_temmp) ! make increasing array
-                dE_cur = Mat_DOS%E(N_temmp)    ! [eV]
+                !dE_cur = Mat_DOS%E(N_temmp)    ! [eV]
+                if (N_temmp > 1) then   ! interpolate
+                    dE_cur = Mat_DOS%E(N_temmp-1) + (Mat_DOS%E(N_temmp) - Mat_DOS%E(N_temmp-1)) * &
+                         (Tot_N-Mat_DOS%int_DOS(N_temmp-1))/(Mat_DOS%int_DOS(N_temmp) - Mat_DOS%int_DOS(N_temmp-1))
+                else    ! exact value
+                    dE_cur = Mat_DOS%E(N_temmp)
+                endif
             else    ! if it's too close to the Ip, we can't resolve it in out grid for VB
                 dE_cur = 0.0d0 ! [eV]
             endif
@@ -1233,7 +1245,7 @@ subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At
     integer, intent(in) :: Nat_cur, Nshl_cur, Lowest_Ip_At, Lowest_Ip_Shl   ! # of atom, shell, and # of atom and shell for the VB
     real(8), intent(out) :: dE_cur  ! [eV] kinetic energy of an electron
     type(Error_handling), intent(inout) :: Error_message	! error messages are dealed with as objects
-    real(8) RN, Tot_N, Sum_DOS, E
+    real(8) RN, Tot_N, Sum_DOS, E, E_DOS
     integer N, N_temmp, M_temp
     character(100) Error_descript
     
@@ -1256,7 +1268,16 @@ subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At
                 call random_number(RN)
                 Tot_N = RN*Sum_DOS   ! chose this electron
                 call Find_in_array_monoton(Mat_DOS%int_DOS, Tot_N, N_temmp) ! make increasing array
-                dE_cur = E - Mat_DOS%E(N_temmp)    ! [eV]
+                !dE_cur = E - Mat_DOS%E(N_temmp)    ! [eV]
+
+                if (N_temmp > 1) then   ! interpolate
+                    E_DOS = Mat_DOS%E(N_temmp-1) + (Mat_DOS%E(N_temmp) - Mat_DOS%E(N_temmp-1)) * &
+                         (Tot_N-Mat_DOS%int_DOS(N_temmp-1))/(Mat_DOS%int_DOS(N_temmp) - Mat_DOS%int_DOS(N_temmp-1))
+                else    ! exact value
+                    E_DOS = Mat_DOS%E(N_temmp)    ! [eV]
+                endif
+                dE_cur = E - E_DOS
+
             else    ! if it's too close to the Ip, we can't resolve it in out grid for VB
                 dE_cur = E ! [eV]
             endif
@@ -1401,8 +1422,12 @@ subroutine Next_free_path_1d(E, MFP_E_array, MFP_L_array, MFP) ! temp = MFP [A] 
     real(8), dimension(:), intent(in) :: MFP_E_array    ! [eV] array with mean free paths
     real(8), dimension(:), intent(in) :: MFP_L_array    ! [A] array with mean free paths
     real(8), intent(out) :: MFP    ! [A] interpolated mean free path
+    !----------------------
     integer N_temmp, N_last ! number of element in the array closest to the one we are looking for
-    call Find_in_array_monoton(MFP_E_array, E, N_temmp) ! find the closes value in the precalculated array of energy losses
+
+    ! find the closes value in the precalculated array of energy losses:
+    call Find_in_array_monoton(MFP_E_array, E, N_temmp)
+
     if (N_temmp .EQ. 1) then
         !MFP = 1.4d21    ! [A] infinity
         N_last = N_temmp
@@ -1418,8 +1443,15 @@ subroutine Next_free_path_1d(E, MFP_E_array, MFP_L_array, MFP) ! temp = MFP [A] 
             ! interpolate to find exact value:
             call Interpolate(5, MFP_E_array(N_last), MFP_E_array(N_temmp), MFP_L_array(N_last), MFP_L_array(N_temmp), E, MFP)
         endif
+!         if (E < 0.1e0) then ! testing
+!             print*, '--------------------'
+!             print*, MFP_E_array(N_last), MFP_E_array(N_temmp), E
+!             print*, MFP_L_array(N_last), MFP_L_array(N_temmp), MFP
+!             pause 'Next_free_path_1d'
+!         endif
     endif
 end subroutine Next_free_path_1d
+
 
 subroutine Next_free_path_2d(E, MFP_array, MFP) ! temp = MFP [A] for this array, whatever it is
     real(8), intent(in) :: E    ! [eV] energy of particle

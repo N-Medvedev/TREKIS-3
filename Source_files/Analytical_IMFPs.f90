@@ -245,7 +245,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
        endif
     enddo
     
-    !==============================
+    !==============================> Electrons
     kind_of_particle1:if (kind_of_particle .EQ. 'Electron') then
 
         write(temp_ch, '(f9.2)') Matter%temp
@@ -351,7 +351,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             write(*, '(a)') ' '
         endif
 
-    !==============================
+    !==============================> VB holes
     else if (kind_of_particle .EQ. 'Hole') then
         FN = 202
         if (KCS .EQ. 'BEB') then ! BEB vs CDF cross section:
@@ -442,7 +442,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             write(*, '(a)') ' '
         endif
 
-    !==============================
+    !==============================> Photons
     else kind_of_particle1 ! photon
         !if (KCS .EQ. 'BEB') then ! BEB vs CDF cross section:
         if (.not.allocated(Target_atoms(1)%Ritchi(size(Target_atoms))%E0)) then ! no CDF known, use EPDL97 database:
@@ -646,7 +646,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 N_diff_siz = size(aidCS%HIdCS%diffCS(i)%dsdhw)
                 do i_diff_CS = 1, N_diff_siz
                     write(FN_diff, '(es,es)') aidCS%HIdCS%diffCS(i)%hw(i_diff_CS), &
-                                                aidCS%HIdCS%diffCS(i)%dsdhw(i_diff_CS)
+                                              aidCS%HIdCS%diffCS(i)%dsdhw(i_diff_CS)
                 enddo ! i_diff_CS
             else    ! if file exist, read from it:
                 open(FN_diff, file=trim(adjustl(diff_CS_file_h)), action='read')
@@ -2169,11 +2169,12 @@ subroutine go_thru_grid(Emin, Emax, E_sp_eps, special_point, scale_dE, Ngrid, ar
    real(8), dimension(:), intent(inout), optional :: array ! save grid
    !--------------
    integer :: SP_count, N
-   real(8) :: E_cur, dE, dE_min
+   real(8) :: E_cur, dE, dE_min, dE_tiny
    logical :: point_is_here
 
    SP_count = 1
    N = 0
+   dE_tiny = 0.001d0 * scale_dE
    dE_min = 0.01d0 * scale_dE
    E_cur = Emin - dE_min  ! start from min
    do while (E_cur < Emax)
@@ -2182,6 +2183,10 @@ subroutine go_thru_grid(Emin, Emax, E_sp_eps, special_point, scale_dE, Ngrid, ar
          dE = dE_min
       !elseif (E_cur < 1.0d0-dE_min*0.5d0) then
       !elseif (E_cur < 50.0d0-dE_min*0.5d0) then
+      !if (E_cur < 0.1d0-(dE_tiny)*0.5d0) then
+      !   dE = dE_tiny
+      !elseif (E_cur < 10.0d0-(dE_min)*0.5d0) then
+      !   dE = dE_min
       elseif (E_cur < 10.0d0-dE_min*0.5d0) then
          dE = dE_min * 10.0d0
       else if (E_cur < 100.0d0-dE_min*0.5d0) then
