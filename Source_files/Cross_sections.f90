@@ -2947,7 +2947,7 @@ subroutine Tot_EMFP(Ele, i_E, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, Num
     case default
         Mass = 1.0d0
     end select
-        
+
     Emax = 4.0e0*Ee*Mass*g_me*Mtarget/((Mtarget+Mass*g_me)*(Mtarget+Mass*g_me))    ! [eV] maximum energy transfer
       
     if (Edebay .GE. Emax) Emax = Edebay ! single atom vs phonon
@@ -2957,6 +2957,7 @@ subroutine Tot_EMFP(Ele, i_E, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, Num
     select case (NumPar%CS_method)
     case (-1)  ! Old integration grid
       n = 20*(MAX(INT(Emin),10))    ! number of integration steps OLD
+      E_low = Emin
     case default  ! new integartion grid
       n = m_N_grid_e_elast ! NEW
       ! Define the interval of integration where the peak are (requires fined grid):
@@ -3102,8 +3103,10 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
 
     eps = 1.0d-12
     if (abs(dE) < eps)  then
-      print*, 'Problem #1 in Diff_cross_section_phonon', Ee, dE, sqrt(Ee) - sqrt(Ee - dE)
+      !print*, 'Problem #1 in Diff_cross_section_phonon', Ee, dE, sqrt(Ee) - sqrt(Ee - dE)
       qmin = 0.0d0
+      Diff_IMFP = 1.31e30  ! infinity
+      return   ! nothing more to do
     elseif ( dE > (Ee-eps) ) then
       qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee))        ! min transferred momentum [not kg*m/s!]
     else

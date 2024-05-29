@@ -341,14 +341,13 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2013
 
-   if (Num_th < 1) then ! use default: maximum number of available threads
 #ifdef OMP_inside
+   if (Num_th < 1) then ! use default: maximum number of available threads
       Num_th = omp_get_max_threads() ! number of processors available by default
-#else
-      Num_th = 1  ! no OMP => no threads
-#endif
    endif
-   
+#else
+   Num_th = 1  ! no OMP => no threads
+#endif
 
    !------------------------------------------------------
    ! Read optional parameters:
