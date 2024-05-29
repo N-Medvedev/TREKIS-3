@@ -1162,8 +1162,11 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
    !-----------------------------
    ! Diff.CS tables, if required:
    if (kind_of_particle .EQ. 'Electron') then
-    select case (NumPar%CS_method)
-    case (1)    ! save files are required
+     select case (NumPar%kind_of_EMFP)
+     case (1)    ! CDF-CS only
+
+      select case (NumPar%CS_method)
+      case (1)    ! save files are required
         if (NumPar%verbose) call print_time_step('Starting dealing with electron elastic diff. CS tables and files:', msec=.true.)
 
         FN_diff = 333   ! file number to be reused
@@ -1215,14 +1218,17 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         enddo ! k
 
         if (NumPar%verbose) call print_time_step('Done with electron elastic diff. CS tables and files:', msec=.true.)
-    case default  ! no files, calculate on the fly
+      case default  ! no files, calculate on the fly
         ! Nothing to do
-    end select
+      end select ! case (NumPar%CS_method)
+     end select ! case (NumPar%kind_of_EMFP)
    endif ! 'Electron'
 
    if (kind_of_particle .EQ. 'Hole') then
-    select case (NumPar%CS_method)
-    case (1)    ! save files are required
+     select case (NumPar%kind_of_EMFP)
+     case (1)    ! CDF-CS only
+      select case (NumPar%CS_method)
+      case (1)    ! save files are required
         if (NumPar%verbose) call print_time_step('Starting dealing with hole elastic diff. CS tables and files:', msec=.true.)
 
         FN_diff = 333   ! file number to be reused
@@ -1274,9 +1280,10 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         enddo ! k
 
         if (NumPar%verbose) call print_time_step('Done with hole elastic diff. CS tables and files:', msec=.true.)
-    case default  ! no files, calculate on the fly
+      case default  ! no files, calculate on the fly
         ! Nothing to do
-    end select
+      end select ! case (NumPar%CS_method)
+    end select ! case (NumPar%kind_of_EMFP)
    endif ! 'Hole'
 !   pause 'diff_CS_file_he'
 
@@ -2174,11 +2181,10 @@ subroutine go_thru_grid(Emin, Emax, E_sp_eps, special_point, scale_dE, Ngrid, ar
       if (E_cur < 0.1d0-(dE_min)*0.5d0) then
          dE = dE_min
       !elseif (E_cur < 1.0d0-dE_min*0.5d0) then
-      elseif (E_cur < 50.0d0-dE_min*0.5d0) then
-         !dE = 0.1d0
+      !elseif (E_cur < 50.0d0-dE_min*0.5d0) then
+      elseif (E_cur < 10.0d0-dE_min*0.5d0) then
          dE = dE_min * 10.0d0
       else if (E_cur < 100.0d0-dE_min*0.5d0) then
-         !dE = 1.0d0
          dE = dE_min * 100.0d0
       else
          dE = 10.0d0**(find_order_of_number(E_cur)-2) ! below
