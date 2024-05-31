@@ -257,7 +257,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
 
     write(ch_temp, '(i5)') NMC
     write(print_to, '(a)') ' Number of MC iterations: '//trim(adjustl(ch_temp))
-#ifdef OMP_inside
+#ifdef _OPENMP
     write(ch_temp, '(i5)') Num_th
     write(print_to, '(a)') ' Number of threads used for OpenMP '//trim(adjustl(ch_temp))
 #else ! if you set to use OpenMP in compiling: 'make OMP=no'
