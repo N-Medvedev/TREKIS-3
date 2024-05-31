@@ -14,8 +14,8 @@ private  ! hides items not listed on public statement
 
 public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time, print_parameters
 
-character(10), parameter :: m_Version = '3.1.3'
-character(12), parameter :: m_Update = '08.05.2024'
+character(10), parameter :: m_Version = '3.2.0'
+character(12), parameter :: m_Update = '31.05.2024'
 
 contains
 
@@ -115,6 +115,14 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
         write(print_to, '(a)') ' Effective mass of valence holes is calculated from DOS'
     endif
 
+    if (LEN(trim(adjustl(NumPar%DOS_file))) > 0 ) then ! user provided the name:
+        write(print_to, '(a)') ' DOS file used: '//trim(adjustl(NumPar%DOS_file))
+    else ! assume default name:
+        write(print_to, '(a)') ' No DOS file was found, not even free-electron one!'
+    endif
+
+    write(print_to, '(a)') ' CDF file used: '//trim(adjustl(NumPar%CDF_file))
+
     write(print_to,'(a)') trim(adjustl(dashline))
     ! Parameters:
     if (SHI%Zat .GT. 0) then ! dynamical calculations
@@ -188,6 +196,17 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
         write(print_to, '(a)') ' Plasmon maximal energy is used as upper integration limit during cross-section calculation'
     endif
 
+
+    select case (NumPar%CS_method)
+    case (-1)   ! Old
+        write(print_to, '(a)') ' (using old integration energy grid)'
+    case (1)    ! tabulated files
+        write(print_to, '(a)') ' (using tabulated files with integrated diff.CS)'
+    case default    ! New
+        write(print_to, '(a)') ' (using new integration energy grid)'
+    end select
+
+
     if (NumPar%kind_of_EMFP .EQ. 2) then
         write(ch_temp, '(a)') 'calculated with DSF cross-sections'
     else if (NumPar%kind_of_EMFP .EQ. 1) then
@@ -238,12 +257,17 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
 
     write(ch_temp, '(i5)') NMC
     write(print_to, '(a)') ' Number of MC iterations: '//trim(adjustl(ch_temp))
+#ifdef OMP_inside
     write(ch_temp, '(i5)') Num_th
     write(print_to, '(a)') ' Number of threads used for OpenMP '//trim(adjustl(ch_temp))
+#else ! if you set to use OpenMP in compiling: 'make OMP=no'
+    write(print_to, '(a)') ' Compiled without OpenMP'
+#endif
 
     if (NumPar%verbose) then
         if (NumPar%very_verbose) then
             write(print_to,'(a)') ' Very-verbose option is on, TREKIS will print A LOT of extra stuff...'
+            write(print_to,'(a)') ' I mean, really, A LOT...'
         else
             write(print_to,'(a)') ' Verbose option is on, TREKIS will print a lot of extra stuff...'
         endif
@@ -257,7 +281,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
         write(print_to, '(a)') ' The following atomic parameters of the target are used:'
         do j = 1, size(Target_atoms)  ! for each element, its shells data:
             write(print_to, '(a)') trim(adjustl(Target_atoms(j)%Name))//' atom:'
-            write(print_to, '(a)') ' Shell  Quantum_n  Ne    Ip[eV]  Ekin[eV]  t(Auger)[fs]  t(Rad)[fs]  k-sum  f-sum'
+            write(print_to, '(a)') ' Shell  Quantum_n  Ne    Ip[eV]  Ekin[eV]  t(Auger)[fs]  t(Rad)[fs]   k-sum    f-sum'
             do k = 1, Target_atoms(j)%N_shl ! all the data for each shell:
 
                 if ( (j == 1) .and. (k == Target_atoms(j)%N_shl) ) then ! the valence band
@@ -272,11 +296,11 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
                               ksum, fsum, Target_atoms(j)%Ip(k), Omega) ! module "Cross_sections"
 
                 if ((j .EQ. 1) .AND. (k .EQ. Target_atoms(j)%N_shl)) then   ! VB
-                  write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2,f9.2)') Target_atoms(j)%Shell_name(k), '   ', &
+                  write(print_to,'(a,a,f8.2,f10.2,f10.2,es12.2,es12.2, f9.2,f9.2)') Target_atoms(j)%Shell_name(k), '   ', &
                         Target_atoms(j)%Nel(k), Target_atoms(j)%Ip(k), Target_atoms(j)%Ek(k), Target_atoms(j)%Auger(k), &
                         Target_atoms(j)%Radiat(k), ksum, fsum
                 else    ! core shell
-                  write(print_to,'(a,i3,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2,f9.2)') Target_atoms(j)%Shell_name(k), &
+                  write(print_to,'(a,i3,f8.2,f10.2,f10.2,es12.2,es12.2, f9.2,f9.2)') Target_atoms(j)%Shell_name(k), &
                         Target_atoms(j)%PQN(k), Target_atoms(j)%Nel(k), Target_atoms(j)%Ip(k), &
                         Target_atoms(j)%Ek(k), Target_atoms(j)%Auger(k), &
                         Target_atoms(j)%Radiat(k), ksum, fsum
@@ -289,7 +313,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
         Omega = w_plasma( 1d6*Matter%At_dens/N_at_mol, Mass=Mean_Mass )  ! module "Cross_sections"
         call sumrules(CDF_Phonon%A, CDF_Phonon%E0, CDF_Phonon%Gamma, ksum, fsum, 1.0d-8, Omega) ! module "Cross_sections"
         if (ksum > 1.0d-2) then
-            write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, f9.2, f9.2)') 'Phonons', &
+            write(print_to,'(a,a,f8.2,f10.2,f10.2,es12.2,es12.2, f9.2, f9.2)') 'Phonons', &
                         '       ', N_at_mol, 0.0d0, 0.0d0, 0.0d0, 0.0d0, ksum, fsum
         else ! print too small values
             write(print_to,'(a,a,f8.2,f9.2,f9.2,es12.2,es12.2, es12.2, es12.2)') 'Phonons', &
@@ -345,7 +369,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     !-------------------------------------------------
     real(8) :: t, as1, tim_glob, out_val
     integer :: c1(8), i, j,k,l,N, Nat, N_R, FN, FN1, FN2, FN3, FN31, FN4, Lowest_Ip_At, Lowest_Ip_Shl !, NOTP
-    character(300) :: command, charge_name, charge_kind, File_name, File_name1, File_name2, File_name3, File_name4, C_time, ch_temp
+    character(300) :: command, charge_name, charge_kind, File_name, File_name1, File_name2, File_name3, File_name4, C_time, ch_temp, ch_temp2
     character(30) :: ch1, ch2, ch3
     character(LEN=25) :: FMT
     logical :: file_exist, file_opened
@@ -408,12 +432,26 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
                                         '_E_', trim(adjustl(ch1)), '_MeV_', trim(adjustl(ch2)), '_fs'
     File_name2 = File_name
     i = 0
-    inquire(DIRECTORY=trim(adjustl(File_name2)),exist=file_exist)    ! check if input file excists
+
+#ifndef __GFORTRAN__
+   ! for intel fortran compiler:
+   inquire(DIRECTORY=trim(adjustl(File_name2)),exist=file_exist)    ! check if input file excists
+#else
+   ! for gfortran compiler:
+   inquire(FILE=trim(adjustl(File_name2)),exist=file_exist)    ! check if input file excists
+#endif
+
     do while (file_exist)
         i = i + 1
         write(ch1,'(i6)') i
         write(File_name2,'(a,a,a)') trim(adjustl(File_name)), '_', trim(adjustl(ch1))
+#ifndef __GFORTRAN__
+        ! for intel fortran compiler:
         inquire(DIRECTORY=trim(adjustl(File_name2)),exist=file_exist)    ! check if input file excists
+#else
+        ! for gfortran compiler:
+        inquire(FILE=trim(adjustl(File_name2)),exist=file_exist)    ! check if input file excists
+#endif
     enddo
     command='mkdir '//trim(adjustl(File_name2)) ! to create a folder use this command
     CALL system(command)  ! create the folder
@@ -433,7 +471,6 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
         call copy_file(trim(adjustl(m_INPUT_file)), trim(adjustl(File_names%F(10))))   ! below
     endif
 
-    
     !========================================================
     !Parameters of this calculation:
     FN1 = 299
@@ -443,13 +480,15 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
 
     call print_parameters(FN1, SHI, Material_name, Target_atoms, Matter, NumPar, CDF_Phonon, Tim, dt, NMC, Num_th, .true., .true.) ! see above
 
-    write(FN1, '(a,f6.3,a)') 'Ion equilibrium charge: ', SHI%Zeff, ' [electron charge]'
-    write(FN1, '(a,f9.2,a)') 'MC calculated energy loss: ', Out_tot_E(N)/Matter%Layer, ' [eV/A]'
+    write(ch_temp2, '(f6.3)' ) SHI%Zeff
+    write(FN1, '(a)') 'Ion equilibrium charge:         '//trim(adjustl(ch_temp2))//' [electron charge]'
+    write(ch_temp2, '(f9.2)' ) Out_tot_E(N)/Matter%Layer
+    write(FN1, '(a)') 'MC calculated energy loss (Se): '//trim(adjustl(ch_temp2))//' [eV/A]'
 
     call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
     as1=dble(24*60*60*(c1(3)-ctim(3))+3600*(c1(5)-ctim(5))+60*(c1(6)-ctim(6))+(c1(7)-ctim(7))+(c1(8)-ctim(8))*0.001)	! sec
     call parse_time(as1,C_time) ! module "Sorting_output_data.f90"
-    write(FN1, '(a,a)') 'Duration of calculation: ', trim(adjustl(C_time))
+    write(FN1, '(a)')      'Duration of calculation:        '//trim(adjustl(C_time))
     write(FN1,'(a)') trim(adjustl(dashline))
 
     inquire(unit=FN1,opened=file_opened)    ! check if this file is opened
@@ -480,7 +519,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
         if (file_opened) close(FN3)             ! and if it is, close it
     endif
     
-    !Angular distribution of velosities of electrons:
+    !Angular distribution of velocities of electrons:
     FN3 = 500
     ch_temp = 'Electrons_theta_distribution.txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
@@ -508,7 +547,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
 
 
 
-    !Angular distribution of velosities of holes:
+    !Angular distribution of velocities of holes:
     FN3 = 5001
     ch_temp = 'VB_holes_theta_distribution.txt'
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
@@ -706,7 +745,8 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     if (file_opened) close(FN3)             ! and if it is, close it
     
 
-    !=============================== Electron radial temperature
+    !===============================
+    !Electron radial temperature:
     FN3 = 303
     !File_name = trim(adjustl(File_name2))//'/Radial_electron_temperature[K].txt'
     ch_temp = 'Radial_electron_temperature[K].txt'
@@ -1114,7 +1154,7 @@ subroutine Allocate_out_arrays(target_atoms, Out_Distr, Mat_DOS, Out_tot_Ne, Out
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Eh
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Ehkin
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Eat_dens  ! [eV/A^3] atom's energy energy   
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_theta, Out_theta_h ! el and holes angular velosity distr.
+    real(8), dimension(:,:), allocatable, intent(inout) :: Out_theta, Out_theta_h ! el and holes angular velocity distr.
     real(8), dimension(:), allocatable, intent(inout) :: Out_theta1 
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_field_all
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Ee_vs_E_Em
@@ -1217,7 +1257,7 @@ subroutine Allocate_out_arrays_old(target_atoms, Out_Distr, Out_tot_Ne, Out_tot_
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Eh
     real(8), dimension(:,:,:,:), allocatable, intent(inout) :: Out_Ehkin
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_Eat_dens  ! [eV/A^3] atom's energy energy   
-    real(8), dimension(:,:), allocatable, intent(inout) :: Out_theta, Out_theta_h   ! el and hole angular velosity distr.
+    real(8), dimension(:,:), allocatable, intent(inout) :: Out_theta, Out_theta_h   ! el and hole angular velocity distr.
     real(8), dimension(:), allocatable, intent(inout) :: Out_theta1 
     real(8), dimension(:,:), allocatable, intent(inout) :: Out_field_all
     

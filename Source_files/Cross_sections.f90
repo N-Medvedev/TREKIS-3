@@ -6,7 +6,7 @@
 MODULE Cross_sections
   use Universal_Constants               ! let it use universal constants
   use Objects                           ! since it uses derived types, it must know about them from module 'Objects'
-  use Reading_files_and_parameters, only: Find_in_array_monoton, Linear_approx_2x1d_DSF, print_time_step
+  use Reading_files_and_parameters, only: Find_in_array_monoton, Linear_approx_2x1d_DSF, print_time_step, Find_in_monoton_array_decreasing
   use Dealing_with_EADL, only: get_photon_cross_section_EPDL, NEXT_DESIGNATOR
 implicit none
 PRIVATE
@@ -16,6 +16,13 @@ real(8) :: m_Thom_factor, m_five_sixteenth
 
 real(8), parameter :: m_two_third = 2.0d0/3.0d0
 real(8), parameter :: m_Pi_6 = (g_Pi/6.0d0)**(1.0d0/3.0d0)
+
+! number of energy grid points for integration of CDF-cross sections:
+integer, parameter :: m_N_grid_SHI = 1000
+integer, parameter :: m_N_p_grid_SHI = 100
+integer, parameter :: m_N_grid_e_inelast = 100
+integer, parameter :: m_N_grid_e_elast = 20
+
 
 parameter (m_Thom_factor = 20.6074224164d0)        ! [1] Constant for Eq.(2.5)
 parameter (m_five_sixteenth = 5.0d0/16.0d0)
@@ -40,7 +47,8 @@ end interface extend_array_size
 public :: Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, &
          SHI_Total_IMFP, SHI_TotIMFP, SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF, &
          NRG_transfer_elastic_atomic_OLD, get_single_pole, w_plasma, sumrules, construct_CDF, Total_copmlex_CDF, &
-         extend_array_size, Tot_EMFP, CS_from_MFP, Equilibrium_charge_Target
+         extend_array_size, Tot_EMFP, CS_from_MFP, Equilibrium_charge_Target, allocate_diff_CS_tables, Interpolate, &
+         allocate_diff_CS_elastic_tables
 
 
 contains
@@ -566,25 +574,28 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
 
          do j = 1, N_shl
             if ( (i == 1) .and. (j == N_shl) ) then ! the valence band
-               NVB = Target_atoms(i)%Nel(j)/N_at_mol   ! valence electrons per atom
 
-               ! Set them according to the single-pole approximation:
-               Omega = w_plasma(1d6*Matter%At_dens*NVB)  ! function below, plasma frequency^2 [1/s]^2
+               if (.not.NumPar%VB_CDF_defined) then ! user did not define VB CDF in a file
+                  NVB = Target_atoms(i)%Nel(j)/N_at_mol   ! valence electrons per atom
 
-               Target_atoms(i)%Ritchi(j)%E0(1) = sqrt((g_h/g_e)*(g_h/g_e) * Omega)  ! [eV]
-               ! Gamma set equal to E0 without effective mass (empirical approximation):
-               Target_atoms(i)%Ritchi(j)%Gamma(1) = Target_atoms(i)%Ritchi(j)%E0(1)
-               ! A is set vie normalization (sum rule):
-               Target_atoms(i)%Ritchi(j)%A(1) = 1.0d0   ! just to get sum rule to renormalize below
-               ! Get sum rule:
-               Omega = w_plasma(1d6*Matter%At_dens)   ! below
-               call sumrules(Target_atoms(i)%Ritchi(j)%A, Target_atoms(i)%Ritchi(j)%E0, Target_atoms(i)%Ritchi(j)%Gamma, &
+                  ! Set them according to the single-pole approximation:
+                  Omega = w_plasma(1d6*Matter%At_dens*NVB)  ! function below, plasma frequency^2 [1/s]^2
+
+                  Target_atoms(i)%Ritchi(j)%E0(1) = sqrt((g_h/g_e)*(g_h/g_e) * Omega)  ! [eV]
+                  ! Gamma set equal to E0 without effective mass (empirical approximation):
+                  Target_atoms(i)%Ritchi(j)%Gamma(1) = Target_atoms(i)%Ritchi(j)%E0(1)
+                  ! A is set vie normalization (sum rule):
+                  Target_atoms(i)%Ritchi(j)%A(1) = 1.0d0   ! just to get sum rule to renormalize below
+                  ! Get sum rule:
+                  Omega = w_plasma(1d6*Matter%At_dens)   ! below
+                  call sumrules(Target_atoms(i)%Ritchi(j)%A, Target_atoms(i)%Ritchi(j)%E0, Target_atoms(i)%Ritchi(j)%Gamma, &
                               ksum, fsum, Target_atoms(i)%Ip(j), Omega) ! below
 
-               Target_atoms(i)%Ritchi(j)%A(1) = NVB/ksum
+                  Target_atoms(i)%Ritchi(j)%A(1) = NVB/ksum
 
-               ! To calculate the sum rules in VB, we need molecular density, not atomic:
-               Omega = w_plasma(1d6*Matter%At_dens/N_at_mol)   ! below
+                  ! To calculate the sum rules in VB, we need molecular density, not atomic:
+                  Omega = w_plasma(1d6*Matter%At_dens/N_at_mol)   ! below
+               endif ! (.not.NumPar%VB_CDF_defined)
             else ! core shell
                NVB = Target_atoms(i)%Nel(j)    ! core electrons per atom
                contrib = Target_atoms(i)%Pers/N_at_mol  ! contribution of the atoms into the compound
@@ -606,7 +617,8 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
                               ksum, fsum, Target_atoms(i)%Ip(j), Omega) ! below
 
                Target_atoms(i)%Ritchi(j)%A(1) = NVB/ksum
-            endif
+            endif ! ( (i == 1) .and. (j == N_shl) )
+
             ! Sum rules:
             if (NumPar%verbose) then
                call sumrules(Target_atoms(i)%Ritchi(j)%A, Target_atoms(i)%Ritchi(j)%E0, Target_atoms(i)%Ritchi(j)%Gamma, &
@@ -860,27 +872,40 @@ subroutine Tot_Phot_IMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, NumP
 end subroutine Tot_Phot_IMFP
 
 
-subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, NumPar, kind_of_particle)
+subroutine TotIMFP(Ele, i_E, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle)
     real(8), intent(in) :: Ele  ! electron energy [eV]
-    type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
+    integer, intent(in) :: i_E   ! energy grid point in the array
+    type(Atom), dimension(:), intent(inout), target :: Target_atoms  ! all data for target atoms
     integer, intent(in) :: Nat, Nshl    ! number of atom, number of shell
     real(8), intent(out) :: Sigma, dEdx   ! calculated inverse mean free path (cross-section) [1/A], and the energy losses [eV/A]
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Solid), intent(in) :: Matter ! properties of material
     type(Flag), intent(in) :: NumPar
+    type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
     character(8), intent(in) :: kind_of_particle
-       
-    integer i, j, n, Mnum
-    real(8) Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, temp1, temp2, Eplasmon, Egap, Mass
+    !----------------------
+    integer :: i, j, n, Mnum, Nsiz
+    real(8) :: Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, temp1, temp2, Eplasmon, Egap, Mass
+    real(8) :: E_low, E_high
+    logical :: it_is_electron, it_is_hole, it_is_photon
     
+    ! Markers to reuse below:
+    it_is_electron = .false.  ! to start with
+    it_is_hole = .false.      ! to start with
+    it_is_photon = .false.    ! to start with
+
     Emin = Target_atoms(Nat)%Ip(Nshl)   ! [eV] ionization potential of the shell is minimum possible transferred energy
     Egap = Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))   ! band gap [eV]
     if (Emin .LE. 1.0d-3) Emin = 1.0d-3 ! for metals there is no band gap
     
     if (trim(adjustl(kind_of_particle)) .EQ. 'Electron') then 
+        it_is_electron = .true.
         Emax = (Ele + Emin)/2.0e0 ! [eV] maximum energy transfer, accounting for equality of electrons
         Mass = 1.0d0
     else if (trim(adjustl(kind_of_particle)) .EQ. 'Hole') then
+        if ( (Nat == 1) .and. (Nshl == size(Target_atoms(Nat)%Ip) ) ) then ! for VB holes, only VB
+            it_is_hole = .true.
+        endif
         if(Matter%hole_mass .GE. 0) then
             Mass = Matter%hole_mass
         else                    ! Define mass from DOS
@@ -890,6 +915,7 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
         endif
         Emax = 4.0d0*Ele*Mass/((Mass+1.0d0)*(Mass+1.0d0))
     else
+        it_is_photon = .true.
         Emax = (Ele + Emin)/2.0e0 ! [eV] maximum energy transfer, accounting for equality of electrons
         Mass = 1.0d0
     endif
@@ -902,7 +928,19 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
             if (Ele .LT. Emax) Emax = Ele ! no more than the total electron energy
         endif
     endif
-    
+
+    select case (NumPar%CS_method)
+    case (-1)  ! Old integration grid
+      n = 20*(MAX(INT(Emin),10))    ! number of integration steps
+      !Nsiz = get_diff_CS_grid_size(NumPar%CS_method, n, Emin, Emax) ! below OLD
+    case default  ! new integartion grid
+      n = m_N_grid_e_inelast ! number defining number of integration steps in intervals
+      ! Define the interval of integration where the peak are (requires fined grid):
+      E_low = max( minval(Target_atoms(Nat)%Ritchi(Nshl)%E0 - 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emin )
+      E_high = min( maxval(Target_atoms(Nat)%Ritchi(Nshl)%E0 + 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emax )
+      !Nsiz = get_diff_CS_grid_size(NumPar%CS_method, n, Emin, Emax, E0_min=E_low, E0_max=E_high) ! below
+    end select
+
     select case (Target_atoms(Nat)%KOCS(Nshl)) ! which inelastic cross section to use (BEB vs CDF):
     case (1) ! CDF cross section
       DLTA:if (NumPar%kind_of_DR == 4) then  ! Delta-CDF
@@ -911,16 +949,20 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
        Sigma = MFP_from_sigma(Sigma, Matter%At_Dens)   ! [A] below
        dEdx = energy_loss_delta(Ele, g_me, 1.0d0, Emin, Matter%At_Dens, g_me, Target_atoms(Nat)%Ritchi(Nshl), .true.) ! [eV/A] below
       else DLTA  ! Ritchie-CDF:
-       n = 20*(MAX(INT(Emin),10))    ! number of integration steps
-       dE = (Emax - Emin)/(real(n)) ! differential of transferred momentum [kg*m/s]
-       i = 1       ! to start integration
+
+       i = 0       ! to start integration
        E = Emin    ! to start integration
+       !dE = (Emax - Emin)/(real(n)) ! differential of transferred energy [eV]
+
        Ltot1 = 0.0d0
        Ltot0 = 0.0d0
        call Diff_cross_section(Ele, E, Target_atoms, Nat, Nshl, Ltot0, Mass, Matter, Mat_DOS, NumPar)
        ddEdx = 0.0d0
        do while (E .LE. Emax) ! integration
-          dE = (1.0d0/(E+1.0d0) + E)/real(n)
+          i = i + 1
+          !dE = (1.0d0/(E+1.0d0) + E)/real(n)
+          dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low, E0_max=E_high)   ! below
+
           ! If it's Simpson integration:
           a =  E + dE/2.0d0
           call Diff_cross_section(Ele, a, Target_atoms, Nat, Nshl, dL, Mass, Matter, Mat_DOS, NumPar)
@@ -935,19 +977,60 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
           ddEdx = ddEdx + E*temp2
           Ltot0 = dL
           E = E + dE  ! [eV]
-       enddo
+
+          !print*, 'a', Ele, i, Nsiz, dE, (1.0d0/(E+1.0d0) + E)/real(n)
+          !print*, 'min', E_low, Emin
+          !print*, 'max', E_high, Emax
+
+          ! If the tabulated integrated differential CS are required:
+          select case (NumPar%CS_method)
+          case (1) ! save data:
+            if (it_is_electron) then
+               aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(i) = E  ! [eV] hw
+               aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) = Ltot1 ! [1/A] d(1/L)/d(hw)
+            endif ! it_is_electron
+            if (it_is_hole) then
+               aidCS%HIdCS%diffCS(i_E)%hw(i) = E  ! [eV] hw
+               aidCS%HIdCS%diffCS(i_E)%dsdhw(i) = Ltot1 ! [1/A] d(1/L)/d(hw)
+            endif ! it_is_hole
+          end select
+       enddo ! while (E .LE. Emax)
 !        if (Ele == 1.0d4) then
 !           print*, 'Ele', Ele
 !           pause 
 !        endif
        
+       ! Conversion factors:
        if (Ltot1 < 1.0d-15) then
-           Sigma = 1.0d20
+           Sigma = 1.0d20  ! [A]
            dEdx = 0.0d0 !*dE ! energy losses [eV/A]
        else
            Sigma = 1.0d0/(Mass*Ltot1) !*dE ! [A]
            dEdx = Mass*ddEdx !*dE ! energy losses [eV/A]
        endif
+       ! And for diff.CS tables:
+       select case (NumPar%CS_method)
+       case (1) ! save data:
+         if (it_is_electron) then
+            do i = 1, size(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw)
+               if (aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) < 1.0d-15) then
+                  aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) = 1.0d20
+               else
+                  aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) = 1.0d0/(Mass*aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i)) ! [A]
+               endif
+            enddo ! i
+         endif ! it_is_electron
+         if (it_is_hole) then
+            do i = 1, size(aidCS%HIdCS%diffCS(i_E)%dsdhw)
+               if (aidCS%HIdCS%diffCS(i_E)%dsdhw(i) < 1.0d-15) then
+                  aidCS%HIdCS%diffCS(i_E)%dsdhw(i) = 1.0d20
+               else
+                  aidCS%HIdCS%diffCS(i_E)%dsdhw(i) = 1.0d0/(Mass*aidCS%HIdCS%diffCS(i_E)%dsdhw(i)) ! [A]
+               endif
+            enddo ! i
+         endif ! it_is_hole
+       end select
+
       endif DLTA  ! Ritchie-CDF
     case default ! BEB cross section
        Sigma = Sigma_BEB(Ele,Target_atoms(Nat)%Ip(Nshl),Target_atoms(Nat)%Ek(Nshl),Target_atoms(Nat)%Nel(Nshl)) ! [A^2] cross section
@@ -956,7 +1039,373 @@ subroutine TotIMFP(Ele, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DOS, N
        ddEdx = dSigma_w_int_BEB(Ele, (Ele-1.0d0)/2.0d0, Target_atoms(Nat)%Ip(Nshl), Target_atoms(Nat)%Ek(Nshl), Target_atoms(Nat)%Nel(Nshl)) ! cross section integrated with energy [A^2*eV]
        dEdx = Mass*temp1*ddEdx ! energy losses [eV/A]
     end select
+
+    !pause 'TotIMFP'
 end subroutine TotIMFP
+
+
+
+
+subroutine allocate_diff_CS_tables(Ele, i_E, Target_atoms, Nat, Nshl, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle)
+    real(8), intent(in) :: Ele  ! electron energy [eV]
+    integer, intent(in) :: i_E   ! energy grid point in the array
+    type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
+    integer, intent(in) :: Nat, Nshl    ! number of atom, number of shell
+    type(Density_of_states), intent(in) :: Mat_DOS
+    type(Solid), intent(in) :: Matter ! properties of material
+    type(Flag), intent(in) :: NumPar
+    type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
+    character(8), intent(in) :: kind_of_particle
+    !----------------------
+    integer :: i, j, n, Mnum, Nsiz
+    real(8) :: Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, temp1, temp2, Eplasmon, Egap, Mass
+    real(8) :: E_low, E_high
+    logical :: it_is_electron, it_is_hole, it_is_photon
+
+    ! Markers to reuse below:
+    it_is_electron = .false.  ! to start with
+    it_is_hole = .false.      ! to start with
+    it_is_photon = .false.    ! to start with
+
+    Emin = Target_atoms(Nat)%Ip(Nshl)   ! [eV] ionization potential of the shell is minimum possible transferred energy
+    Egap = Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))   ! band gap [eV]
+    if (Emin .LE. 1.0d-3) Emin = 1.0d-3 ! for metals there is no band gap
+
+    if (trim(adjustl(kind_of_particle)) .EQ. 'Electron') then
+        it_is_electron = .true.
+        Emax = (Ele + Emin)/2.0e0 ! [eV] maximum energy transfer, accounting for equality of electrons
+    else if (trim(adjustl(kind_of_particle)) .EQ. 'Hole') then
+        it_is_hole = .true.
+        if(Matter%hole_mass .GE. 0) then
+            Mass = Matter%hole_mass
+        else                    ! Define mass from DOS
+            call find_in_array_monoton(Mat_DOS%E, Ele, Mnum)
+            Mass = Mat_DOS%Eff_m(Mnum)
+            !print*, 'Mass h', Ele, Mat_DOS%DOS(Mnum), Mass
+        endif
+        Emax = 4.0d0*Ele*Mass/((Mass+1.0d0)*(Mass+1.0d0))
+    else
+        it_is_photon = .true.
+        Emax = (Ele + Emin)/2.0e0 ! [eV] maximum energy transfer, accounting for equality of electrons
+    endif
+
+    ! Use maximal plasmon energy as upper limit of integration
+    if (Numpar%plasmon_Emax) then       ! If included
+        if (Emin .EQ. Egap) then        ! For VB only
+            Eplasmon = sqrt(Matter%N_VB_el*Matter%At_Dens*1d6*g_h*g_h/(g_me*g_e0) + Egap*Egap)    ! Maximal energy of plasmons
+            if (Eplasmon .GE. Emax) Emax = Eplasmon ! single atom vs plasmon
+            if (Ele .LT. Emax) Emax = Ele ! no more than the total electron energy
+        endif
+    endif
+
+    select case (NumPar%CS_method)
+    case (-1)  ! Old integration grid
+      n = 20*(MAX(INT(Emin),10))    ! number of integration steps
+      Nsiz = get_diff_CS_grid_size(NumPar%CS_method, n, Emin, Emax) ! below OLD
+    case default  ! new integartion grid
+      n = m_N_grid_e_inelast ! number defining number of integration steps in intervals
+      ! Define the interval of integration where the peak are (requires fined grid):
+      E_low = max( minval(Target_atoms(Nat)%Ritchi(Nshl)%E0 - 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emin )
+      E_high = min( maxval(Target_atoms(Nat)%Ritchi(Nshl)%E0 + 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emax )
+      Nsiz = get_diff_CS_grid_size(NumPar%CS_method, n, Emin, Emax, E0_min=E_low, E0_max=E_high) ! below
+    end select
+
+    ! If the tabulated integrated differential CS are to be saved, allocate arrays:
+    select case (NumPar%CS_method)
+    case (1)
+      if (it_is_electron) then
+         if (.not.allocated(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw)) then
+            allocate(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(Nsiz))
+         endif
+
+         if (.not.allocated(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw)) then
+            allocate(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(Nsiz))
+         endif
+      endif ! it_is_electron
+      if (it_is_hole) then
+         if (.not.allocated(aidCS%HIdCS%diffCS(i_E)%dsdhw)) then
+            allocate(aidCS%HIdCS%diffCS(i_E)%dsdhw(Nsiz))
+         endif
+
+         if (.not.allocated(aidCS%HIdCS%diffCS(i_E)%hw)) then
+            allocate(aidCS%HIdCS%diffCS(i_E)%hw(Nsiz))
+         endif
+      endif ! it_is_hole
+      !print*, Nat, Nshl, i_E, size(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw)
+    end select
+end subroutine allocate_diff_CS_tables
+
+
+
+
+
+subroutine allocate_diff_CS_elastic_tables(Ele, i_E, Target_atoms, CDF_Phonon, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle, prefact)
+    real(8), intent(in), target :: Ele  ! electron energy [eV]
+    integer, intent(in) :: i_E   ! energy grid point in the array
+    type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
+    type(CDF), intent(in) :: CDF_Phonon ! phonon CDF parameters
+    type(Density_of_states), intent(in) :: Mat_DOS
+    type(Solid), intent(in) :: Matter ! properties of material
+    type(Flag), intent(in) :: NumPar
+    type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
+    character(8), intent(in) :: kind_of_particle
+    real(8), intent(in), optional :: prefact
+    !----------------------
+    integer :: i, j, n, Mnum, Nsiz
+    real(8) :: Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, E_low, E_high
+    real(8) :: a, b, temp1, temp2, qdebay, Edebay, Mtarget, Mass, pref
+    real(8), pointer :: Ee
+    logical :: it_is_electron, it_is_hole
+
+    it_is_electron = .false. ! to start with
+    it_is_hole = .false. ! to start with
+
+    if (present(prefact)) then
+      pref = prefact ! defined by the user
+    else
+      pref = 1.0d0   ! no prefactor required
+    endif
+    !qdebay = (6.0d0*g_Pi*g_Pi*(Matter%At_Dens*1e6))**(0.33333333d0)   ! maximum energy of phonons analyzed [1/m], debay energy
+    !Edebay = 2.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy (2 is artificial)
+    call Debye_energy(Matter%At_Dens, Matter%Vsound, Edebay)   ! below
+    Edebay = Edebay * 3.0d0   ! to make sure we cover all phonon CDF peaks
+
+    Ee => Ele   ! just to use this name later
+    Emin = pref * 0.1d-8   ! [eV] ionization potential of the shell is minimum possible transferred energy
+    Mtarget = g_Mp*SUM(target_atoms(:)%Mass*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! average mass of a target atom [kg]
+
+    select case (trim(adjustl(kind_of_particle)))
+    case ('Electron', 'electron', 'e')
+        it_is_electron = .true.
+        Mass = 1.0d0
+    case ('Hole', 'hole', 'h')
+        it_is_hole = .true.
+        if(Matter%hole_mass .GE. 0) then
+            Mass = Matter%hole_mass
+        else                    ! Define mass from DOS
+            call find_in_array_monoton(Mat_DOS%E, Ele, Mnum)
+            Mass = Mat_DOS%Eff_m(Mnum)
+        endif
+    case default
+        Mass = 1.0d0
+    end select
+
+    Emax = 4.0e0*Ee*Mass*g_me*Mtarget/((Mtarget+Mass*g_me)*(Mtarget+Mass*g_me))    ! [eV] maximum energy transfer
+
+    if (Edebay .GE. Emax) Emax = Edebay ! single atom vs phonon
+    if (Ee .LT. Emax) Emax = Ee ! no more than the total electron energy
+    Emax = pref * Emax  ! if user defined some prefactor (e.g. negatve for phonon absorption)
+
+    select case (NumPar%CS_method)
+    case (-1)  ! Old integration grid
+      n = 20*(MAX(INT(Emin),10))    ! number of integration steps OLD
+      Nsiz = get_diff_CS_grid_size(NumPar%CS_method, n, Emin, Emax, dE_min=1.0e-5) ! below OLD
+    case default  ! new integartion grid
+      n = m_N_grid_e_elast ! NEW
+      ! Define the interval of integration where the peak are (requires fined grid):
+      !E_low = max( minval(CDF_Phonon%E0 - 5.0d0*CDF_Phonon%Gamma) , Emin )
+      !E_high = min( maxval(CDF_Phonon%E0 + 5.0d0*CDF_Phonon%Gamma) , Emax )
+      call get_E_low(minval(CDF_Phonon%E0 - 5.0d0*CDF_Phonon%Gamma), &
+                     maxval(CDF_Phonon%E0 + 5.0d0*CDF_Phonon%Gamma), &
+                     Emin, Emax, E_low, E_high)  ! below
+      Nsiz = get_diff_CS_grid_size(NumPar%CS_method, n, Emin, Emax, E0_min=E_low, E0_max=E_high, dE_min=1.0e-5) ! below
+      !print*, Nsiz, get_diff_CS_grid_size(-1, n, Emin, Emax, dE_min=1.0e-5) ! below OLD
+    end select
+    !pause 'allocate_diff_CS_elastic_tables'
+
+
+    ! If the tabulated integrated differential CS are to be saved, allocate arrays:
+    select case (NumPar%CS_method)
+    case (1)
+      if (it_is_electron) then
+         if (.not.allocated(aidCS%EEdCS%diffCS(i_E)%dsdhw)) then
+            allocate(aidCS%EEdCS%diffCS(i_E)%dsdhw(Nsiz))
+         endif
+
+         if (.not.allocated(aidCS%EEdCS%diffCS(i_E)%hw)) then
+            allocate(aidCS%EEdCS%diffCS(i_E)%hw(Nsiz))
+         endif
+      endif ! it_is_electron
+      if (it_is_hole) then
+         if (.not.allocated(aidCS%HEdCS%diffCS(i_E)%dsdhw)) then
+            allocate(aidCS%HEdCS%diffCS(i_E)%dsdhw(Nsiz))
+         endif
+
+         if (.not.allocated(aidCS%HEdCS%diffCS(i_E)%hw)) then
+            allocate(aidCS%HEdCS%diffCS(i_E)%hw(Nsiz))
+         endif
+      endif ! it_is_hole
+      !print*, Nat, Nshl, i_E, size(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw)
+    end select
+
+    nullify(Ee)
+end subroutine allocate_diff_CS_elastic_tables
+
+
+pure subroutine get_E_low(E_low_bound, E_high_bound, Emin, Emax, E_low_out, E_high_out)
+   real(8), intent(in) :: E_low_bound, E_high_bound, Emin, Emax
+   real(8), intent(out) :: E_low_out, E_high_out
+   !-------------------
+   real(8) :: dE
+
+   if ((Emin > E_high_bound) .or. (Emax < E_low_bound)) then ! energy far above the CDF peak
+      E_low_out = Emin
+      E_high_out = Emax
+   else
+      E_low_out = max( E_low_bound , Emin )
+      E_high_out = min( E_high_bound , Emax )
+      if (abs(E_low_out - E_high_out) < 1.0d-3) then  ! too close to each other, shift them
+         E_low_out = Emin
+         E_high_out = Emax
+      else
+         ! Leave enough integration space from the low boundary, if required:
+         dE = (E_high_bound - E_low_bound) !*0.5d0
+         E_low_out = min( E_low_out , E_high_out-dE )
+         ! M   ake sure this value makes sence:
+         E_low_out = max( E_low_out, Emin )
+      endif
+   endif
+end subroutine get_E_low
+
+
+
+ function get_diff_CS_grid_size(CS_method, n, Emin, Emax, E0_min, E0_max, dE_min) result(Nsiz)
+   integer Nsiz
+   integer, intent(in) :: CS_method, n ! integration grid index; number of grid points
+   real(8), intent(in) :: Emin, Emax
+   real(8), intent(in), optional :: E0_min, E0_max, dE_min
+   !------------------
+   real(8) :: E, dE, E_start, E_end
+   integer :: i
+
+   ! Define integration limits:
+   call define_integration_limits(E_start, E_end, CS_method, Emin, Emax, E0_min, E0_max)   ! below
+
+   ! Integration grid:
+   !E = Emin    ! to start integration
+   E = E_start    ! to start integration
+   i = 0
+   do while (E .LE. Emax) ! integration
+   !do while (E .LE. E_end) ! integration
+      i = i + 1
+
+      ! Boundaries are defined:
+      if ( present(E0_min) .and. present(E0_max) ) then
+
+         if (present(dE_min)) then
+            dE = define_dE(CS_method, n, E, E0_min=E0_min, E0_max=E0_max, dE_min=dE_min) ! below
+         else
+            dE = define_dE(CS_method, n, E, E0_min=E0_min, E0_max=E0_max)   ! below
+         endif
+
+      ! Only low boundary is defined:
+      elseif (present(E0_min)) then
+         if (present(dE_min)) then
+            dE = define_dE(CS_method, n, E, E0_min=E0_min, dE_min=dE_min)   ! below
+         else
+            dE = define_dE(CS_method, n, E, E0_min=E0_min)   ! below
+         endif
+
+      ! Only high boundary is defined:
+      elseif (present(E0_max)) then
+         if (present(dE_min)) then
+            dE = define_dE(CS_method, n, E, E0_max=E0_max, dE_min=dE_min)   ! below
+         else
+            dE = define_dE(CS_method, n, E, E0_max=E0_max)   ! below
+         endif
+
+      ! No boundaries are defined:
+      else
+         if (present(dE_min)) then
+            dE = define_dE(CS_method, n, E, dE_min=dE_min) ! below
+         else
+            dE = define_dE(CS_method, n, E) ! below
+         endif
+      endif
+      E = E + dE  ! [eV]
+
+!       if ( present(E0_min) .and. present(E0_max) ) then
+!          print*, i, E, dE, Emin, Emax, E0_min, E0_max
+!       else
+!          print*, i, E, dE, Emin, Emax !, E0_min, E0_max
+!       endif
+
+   enddo
+
+   Nsiz = max( i, 10 ) ! not less than 10 points
+   !pause 'get_diff_CS_grid_size'
+end function get_diff_CS_grid_size
+
+
+pure subroutine define_integration_limits(E_start, E_end, CS_method, Emin, Emax, E0_min, E0_max)
+   real(8), intent(out) :: E_start, E_end
+   integer, intent(in) :: CS_method
+   real(8), intent(in) :: Emin, Emax
+   real(8), intent(in), optional :: E0_min, E0_max
+   !------------------
+   select case (CS_method)
+   case (-1)   ! Old default
+      E_start = Emin
+      E_end = Emax
+   case default ! New default
+      if (present(E0_min)) then
+         E_start = E0_min
+      else
+         E_start = Emin
+      endif
+
+      if (present(E0_max)) then
+         E_end = E0_max
+      else
+         E_end = Emax
+      endif
+   end select
+
+end subroutine define_integration_limits
+
+
+
+ function define_dE(CS_method, n, E, E0_min, E0_max, dE_min) result(dE)
+   real(8) dE
+   integer, intent(in) :: CS_method, n ! integration grid index; number of grid points
+   real(8), intent(in) :: E
+   real(8), intent(in), optional :: E0_min, E0_max, dE_min ! both must be present for NEW grid; dE_min for minimal step optional
+   !-----------------------
+   real(8) :: dE_min_use
+
+   if (present(dE_min)) then
+      dE_min_use = dE_min
+   else ! use default value (typically the case for inelastic scsattering)
+      dE_min_use = 0.001d0   ! [eV] step smaller than this is not allowed
+   endif
+
+   select case (CS_method)
+   case (-1)   ! Old default
+      dE = (1.0d0/(E+1.0d0) + E)/dble(n)
+
+   case default ! new integration grid
+      if ( (present(E0_min)) .and. (present(E0_max)) ) then
+         if ( (E > E0_min) .and. (E < E0_max) ) then   ! fine grid in the interval
+            dE = (E0_max - E0_min)/dble(n)
+         else !if (E > E0_max) then ! high-energy - too far from the peak, no need for fine resolution
+            dE = E/dble(n)
+         !else ! low energy - too far from the peak, no need for fine resolution (usually unused, but anyway...)
+         !   dE = (E-E0_min)/dble(n) ! step not smaller than this
+         endif
+
+      else ! use old grid
+         dE = (1.0d0/(E+1.0d0) + E)/dble(n)  ! start with old, if there are no parameters for the new
+      endif
+   end select
+
+    if (dE < 0.0e0) then
+       print*, 'define_dE<0:', n, E, E0_min, E0_max
+    endif
+
+   dE = max(dE, dE_min_use)  ! step not smaller than this
+end function define_dE
+
+
 
 
 pure function MFP_from_sigma(sigma, nat) result(lambda)
@@ -1335,7 +1784,7 @@ end function energy_loss_delta
 !---------------------------
 !Differential CS and subroutines:
 
-subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_tot, dE_out, Matter, Mat_DOS, NumPar, kind_of_particle)
+subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_tot, dE_out, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle)
     real(8), intent(in) :: Ele  ! electron energy [eV]
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
     integer, intent(in) :: Nat, Nshl    ! number of atom, number of shell
@@ -1344,8 +1793,9 @@ subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_to
     type(Solid), intent(in) :: Matter
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Flag), intent(in) :: NumPar
+    type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
     character(8), intent(in) :: kind_of_particle
-
+    !--------------------------
     real(8) Emin, Emax, E, RN, L_need, L_cur, Eplasmon, Egap
     real(8) Mass
     integer Mnum
@@ -1372,17 +1822,7 @@ subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_to
         Emax = (Ele + Emin)/2.0e0 ! [eV] maximum energy transfer, accounting for equality of electrons
         Mass = 1.0d0
     endif
-    
-!   if (trim(adjustl(NumPar%kind_of_particle)) .EQ. 'Electron') then 
-!        if (Mass .GT. 1.0d0) then
-!            print*, "ooooooooooooooooooooooooooooooooooooooo"
-!            print*, Mass, NumPar%kind_of_particle
-!            print*, "ooooooooooooooooooooooooooooooooooooooo"
-!            pause
-!        endif
-!   endif
-    
-    
+
     ! Use maximal plasmon energy as upper limit of integration
     if (Numpar%plasmon_Emax) then       ! If included
         if (Emin .EQ. Egap) then        ! For VB only
@@ -1394,17 +1834,20 @@ subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_to
     
     select case (Target_atoms(Nat)%KOCS(Nshl)) ! which inelastic cross section to use (BEB vs CDF):
     case (1) ! CDF cross section energy transfer:
-        call Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mat_DOS, NumPar, Mass, Emin, Emax)
+        call Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mat_DOS, NumPar, Mass, &
+                                       aidCS, Emin, Emax, trim(adjustl(kind_of_particle)), L_tot, RN)   ! below
     case default ! do BEB energy transfer:
         call Electron_NRG_transfer_BEB(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mass, Emin, Emax)
     end select
-    if (E .GE. Emax) E = Emax
+    ! Make sure it's within the alllwed limits:
+    if (E < Emin) E = Emin
+    if (E > Emax) E = Emax
     dE_out = E  ! energy transfer [eV]
     
     !if (trim(adjustl(NumPar%kind_of_particle)) .EQ. 'Electron') then 
         if (dE_out .LT. Egap) then
              print*, "###########################################"
-             print*, 'ERROR in Electron_energy_transfer_inelastic:'
+             print*, 'ERROR in Electron_energy_transfer_inelastic (dE < E_gap):'
              print*, dE_out, Egap, Emin, Emax, Ele
              print*, Mass, kind_of_particle
              print*, "###########################################"
@@ -1415,35 +1858,57 @@ subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_to
 end subroutine Electron_energy_transfer_inelastic
 
 
-subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mat_DOS, NumPar, Mass, Emin, Emax)
-    real(8), intent(in) :: Ele  ! electron energy [eV]
-    type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
-    integer, intent(in) :: Nat, Nshl    ! number of atom, number of shell
-    real(8), intent(in) :: L_need    ! [A] total mean free path
-    real(8), intent(out) :: E   ! the transferred energy [eV]
-    type(Solid), intent(in) :: Matter
-    type(Density_of_states), intent(in) :: Mat_DOS
-    type(Flag), intent(in) :: NumPar
-    real(8), intent(in) :: Mass, Emin, Emax ! electron/hole mass; min and max energies for integration
-    real(8) L_cur, Ltot0, Ltot1, a, b, temp1, temp2, dE, dL
-    integer n, i
+subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Matter, Mat_DOS, NumPar, Mass, aidCS, Emin, Emax, kind_of_particle, L_tot, RN)
+   real(8), intent(in) :: Ele  ! electron energy [eV]
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
+   integer, intent(in) :: Nat, Nshl    ! number of atom, number of shell
+   real(8), intent(in) :: L_need    ! [A] total mean free path
+   real(8), intent(out) :: E   ! the transferred energy [eV]
+   type(Solid), intent(in) :: Matter
+   type(Density_of_states), intent(in) :: Mat_DOS
+   type(Flag), intent(in) :: NumPar
+   real(8), intent(in) :: Mass     ! electron/hole mass
+   type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
+   real(8), intent(in) :: Emin, Emax ! min and max energies for integration
+   character(*), intent(in) :: kind_of_particle
+   real(8), intent(in) :: L_tot, RN
+   !---------------------
+   real(8) :: L_cur, Ltot0, Ltot1, a, b, temp1, temp2, dE, dL, E_low, E_high
+   real(8) :: hw_1, hw_2, hw_cur, dE_out_SAVE
+   integer :: n, i, i_E, i_hw
 
     
- if (NumPar%kind_of_DR .EQ. 4) then    ! Delta-CDF
+   if (NumPar%kind_of_DR .EQ. 4) then    ! Delta-CDF
     E = get_inelastic_energy_transfer(Ele, Matter, Target_atoms, numpar, Nat, Nshl, Emin)  ! below
- else
-    n = 10*(MAX(INT(Emin),10))    ! number of integration steps
-    dE = (Emax - Emin)/(real(n)) ! differential of transferred momentum [kg*m/s]
-    i = 1       ! to start integration
-    E = Emin    ! to start integration
-    Ltot1 = 0.0d0
-    Ltot0 = 0.0d0
-    L_cur = 1.0d10
-    call Diff_cross_section(Ele, E, Target_atoms, Nat, Nshl, Ltot0, Mass, Matter, Mat_DOS, NumPar)
-    !ddEdx = 0.0d0
 
-    do while (L_cur .GT. L_need)
-        dE = (1.0d0/(E+1.0d0) + E)/real(n)
+   else ! (NumPar%kind_of_DR .EQ. 4)
+
+    select case (NumPar%CS_method)
+    case (-1)  ! Old integration grid
+      n = 10*(MAX(INT(Emin),10))    ! number of integration steps
+    case default  ! new integartion grid
+      n = m_N_grid_e_inelast ! number defining number of integration steps in intervals
+      ! Define the interval of integration where the peak are (requires fined grid):
+      E_low = max( minval(Target_atoms(Nat)%Ritchi(Nshl)%E0 - 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emin )
+      E_high = min( maxval(Target_atoms(Nat)%Ritchi(Nshl)%E0 + 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emax )
+    end select
+
+
+    select case (NumPar%CS_method)
+    case default  ! numerical integration
+       i = 1       ! to start integration
+       E = Emin    ! to start integration
+       Ltot1 = 0.0d0
+       Ltot0 = 0.0d0
+       L_cur = 1.0d10
+       call Diff_cross_section(Ele, E, Target_atoms, Nat, Nshl, Ltot0, Mass, Matter, Mat_DOS, NumPar)
+       !ddEdx = 0.0d0
+
+       do while (L_cur .GT. L_need)
+        !dE = (1.0d0/(E+1.0d0) + E)/real(n)
+        !dE = define_dE(n, E)   ! below OLD
+        dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low, E0_max=E_high)   ! below
+
         ! If it's Simpson integration:
         a =  E + dE/2.0d0
         call Diff_cross_section(Ele, a, Target_atoms, Nat, Nshl, dL, Mass, Matter, Mat_DOS, NumPar)
@@ -1457,14 +1922,111 @@ subroutine Electron_NRG_transfer_CDF(Ele, Target_atoms, Nat, Nshl, L_need, E, Ma
         L_cur = 1.0d0/(Mass*Ltot1)
         E = E + dE  ! [eV]
         if (E .GE. Emax) exit
-    enddo
- endif
+       enddo
+!        dE_out_SAVE = E
+
+    case (1) ! Use tabulated diff.CS from precalculated files
+
+       ! Interpolated transferred energy from the precalculated diff.CS tables:
+       select case (trim(adjustl(kind_of_particle)))
+       case('Electron')
+         call interpolate_transferred_energy(Ele, aidCS%EIdCS(Nat)%Int_diff_CS(Nshl), L_need, hw_cur)  ! below
+       case('Hole')
+         call interpolate_transferred_energy(Ele, aidCS%HIdCS, L_need, hw_cur)  ! below
+       end select
+
+       ! Output energy transfer:
+       E = hw_cur ! [eV]
+
+       !if (abs(dE_out_SAVE - hw_cur)/dE_out_SAVE > 0.1e0) then
+!          print*, '---------------------'
+!          print*,  trim(adjustl(kind_of_particle)), Ele, dE_out_SAVE, hw_cur, L_need, L_tot, RN
+!          print*, '---------------------'
+         !pause 'Electron_energy_transfer_elastic'
+       !endif
+
+    endselect
+
+   endif ! (NumPar%kind_of_DR .EQ. 4)
 end subroutine Electron_NRG_transfer_CDF
 
 
 
+subroutine interpolate_transferred_energy(Ele, Int_diff_CS, L_need, hw_out, single_inter)
+   real(8), intent(in) :: Ele ! [eV] particle energy
+   real(8), intent(in) :: L_need ! sampled mean free path (CS)
+   type(diff_CS), intent(in) :: Int_diff_CS  ! table of integral of differential cross secion
+   real(8), intent(out) :: hw_out   ! [eV] transferred energy
+   logical, intent(in), optional :: single_inter
+   !----------------------
+   integer :: i_E, i_hw
+   real(8) :: hw_1, hw_2
+   logical :: do_single
 
-! Interface to select the model of electron inelastic scattering cross section:
+   if (present(single_inter)) then
+      do_single = single_inter
+   else
+      do_single = .false.
+   endif
+
+   ! Find the array of the transferred energy from precalculated table of integrated diff.CS:
+   call Find_in_array_monoton(Int_diff_CS%E, Ele, i_E) ! "Reading_files_and_parameters"
+
+   ! Take care of the situation when the energy is exactly on the grid point (it may cause a problem):
+   if (i_E > 1) then
+      !print*, 'i_E:', abs(Int_diff_CS%E(i_E) - Ele), abs(Int_diff_CS%E(i_E-1) - Ele)
+      if ( abs(Int_diff_CS%E(i_E-1) - Ele) < 1.0e-6 ) i_E = i_E - 1
+   endif
+
+   ! For this energy, find the sampled d(CS)/d(hw):
+   call Find_in_monoton_array_decreasing(Int_diff_CS%diffCS(i_E)%dsdhw, L_need, i_hw) ! "Reading_files_and_parameters"
+
+   ! Get the corresponding transferred energy value:
+   if ( (i_hw == 1) .or. ((i_hw == size(Int_diff_CS%diffCS(i_E)%hw))) ) then ! no need to interpolate
+      hw_1 = Int_diff_CS%diffCS(i_E)%hw(i_hw)
+   else ! interpolate between the values:
+      call Interpolate(5, Int_diff_CS%diffCS(i_E)%dsdhw(i_hw), &
+                        Int_diff_CS%diffCS(i_E)%dsdhw(i_hw+1), &
+                        Int_diff_CS%diffCS(i_E)%hw(i_hw), &
+                        Int_diff_CS%diffCS(i_E)%hw(i_hw+1), L_need, hw_1)  ! module "Reading_files_and_parameters"
+   endif
+   hw_out = hw_1 ! first part of it is done
+   if (do_single) return ! no need in the second part
+
+   ! Interpolate for the next nearest point in energy:
+   if (i_E > 1) then ! try adding the second part
+      i_E = i_E - 1 ! point in energy on the other side
+
+      ! For this energy, find the sampled d(CS)/d(hw):
+      call Find_in_monoton_array_decreasing(Int_diff_CS%diffCS(i_E)%dsdhw, L_need, i_hw) ! "Reading_files_and_parameters"
+
+      ! Get the corresponding transferred energy value:
+      if ( (i_hw == 1) .or. ((i_hw == size(Int_diff_CS%diffCS(i_E)%hw))) ) then ! no need to interpolate
+         hw_2 = Int_diff_CS%diffCS(i_E)%hw(i_hw)
+      else ! interpolate between the values:
+         call Interpolate(5, Int_diff_CS%diffCS(i_E)%dsdhw(i_hw), &
+                        Int_diff_CS%diffCS(i_E)%dsdhw(i_hw+1), &
+                        Int_diff_CS%diffCS(i_E)%hw(i_hw), &
+                        Int_diff_CS%diffCS(i_E)%hw(i_hw+1), L_need, hw_2)  ! module "Reading_files_and_parameters"
+      endif
+
+      ! Interpolate the transferred energy between the values for the two energy grid points:
+      call Interpolate(5, &
+                       Int_diff_CS%E(i_E), &
+                       Int_diff_CS%E(i_E+1), &
+                       hw_1, hw_2, &
+                       Ele, hw_out)  ! module "Reading_files_and_parameters"
+
+      !print*, Ele, Int_diff_CS%E(i_E), Int_diff_CS%E(i_E+1)
+      !print*, i_hw, L_need, Int_diff_CS%diffCS(i_E)%dsdhw(i_hw), Int_diff_CS%diffCS(i_E)%dsdhw(i_hw+1)
+      !print*, E, hw_1, hw_2, hw_out
+   endif
+end subroutine interpolate_transferred_energy
+
+
+
+
+! Interface to select the model of electron inelastic scattering cross section for Delta-CDF:
 function get_inelastic_energy_transfer(Ee, Matter, Target_atoms, numpar, j, k, Ip, CDF_dispers, CDF_m_eff, hw_phonon) result(dE)
    real(8) :: dE   ! [eV] sampled transferred energy
    real(8), intent(in) :: Ee	! [eV] electron kinetic energy
@@ -1662,7 +2224,9 @@ subroutine Diff_cross_section(Ele, hw, Target_atoms, Nat, Nshl, Diff_IMFP, Mass,
     
     dLs = 0.0d0 ! starting integration, mean free path per energy [A/eV]^(-1)
     hq = qmin    ! transient transferred momentum for integration [kg*m/s]
-    n = 100
+    !n = 100 ! number of grid points in momentum integration OLD
+    n = m_N_p_grid_SHI
+
     dq = (qmax - qmin)/real(n) ! differential of transferred momentum [kg*m/s]
     dLs0 = 0.0d0
     do while (hq .LT. qmax) ! no matter how many points, go till the end
@@ -1697,25 +2261,32 @@ subroutine Diff_cross_section(Ele, hw, Target_atoms, Nat, Nshl, Diff_IMFP, Mass,
 end subroutine Diff_cross_section
 
 
-subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon, Matter, dE_out, NumPar, Mat_DOS, kind_of_particle)
-    real(8), intent(in), target :: Ele  ! electron energy [eV]
-    real(8), intent(in) :: L_tot    ! total mean free path [A]
-    type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
-    type(CDF), intent(in) :: CDF_Phonon ! phonon CDF parameters
-    type(Solid), intent(in) :: Matter   ! all material parameters
-    real(8), intent(out) :: dE_out   ! calculated inverse mean free path (cross-section) [A], and the energy losses [eV/A]
-    type(Flag), intent(in) :: NumPar
-    type(Density_of_states), intent(in) :: Mat_DOS
-    character(8), intent(in) :: kind_of_particle
+subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon, Matter, dE_out, NumPar, Mat_DOS, aidCS, kind_of_particle)
+   real(8), intent(in), target :: Ele  ! electron energy [eV]
+   real(8), intent(in) :: L_tot    ! total mean free path [A]
+   type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
+   type(CDF), intent(in) :: CDF_Phonon ! phonon CDF parameters
+   type(Solid), intent(in) :: Matter   ! all material parameters
+   real(8), intent(out) :: dE_out   ! calculated inverse mean free path (cross-section) [A], and the energy losses [eV/A]
+   type(Flag), intent(in) :: NumPar
+   type(Density_of_states), intent(in) :: Mat_DOS
+   type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
+   character(8), intent(in) :: kind_of_particle
+   !---------------------
+   integer i, j, n, Mnum
+   real(8) Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, RN, temp1, temp2, qdebay, Edebay, Mtarget, L_cur, L_need, Mass
+   real(8) :: Zt, Zeff, E_low, E_high, hw_cur, E_start, E_end, dE_out_SAVE, prefact
+   real(8), pointer :: Ee
     
-    integer i, j, n, Mnum
-    real(8) Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, RN, temp1, temp2, qdebay, Edebay, Mtarget, L_cur, L_need, Mass
-    real(8) :: Zt, Zeff
-    real(8), pointer :: Ee
+   call random_number(RN)
+   L_need = L_tot/RN   ! [A] we need to reach
     
-    call random_number(RN)
-    L_need = L_tot/RN   ! [A] we need to reach
-    
+   !call print_time_step('time 0:', msec=.true.)
+
+   select case (NumPar%CS_method)
+   !------------------------
+   case default  ! numerical integration
+
     qdebay = (6.0d0*g_Pi*g_Pi*(Matter%At_Dens*1e6))**(0.33333333d0)   ! maximum energy of phonons analyzed [1/m], debay energy
     !Edebay = 2.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy // 2 is artificial...
     Edebay = 3.0d0*g_h*Matter%Vsound*qdebay/g_e  ! maximum energy of phonons analyzed [eV], debay energy // 3 is artificial...
@@ -1751,17 +2322,36 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     if (Edebay .GE. Emax) Emax = Edebay ! single atom vs phonon
     if (Ee .LT. Emax) Emax = Ee ! no more than the total electron energy
 
-    n = 10*(MAX(INT(Emin),10))    ! number of integration steps
-    dE = (Emax - Emin)/(real(n)) ! differential of transferred energy
+    select case (NumPar%CS_method)
+    case (-1)  ! Old integration grid
+      n = 10*(MAX(INT(Emin),10))    ! number of integration steps
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax) ! below OLD
+      ! Define integration limits:
+      call define_integration_limits(E_start, E_end, NumPar%CS_method, Emin, Emax)   ! below
+    case default  ! new integartion grid
+      n = m_N_grid_e_elast ! NEW
+      E_low = max( minval(CDF_Phonon%E0 - 5.0d0*CDF_Phonon%Gamma) , Emin )
+      E_high = min( maxval(CDF_Phonon%E0 + 5.0d0*CDF_Phonon%Gamma) , Emax )
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax, E0_min=E_low, E0_max=E_high) ! below
+      ! Define integration limits:
+      call define_integration_limits(E_start, E_end, NumPar%CS_method, Emin, Emax, E0_min=E_low, E0_max=E_high)   ! below
+    end select
+
+    !dE = (Emax - Emin)/(real(n)) ! differential of transferred energy
     i = 1       ! to start integration
-    E = Emin    ! to start integration
+    !E = Emin    ! to start integration
+    E = E_start
     Ltot1 = 0.0d0
     Ltot0 = 0.0d0
     L_cur = 1.0d10
     call Diff_cross_section_phonon(Ele, E, NumPar, Matter, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS)  ! below
     ddEdx = 0.0e0
+    prefact = Zeff*Zeff*Mass  ! include effective charge of target atoms
     do while (L_cur .GT. L_need)
-        dE = (1.0d0/(E+1.0d0) + E)/real(n)
+        !dE = (1.0d0/(E+1.0d0) + E)/real(n)
+        !dE = define_dE(n, E)   ! below OLD
+        dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low, E0_max=E_high)   ! below
+
         ! If it's Simpson integration:
         a =  E + dE/2.0d0
         call Diff_cross_section_phonon(Ele, a, NumPar, Matter, CDF_Phonon, dL, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS) ! below
@@ -1773,13 +2363,47 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
         ddEdx = ddEdx + E*temp2
         Ltot0 = dL
         !L_cur = 1.0d0/Mass/Ltot1
-        L_cur = 1.0d0/(Zeff*Zeff*Mass*Ltot1) ! include effective charge of target atoms
+        !L_cur = 1.0d0/(Zeff*Zeff*Mass*Ltot1) ! include effective charge of target atoms
+        L_cur = 1.0d0/(prefact*Ltot1)  ! include effective charge of target atoms
         E = E + dE  ! [eV]
         if (E .GE. Emax) exit
+        !if (E .GE. E_end) exit
+        !print*, Ele, E, L_cur, L_need
     enddo
     if (E .GE. Emax) E = Emax
     dE_out = E ! energy transferred [eV]
     nullify(Ee)
+
+    dE_out_SAVE = dE_out
+    !print*, '1:', trim(adjustl(kind_of_particle)), Ele, dE_out
+    !call print_time_step('time 1:', msec=.true.)
+
+   !------------------------
+   case (1) ! Use tabulated diff.CS from precalculated files
+      select case (trim(adjustl(kind_of_particle)))
+      case('Electron')
+         call interpolate_transferred_energy(Ele, aidCS%EEdCS, L_need, hw_cur)  ! below
+      case('Hole')
+         call interpolate_transferred_energy(Ele, aidCS%HEdCS, L_need, hw_cur)  ! below
+      end select
+
+      ! Output energy transfer:
+      if (hw_cur .GE. Ele) hw_cur = Ele
+      dE_out = hw_cur ! [eV]
+   endselect
+
+   !print*, '2:', trim(adjustl(kind_of_particle)), Ele, dE_out
+   !call print_time_step('time 2:', msec=.true.)
+   !print*, '---------------------'
+
+!    if (abs(dE_out_SAVE - dE_out)/dE_out > 0.1e0) then
+!       print*, '---------------------'
+!       print*,  trim(adjustl(kind_of_particle)), Ele, dE_out_SAVE, dE_out, L_need, L_tot, RN
+!
+!       print*, '---------------------'
+!       !pause 'Electron_energy_transfer_elastic'
+!    endif
+
 end subroutine Electron_energy_transfer_elastic
 
 
@@ -1816,10 +2440,10 @@ subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DO
     type(Solid), intent(in) :: Matter
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Flag), intent(in) :: NumPar
-    
+    !----------------
     integer i, j, i0, j0, k0, n, n0, Nmax
     real(8) Emin, Emax, E, E0, dE, dL, Ltot1, Ltot0, ddEdx, a, b, temp1, temp2, MSHI, Zeff
-    real(8) Egap, Eplasmon
+    real(8) Egap, Eplasmon, E_low, E_high, E_low0, E_high0
     
     call Equilibrium_charge_SHI(SHI, Target_atoms)  ! get Barcas' equilibrium charge from module Cross_sections
     Ele = SHI%E  ! energy of the particle [eV]
@@ -1839,23 +2463,52 @@ subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DO
     endif 
     
     Nmax = 50
-    n = 10*(MAX(INT(Emin),Nmax))    ! number of integration steps
     i = 0       ! to start integration
     E = Emin    ! to start integration
-    
+
+
+    select case (NumPar%CS_method)
+    case (-1)  ! Old integration grid
+      n = 10*(MAX(INT(Emin),Nmax))    ! number of integration steps OLD
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax) ! below OLD
+    case default  ! new integartion grid
+      n = m_N_grid_SHI ! number defining number of integration steps in intervals
+      ! Define the interval of integration where the peak are (requires fined grid):
+      E_low = max( minval(Target_atoms(Nat)%Ritchi(Nshl)%E0 - 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emin )
+      E_high = min( maxval(Target_atoms(Nat)%Ritchi(Nshl)%E0 + 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emax )
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax, E0_min=E_low, E0_max=E_high) ! below
+    end select
+
+
+    ! Allocate arrays, if required:
     loss_f:if (present(dSedE)) then    ! first, count how many lines:
         if (.not. allocated(dSedE)) then
             allocate(dSedE(size(Target_atoms))) ! nmumber of atoms
             do i0 = 1, size(Target_atoms)   ! number of atoms
-                allocate(dSedE(i0)%ELMFP(size(Target_atoms(i0)%Ip))) ! number of atoms
+                allocate(dSedE(i0)%ELMFP(size(Target_atoms(i0)%Ip))) ! number of shells
                 do j0 = 1, size(Target_atoms(i0)%Ip) ! number of shells
-                    n0 = 10*(MAX(INT(Target_atoms(i0)%Ip(j0)),Nmax))
+
                     E0 = Target_atoms(i0)%Ip(j0)    ! [eV] to start counting
-                    dE = (Emax - E0)/real(n0) ! differential of transferred momentum [kg*m/s]
+
+                    select case (NumPar%CS_method)
+                    case (-1)  ! Old integration grid
+                        n0 = 10*(MAX(INT(Target_atoms(i0)%Ip(j0)),Nmax)) ! OLD
+                    case default  ! new integartion grid
+                        n0 = m_N_grid_SHI
+                        ! Define the interval of integration where the peak are (requires fined grid):
+                        E_low0 = max( minval(Target_atoms(i0)%Ritchi(j0)%E0 - 5.0d0*Target_atoms(i0)%Ritchi(j0)%Gamma) , E0 )
+                        E_high0 = min( maxval(Target_atoms(i0)%Ritchi(j0)%E0 + 5.0d0*Target_atoms(i0)%Ritchi(j0)%Gamma) , Emax )
+                    end select
+
+                    !dE = (Emax - E0)/real(n0) ! differential of transferred energy
                     k0 = 0
                     do while (E0 .LE. Emax) ! integration
                         k0 = k0 + 1
-                        dE = (1.0d0/(E0+1.0d0) + E0)/real(n0)
+                        !dE = (1.0d0/(E0+1.0d0) + E0)/real(n0)
+                        !print*, 'a', i0, j0, dE
+                        dE = define_dE(NumPar%CS_method, n0, E0, E0_min=E_low0, E0_max=E_high0)   ! below
+                        !print*, 'b', i0, j0, dE
+
                         E0 = E0 + dE  ! [eV]
                     enddo
                     allocate(dSedE(i0)%ELMFP(j0)%E(k0))
@@ -1866,9 +2519,10 @@ subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DO
                     dSedE(i0)%ELMFP(j0)%dEdx = 0.0d0
                 enddo
             enddo
-            dE = (Emax - Emin)/(real(n)) ! differential of transferred momentum [kg*m/s]
+            !dE = (Emax - Emin)/(real(n)) ! differential of transferred momentum [kg*m/s]
         endif
     endif loss_f
+
 
     select case (Target_atoms(Nat)%KOCS_SHI(Nshl)) ! which inelastic cross section to use (BEB vs CDF):
     case (1) ! CDF cross section
@@ -1879,9 +2533,16 @@ subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DO
        do while (E <= Emax) ! integration
           i = i + 1
           if (present(dSedE)) then
-             if (i > size(dSedE(Nat)%ELMFP(Nshl)%E)) exit
+             if (i > size(dSedE(Nat)%ELMFP(Nshl)%E)) then
+               print*, 'Trouble in SHI_TotIMFP: diff.array size exceeded', i, size(dSedE(Nat)%ELMFP(Nshl)%E)
+               print*, 'atom, shell: ', Nat, Nshl
+               exit
+             endif
           endif
-          dE = (1.0d0/(E+1.0d0) + E)/real(n)
+          !dE = (1.0d0/(E+1.0d0) + E)/real(n)
+          !dE = define_dE(n, E)   ! below OLD
+          dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low, E0_max=E_high)   ! below
+
           ! If it's Simpson integration:
           a =  E + dE/2.0d0
           call SHI_Diff_cross_section(Ele, MSHI, Emax, a, Target_atoms, Nat, Nshl, dL, Matter, Mat_DOS, NumPar)
@@ -1903,6 +2564,7 @@ subroutine SHI_TotIMFP(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_DO
        Sigma = 1.0d0/(g_Pi*g_a0*Ele)*MSHI/g_me*Zeff*Zeff*Ltot1     ! [1/A]
        if (Sigma > 1d30) Sigma = 1d30 ! get rid of infinities
        dEdx =  1.0d0/(g_Pi*g_a0*Ele)*MSHI/g_me*Zeff*Zeff*ddEdx     ! energy losses [eV/A]
+
     case default ! BEB cross section:
        Sigma = Sigma_BEB_SHI(Ele, Emax, Target_atoms(Nat)%Ip(Nshl),Target_atoms(Nat)%Ek(Nshl),Target_atoms(Nat)%Nel(Nshl), MSHI, Zeff) ! [A^2] cross section
        temp1 = Matter%At_Dens*1d-24*(Target_atoms(Nat)%Pers)/SUM(Target_atoms(:)%Pers)
@@ -2033,7 +2695,7 @@ subroutine SHI_Diff_cross_section(Ele, MSHI, Emax, hw, Target_atoms, Nat, Nshl, 
 
     dLs = 0.0e0 ! starting integration, mean free path per energy [A/eV]^(-1)
     hq = qmin    ! transient transferred momentum for integration [sqrt(eV/J) /m] (not [kg*m/s])
-    n = 100
+    n = 100 ! number of grid points in momentum space
     !n = 200
     dq = (qmax - qmin)/real(n) ! differential of transferred momentum [kg*m/s]
     dLs0 = 0.0e0
@@ -2070,14 +2732,14 @@ subroutine SHI_TotIMFP_BK(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat
     type(Solid), intent(in) :: Matter
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Flag), intent(in) :: NumPar
-    
+    !----------------
     real(8) :: Ele      ! energy [eV]    
     real(8) :: M_SHI    ! atomic mass of SHI
     real(8) :: Z_SHI    ! nuclear charge of SHI
     
     integer i, j, n
     real(8) Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, a, b, temp1, temp2, MSHI, Zeff
-    real(8) Egap, Eplasmon
+    real(8) Egap, Eplasmon, E_low, E_high
     
     call Equilibrium_charge_SHI(SHI, Target_atoms)  ! get Barcas' equilibrium charge from module Cross_sections
     Ele = SHI%E  ! energy of the particle [eV]
@@ -2096,7 +2758,20 @@ subroutine SHI_TotIMFP_BK(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat
         endif
     endif 
     
-    n = 10*(MAX(INT(Emin),10))    ! number of integration steps
+
+    select case (NumPar%CS_method)
+    case (-1)  ! Old integration grid
+      n = 10*(MAX(INT(Emin),10))    ! number of integration steps OLD
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax) ! below OLD
+    case default  ! new integartion grid
+      n = m_N_grid_SHI ! number defining number of integration steps in intervals
+      ! Define the interval of integration where the peak are (requires fined grid):
+      E_low = max( minval(Target_atoms(Nat)%Ritchi(Nshl)%E0 - 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emin )
+      E_high = min( maxval(Target_atoms(Nat)%Ritchi(Nshl)%E0 + 5.0d0*Target_atoms(Nat)%Ritchi(Nshl)%Gamma) , Emax )
+      !Nsiz = get_diff_CS_grid_size(n, Emin, Emax, E0_min=E_low, E0_max=E_high) ! below
+    end select
+
+
     dE = (Emax - Emin)/(real(n)) ! differential of transferred momentum [kg*m/s]
     i = 1       ! to start integration
     E = Emin    ! to start integration
@@ -2105,7 +2780,10 @@ subroutine SHI_TotIMFP_BK(SHI, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat
     call SHI_Diff_cross_section_BK(SHI, Emax, E, Target_atoms, Nat, Nshl, Ltot0, Matter, Mat_DOS, NumPar)
     ddEdx = 0.0e0
     do while (E .LE. Emax) ! integration
-        dE = (1.0d0/(E+1.0d0) + E)/real(n)
+        !dE = (1.0d0/(E+1.0d0) + E)/real(n)
+        !dE = define_dE(n, E)   ! below OLD
+        dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low, E0_max=E_high)   ! below
+
         ! If it's Simpson integration:
         a =  E + dE/2.0e0
         call SHI_Diff_cross_section_BK(SHI, Emax, a, Target_atoms, Nat, Nshl, dL, Matter, Mat_DOS, NumPar)
@@ -2152,7 +2830,9 @@ subroutine SHI_Diff_cross_section_BK(SHI, Emax, hw, Target_atoms, Nat, Nshl, Dif
 
     dLs = 0.0d0 ! starting integration, mean free path per energy [A/eV]^(-1)
     hq = qmin    ! transient transferred momentum for integration [kg*m/s]
-    n = 100
+    !n = 100 ! number of grid points in momentum space OLD
+    n = m_N_p_grid_SHI
+
     dq = (qmax - qmin)/real(n) ! differential of transferred momentum [kg*m/s]
     dLs0 = 0.0d0
     do while (hq .LT. qmax) ! no matter how many points, go till the end
@@ -2188,8 +2868,9 @@ subroutine Brand_Kitagawa(hq, Z_SHI, Zeff, rho)
 end subroutine Brand_Kitagawa
 
 
-subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle, prefact)
-   real(8), intent(in) :: Ee    ! [eV] electron energy
+subroutine Elastic_cross_section(Ee, i_E, CDF_Phonon, Target_atoms, Matter, EMFP, dEdx, NumPar, Mat_DOS, aidCS, kind_of_particle, prefact)
+   real(8), intent(in) :: Ee     ! [eV] electron energy
+   integer, intent(in) :: i_E    ! index in the array of energy grid
    type(CDF), intent(in) :: CDF_Phonon
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(Solid), intent(inout) :: Matter   ! all material parameters
@@ -2197,6 +2878,7 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
    real(8), intent(out) :: dEdx   ! [eV/A] energy loss
    type(Flag), intent(in) :: NumPar
    type(Density_of_states), intent(in) :: Mat_DOS
+   type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
    character(*), intent(in) :: kind_of_particle
    real(8), intent(in), optional :: prefact  ! prefactor if required (e.g. for negative frequencies)
    !--------------------------
@@ -2221,9 +2903,9 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
       end select
 
       if (present(prefact)) then
-         call Tot_EMFP(Ee, Target_atoms, CDF_Phonon, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff, prefact) ! below
+         call Tot_EMFP(Ee, i_E, Target_atoms, CDF_Phonon, Matter, EMFP, dEdx, NumPar, Mat_DOS, aidCS, kind_of_particle, Zeff, prefact) ! below
       else  ! no prefactor needed, default option
-         call Tot_EMFP(Ee, Target_atoms, CDF_Phonon, Matter, EMFP, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff) ! below
+         call Tot_EMFP(Ee, i_E, Target_atoms, CDF_Phonon, Matter, EMFP, dEdx, NumPar, Mat_DOS, aidCS, kind_of_particle, Zeff) ! below
       endif
    else  ! Mott cross section
       select case (kind_of_particle)
@@ -2252,24 +2934,30 @@ subroutine Elastic_cross_section(Ee, CDF_Phonon, Target_atoms, Matter, EMFP, dEd
 end subroutine Elastic_cross_section
 
 
-subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, Mat_DOS, kind_of_particle, Zeff, prefact, dsdhw, d_hw)
+subroutine Tot_EMFP(Ele, i_E, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, Mat_DOS, aidCS, kind_of_particle, Zeff, prefact, dsdhw, d_hw)
     real(8), intent(in), target :: Ele  ! electron energy [eV]
+    integer, intent(in) :: i_E    ! index in the array of energy grid
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! all data for target atoms
     type(CDF), intent(in) :: CDF_Phonon ! phonon CDF parameters
     type(Solid), intent(in) :: Matter   ! all material parameters
     real(8), intent(out) :: Sigma, dEdx   ! calculated inverse mean free path (cross-section) [A], and the energy losses [eV/A]
     type(Flag), intent(in) :: NumPar
-    type(Density_of_states), intent(in) :: Mat_DOS     
+    type(Density_of_states), intent(in) :: Mat_DOS
+    type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
     character(*), intent(in) :: kind_of_particle
     real(8), intent(in) :: Zeff  ! effective charge of target atoms [electron charge]
     real(8), intent(in), optional :: prefact ! prefactor for Emax, if required (e.g., use for negative frequencies)
     real(8), dimension(:), allocatable, intent(inout), optional :: dsdhw  ! d sigma / d hw [A^2/eV]
     real(8), dimension(:), allocatable, intent(inout), optional :: d_hw  ! d hw [eV]
     !--------------------
-    integer :: i, j, n, Mnum
-    real(8) :: Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx
+    integer :: i, j, n, Mnum, Nsiz
+    real(8) :: Emin, Emax, E, dE, dL, Ltot1, Ltot0, ddEdx, E_low, E_high
     real(8) :: a, b, temp1, temp2, qdebay, Edebay, Mtarget, Mass, pref
     real(8), pointer :: Ee
+    logical :: it_is_electron, it_is_hole
+
+    it_is_electron = .false. ! to start with
+    it_is_hole = .false. ! to start with
 
     if (present(prefact)) then
       pref = prefact ! defined by the user
@@ -2287,8 +2975,10 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
     
     select case (trim(adjustl(kind_of_particle)))
     case ('Electron', 'electron', 'e')
+        it_is_electron = .true.
         Mass = 1.0d0
     case ('Hole', 'hole', 'h')
+        it_is_hole = .true.
         if(Matter%hole_mass .GE. 0) then
             Mass = Matter%hole_mass
         else                    ! Define mass from DOS
@@ -2298,24 +2988,41 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
     case default
         Mass = 1.0d0
     end select
-        
+
     Emax = 4.0e0*Ee*Mass*g_me*Mtarget/((Mtarget+Mass*g_me)*(Mtarget+Mass*g_me))    ! [eV] maximum energy transfer
       
     if (Edebay .GE. Emax) Emax = Edebay ! single atom vs phonon
     if (Ee .LT. Emax) Emax = Ee ! no more than the total electron energy
     Emax = pref * Emax  ! if user defined some prefactor (e.g. negatve for phonon absorption)
 
-    n = 20*(MAX(INT(Emin),10))    ! number of integration steps
-    dE = (Emax - Emin)/(dble(n)) ! differential of transferred energy
+    select case (NumPar%CS_method)
+    case (-1)  ! Old integration grid
+      n = 20*(MAX(INT(Emin),10))    ! number of integration steps OLD
+      E_low = Emin
+    case default  ! new integartion grid
+      n = m_N_grid_e_elast ! NEW
+      ! Define the interval of integration where the peak are (requires fined grid):
+      call get_E_low(minval(CDF_Phonon%E0 - 5.0d0*CDF_Phonon%Gamma), &
+                     maxval(CDF_Phonon%E0 + 5.0d0*CDF_Phonon%Gamma), &
+                     Emin, Emax, E_low, E_high)  ! below
+    end select
+
+    !dE = (Emax - Emin)/(dble(n)) ! differential of transferred energy
     i = 0       ! to start integration
-    E = Emin    ! to start integration
+    !E = Emin    ! to start integration
+    E = E_low
     Ltot1 = 0.0d0
     Ltot0 = 0.0d0
     call Diff_cross_section_phonon(Ele, E, NumPar, Matter, CDF_Phonon, Ltot0, Mtarget, Mass, Matter%temp, 1.0d0, Target_atoms, Mat_DOS)  ! below
     ddEdx = 0.0e0
     do while (abs(E) .LE. abs(Emax)) ! integration
+    !do while (abs(E) .LE. abs(E_high)) ! integration
         i = i + 1 ! index
-        dE = (1.0d0/(E+1.0d0) + E)/dble(n)
+        !dE = (1.0d0/(E+1.0d0) + E)/dble(n)
+        !dE = define_dE(n, E)  ! below OLD
+        dE = define_dE(NumPar%CS_method, n, E, E0_min=E_low, E0_max=E_high, dE_min=1.0e-5)   ! below
+
+
         dE = pref * dE  ! if user requested a prefactor
         ! If it's Simpson integration:
         a =  E + dE/2.0d0
@@ -2329,7 +3036,21 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
         Ltot0 = dL
         E = E + dE  ! [eV]
 
-        ! Save differential cross-section:
+
+        ! If the tabulated integrated differential CS are required:
+        select case (NumPar%CS_method)
+        case (1) ! save data:
+         if (it_is_electron) then
+            aidCS%EEdCS%diffCS(i_E)%hw(i) = E  ! [eV] hw
+            aidCS%EEdCS%diffCS(i_E)%dsdhw(i) = Ltot1 ! [1/A] d(1/L)/d(hw)
+         endif ! it_is_electron
+         if (it_is_hole) then
+            aidCS%HEdCS%diffCS(i_E)%hw(i) = E  ! [eV] hw
+            aidCS%HEdCS%diffCS(i_E)%dsdhw(i) = Ltot1 ! [1/A] d(1/L)/d(hw)
+         endif ! it_is_hole
+        end select
+
+        ! Save differential cross-section into arrays (old format, unused):
         if (present(dsdhw) .and. present(d_hw)) then
            if (i > size(dsdhw)) then
               call extend_array_size(dsdhw)  ! below
@@ -2348,16 +3069,41 @@ subroutine Tot_EMFP(Ele, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, NumPar, 
         !   print*, 'Tot_EMFP', Ele, E, 1.0d0/Mass/Ltot1
         !endif
     enddo
+
     !Sigma = 1.0d0/Mass/Ltot1 !*dE ! [A]
-    if (Mass < 1.0d-20) then
+    ! Conversion factors:
+    if ( (Mass < 1.0d-20) .or. (Ltot1 < 1.0d-15) ) then
       Sigma = 1.0d29
     else
       Sigma = 1.0d0/(Zeff*Zeff*Mass*Ltot1) !*dE ! [A]
     endif
     if (Sigma > 1d30) Sigma = 1d30 ! get rid of infinities
-
     !dEdx = Mass*ddEdx !*dE ! energy losses [eV/A]
     dEdx = (Zeff*Zeff) * Mass*ddEdx !*dE ! energy losses [eV/A]
+
+
+    ! And for diff.CS tables:
+    select case (NumPar%CS_method)
+    case (1) ! save data:
+      if (it_is_electron) then
+         do i = 1, size(aidCS%EEdCS%diffCS(i_E)%dsdhw)
+            if (aidCS%EEdCS%diffCS(i_E)%dsdhw(i) < 1.0d-15) then
+               aidCS%EEdCS%diffCS(i_E)%dsdhw(i) = 1.0d20
+            else
+               aidCS%EEdCS%diffCS(i_E)%dsdhw(i) = 1.0d0/(Zeff*Zeff*Mass*aidCS%EEdCS%diffCS(i_E)%dsdhw(i)) ! [A]
+            endif
+         enddo ! i
+      endif ! it_is_electron
+      if (it_is_hole) then
+         do i = 1, size(aidCS%HEdCS%diffCS(i_E)%dsdhw)
+            if (aidCS%HEdCS%diffCS(i_E)%dsdhw(i) < 1.0d-15) then
+               aidCS%HEdCS%diffCS(i_E)%dsdhw(i) = 1.0d20
+            else
+               aidCS%HEdCS%diffCS(i_E)%dsdhw(i) = 1.0d0/(Zeff*Zeff*Mass*aidCS%HEdCS%diffCS(i_E)%dsdhw(i)) ! [A]
+            endif
+         enddo ! i
+      endif ! it_is_hole
+    end select
 
     nullify(Ee)
 end subroutine Tot_EMFP
@@ -2398,8 +3144,10 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
 
     eps = 1.0d-12
     if (abs(dE) < eps)  then
-      print*, 'Problem #1 in Diff_cross_section_phonon', Ee, dE, sqrt(Ee) - sqrt(Ee - dE)
+      !print*, 'Problem #1 in Diff_cross_section_phonon', Ee, dE, sqrt(Ee) - sqrt(Ee - dE)
       qmin = 0.0d0
+      Diff_IMFP = 1.31e30  ! infinity
+      return   ! nothing more to do
     elseif ( dE > (Ee-eps) ) then
       qmin = sqrt(2.0d0*Mass*g_me)/g_h*(sqrt(Ee))        ! min transferred momentum [not kg*m/s!]
     else
@@ -2421,7 +3169,7 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
 
     dLs = 0.0d0  ! starting integration, mean free path per energy [A/eV]^(-1)
     hq = qmin    ! transient transferred momentum for integration [not kg*m/s!]
-    n = 100
+    n = 100 ! number of grid points in momentum space
     dq = (qmax - qmin)/dble(n) ! differential of transferred momentum [not kg*m/s!]
     dLs0 = 0.0d0
     do while (abs(hq) .LT. abs(qmax)) ! no matter how many points, go till the end
@@ -2509,8 +3257,12 @@ subroutine Diff_cross_section_phonon(Ele, hw, NumPar, Matter, CDF_Phonon, Diff_I
 
 !         if ( (abs(Ele-1.0d0) < 1.0d-2) .and. ( abs(hw - 0.1d0) < 0.01d0) ) &
 !            print*, 'Diff_cross_section_phonon', Ele, hw, g_h*g_h*hq*hq/(2.0d0*Mtarget), dL
-    enddo    
-    Diff_IMFP = 1.0d0/(g_Pi*g_a0*Ele)*dLs/(1-exp(-hw/Ttarget*g_kb))
+    enddo
+    if (Ttarget > 1.0d-6) then   ! finite temperature
+      Diff_IMFP = 1.0d0/(g_Pi*g_a0*Ele)*dLs/(1-exp(-hw/Ttarget*g_kb))
+    else ! zero tempreature
+      Diff_IMFP = 1.0d0/(g_Pi*g_a0*Ele)*dLs
+    endif
 
     ! Clean up:
     nullify(Ee, dE)
@@ -3259,6 +4011,47 @@ function dSigma_dw_w_int(S, t0, u0, w0)
    dSigma_dw_w_int = S*(A+B+C)
 end function dSigma_dw_w_int
 !BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB_BEB
+
+
+
+
+! Interpolation between two values with different methods:
+subroutine Interpolate(Iflag, E1, E2, Sigma1, Sigma2, E_needed, OUT_value)
+   integer, intent(in) :: Iflag ! what kind of interpolation to use
+   real(8), intent(in) :: E1, E2, Sigma1, Sigma2, E_needed  ! input data: X and Y points
+   real(8), intent(out) :: OUT_value    ! interpolated value
+   !------------------
+   real(8) E2log, E1log, E_needed_log, Sigma1log, Sigma2log
+
+   if ( abs(E2 - E1) < 1.0d-6 ) then ! no need to interpolate, it is exact
+        OUT_value = max(Sigma1,Sigma2)
+   elseif (E_needed == E1) then ! exactly on the grid
+        OUT_value = Sigma1
+   else ! interpolate
+    select case(Iflag) ! what interpolation to use:
+      case(3)	! logarithmic x, linear y
+         E2log = log(E2)
+         E1log = log(E1)
+         E_needed_log = log(E_needed)
+         OUT_value = Sigma1 + (Sigma2 - Sigma1)/(E2log - E1log)*(E_needed_log - E1log)
+      case(4)	! linear x, logarithmic y
+         Sigma1log = log(Sigma1)
+         Sigma2log = log(Sigma2)
+         OUT_value = Sigma1log + (Sigma2log - Sigma1log)/(E2 - E1)*(E_needed - E1)
+         OUT_value = exp(OUT_value)
+      case(5)	! logarithmic x and y
+         E2log = log(E2)
+         E1log = log(E1)
+         E_needed_log = log(E_needed)
+         Sigma1log = log(Sigma1)
+         Sigma2log = log(Sigma2)
+         OUT_value = Sigma1log + (Sigma2log - Sigma1log)/(E2log - E1log)*(E_needed_log - E1log)
+         OUT_value = exp(OUT_value)
+      case default ! linear x and y
+         OUT_value = Sigma1 + (Sigma2 - Sigma1)/(E2 - E1)*(E_needed - E1)
+    end select
+   endif
+end subroutine Interpolate
 
  
 END MODULE Cross_sections

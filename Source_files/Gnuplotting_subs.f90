@@ -8,7 +8,11 @@
 
 module Gnuplotting_subs
 use Objects, only : Flag, All_names, Atom, Ion, Solid
-USE IFLPORT, only : system, chdir   ! library, allowing to operate with directories in intel fortran
+
+#ifndef __GFORTRAN__
+   USE IFLPORT, only : system, chdir   ! library, allowing to operate with directories in intel fortran
+#endif
+
 use Dealing_with_EADL, only : Count_lines_in_file, Count_columns_in_file
 
 
@@ -195,8 +199,14 @@ subroutine Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)
    leng = LEN(trim(adjustl(In_file)))
    Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
-   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+   select case (NumPar%out_dim)
+   case default   ! old format: units (eV/A^3)
+      call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
             'Electrons energy density (eV/A^3)')  ! below
+   case (1) ! new format: units (eV/atom)
+      call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+            'Electrons energy density (eV/atom)', rescaling=1.0d24/Matter%At_dens)  ! below
+   end select
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)
 
@@ -205,17 +215,30 @@ subroutine Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)
    leng = LEN(trim(adjustl(In_file)))
    Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
-   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+   select case (NumPar%out_dim)
+   case default   ! old format: units (eV/A^3)
+      call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
             'Holes potential energy density (eV/A^3)')  ! below
+   case (1) ! new format: units (eV/atom)
+      call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+            'Holes potential energy density (eV/atom)', rescaling=1.0d24/Matter%At_dens)  ! below
+   end select
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)
+
    ! 6.2) Print VB hole kinetic energy density radial distribution:
    In_file = trim(adjustl(File_names%F(28)))
    leng = LEN(trim(adjustl(In_file)))
    Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
-   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+   select case (NumPar%out_dim)
+   case default   ! old format: units (eV/A^3)
+      call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
             'Holes kinetic energy density (eV/A^3)')  ! below
+   case (1) ! new format: units (eV/atom)
+      call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+            'Holes kinetic energy density (eV/atom)', rescaling=1.0d24/Matter%At_dens)  ! below
+   end select
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)
 
@@ -224,17 +247,30 @@ subroutine Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)
    leng = LEN(trim(adjustl(In_file)))
    Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
-   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+   select case (NumPar%out_dim)
+   case default   ! old format: units (eV/A^3)
+      call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
             'Atoms kinetic energy density (eV/A^3)')  ! below
+   case (1) ! new format: units (eV/atom)
+      call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+            'Atoms kinetic energy density (eV/atom)', rescaling=1.0d24/Matter%At_dens)  ! below
+   end select
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)
+
    ! 6.4) Print total atomic energy density radial distribution (scattering + nonthermal):
    In_file = trim(adjustl(File_names%F(24)))
    leng = LEN(trim(adjustl(In_file)))
    Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
    open(newunit=FN, FILE = trim(adjustl(Filename)))
-   call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+   select case (NumPar%out_dim)
+   case default   ! old format: units (eV/A^3)
+      call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
             'Track energy density (eV/A^3)')  ! below
+   case (1) ! new format: units (eV/atom)
+      call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+            'Track energy density (eV/atom)', rescaling=1.0d24/Matter%At_dens)  ! below
+   end select
    inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)
 
@@ -244,8 +280,14 @@ subroutine Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)
       leng = LEN(trim(adjustl(In_file)))
       Filename = trim(adjustl(Output_path))//trim(adjustl(In_file(1:leng-13)))//trim(adjustl(sh_cmd))
       open(newunit=FN, FILE = trim(adjustl(Filename)))
-      call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
-            'Track energy density (eV/A^3)')  ! below
+      select case (NumPar%out_dim)
+      case default   ! old format: units (eV/A^3)
+         call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+            'Photons energy density (eV/A^3)')  ! below
+      case (1) ! new format: units (eV/atom)
+         call gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, trim(adjustl(In_file)), NumPar, 1.0d-6, &
+            'Photons energy density (eV/atom)', rescaling=1.0d24/Matter%At_dens)  ! below
+      end select
       inquire(unit=FN,opened=file_opened)    ! check if this file is opened
       if (file_opened) close(FN)
    endif
@@ -289,20 +331,21 @@ end subroutine Gnuplot_transients
 
 
 
-subroutine gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, file_data, NumPar, y_min, value_name)
+subroutine gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, file_data, NumPar, y_min, value_name, rescaling)
    integer, intent(in) :: FN  ! file with gnuplot script
    real(8), intent(in) :: Tim, y_min ! total simulation time [fs], minimal value of y-axis
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    character(*), intent(in) :: Filename, file_data
    type(Flag), intent(in) :: NumPar
    character(*), intent(in) :: value_name
+   real(8), optional :: rescaling   ! factor to rescale the values / axis
    !-----------------
-   character(10) :: plot_extension, path_sep
+   character(10) :: plot_extension, path_sep, ch_temp
    character(20) :: time_step
    integer :: ext_ind, File_num
    integer :: i, j, Nat, shl, col_count, VB_count, leng, N_col
-   character(200) :: datafile, ymin, ymax, xmin, xmax
-   character(3) :: col
+   character(200) :: datafile, ymin, ymax, xmin, xmax, plot_file
+   character(100) :: col, rescal_char
    real(8) :: L_min, L_max, T_min, T_max, dt, x_tics
    character(8) :: temp, time_order
    logical :: x_log
@@ -337,11 +380,18 @@ subroutine gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, file_dat
    x_log = .true.
 
    ! File with the data:
+   leng = LEN(trim(adjustl(file_data)))
    datafile = trim(adjustl(file_data))
-   leng = LEN(trim(adjustl(datafile)))
+   if (present(rescaling)) then
+      write(rescal_char, '(es24.6)') rescaling
+      plot_file = trim(adjustl(file_data(1:leng-13)))//'.'
+   else ! old format
+      plot_file = trim(adjustl(file_data(1:leng-3)))
+   endif
+   !print*, trim(adjustl(datafile)), ' : ', trim(adjustl(plot_file))//trim(adjustl(plot_extension)), rescaling, trim(adjustl(rescal_char))
 
    call write_gnuplot_script_header_new(FN, ext_ind, 3.0e0, x_tics, 'Distribution', 'Radius (A)', trim(adjustl(value_name)), &
-         trim(adjustl(datafile(1:leng-3)))//trim(adjustl(plot_extension)), path_sep, 0, &
+         trim(adjustl(plot_file))//trim(adjustl(plot_extension)), path_sep, 0, &
          set_x_log=x_log, set_y_log=.true., fontsize=14) ! below
 
    ! Prepare the plotting line:
@@ -349,7 +399,12 @@ subroutine gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, file_dat
       ! All time instants:
       do i = 1, N_col    ! all time-steps
          col_count = 1 + i
-         write(col,'(i3)') col_count
+         if (present(rescaling)) then
+            write(ch_temp,'(i3)') col_count
+            write(col,'(a,a,a,a,a)') '($', trim(adjustl(ch_temp)), '*', trim(adjustl(rescal_char)), ')'
+         else  ! just a column, no scaling factor
+            write(col,'(i3)') col_count
+         endif
          write(time_step,'(f12.2)')  NumPar%time_grid(i)
 
          if (i == 1) then  ! Start:
@@ -370,7 +425,12 @@ subroutine gnuplot_raidal_distribution(FN, Tim, Target_atoms, Filename, file_dat
       ! All time instants:
       do i = 1, N_col    ! all time-steps
          col_count = 1 + i
-         write(col,'(i3)') col_count
+         if (present(rescaling)) then
+            write(ch_temp,'(i3)') col_count
+            write(col,'(a,a,a,a,a)') '(\$', trim(adjustl(ch_temp)), '*', trim(adjustl(rescal_char)), ')'
+         else  ! just a column, no scaling factor
+            write(col,'(i3)') col_count
+         endif
          write(time_step,'(f12.2)')  NumPar%time_grid(i)
 
          if (i == 1) then  ! Start:
@@ -649,6 +709,8 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
    !write(ymax,'(i10)') ceiling(L_max)
    write(ymin,'(i10)') floor(L_min)
 
+   T_max = Tim
+
    ! Prepare gnuplot script header:
    if (NumPar%dt_flag <= 0) then ! linear time scale used:
       T_min = 0.0d0
@@ -660,7 +722,6 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
       x_log = .true.
       x_tics = 10.0d0  ! for log scale, assume base 10
    endif
-   T_max = Tim
    write(xmin,'(f12.5)') T_min
    write(xmax,'(i10)') ceiling(T_max)
 

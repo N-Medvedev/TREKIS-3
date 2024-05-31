@@ -7,8 +7,8 @@ MODULE Monte_Carlo
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
   use Cross_sections, only : Electron_energy_transfer, rest_energy, NRG_transfer_elastic_atomic, SHI_TotIMFP, &
-                            SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF, NRG_transfer_elastic_atomic_OLD
-  use Analytical_IMFPs, only : Interpolate
+                            SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF, NRG_transfer_elastic_atomic_OLD, &
+                            Interpolate
   use Reading_files_and_parameters , only: Find_in_array_monoton, Find_in_array, print_time_step
 
 implicit none
@@ -30,7 +30,7 @@ contains    ! the MC code itself is all here:
 
 
 subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
-            Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, &
+            Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, aidCS, &
             Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, &
             Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
             Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_theta1, &
@@ -81,6 +81,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
     real(8), dimension(:), intent(inout) :: Out_E_field         ! total enegry of field
     type(Error_handling), intent(inout) :: Error_message	! error messages are dealed with as objects
     type(Differential_MFP), dimension(:), intent(in) :: DSF_DEMFP, DSF_DEMFP_H
+    type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
     real(8), dimension(:), intent(inout) :: Out_diff_coeff
     !------------------------------------------
     
@@ -202,7 +203,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
                     CDF_Phonon, Matter, target_atoms, &
                     Total_el_MFPs, Elastic_MFP, Tot_Nel, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, &
                     Error_message, Em_electrons, &
-                    Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar)
+                    Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar, aidCS)
             case (3)    ! hole
                 if (NumPar%very_verbose) then
                     text_line = 'Hole     time in thread #'//trim(adjustl(text_ch))//' in MC:'
@@ -212,7 +213,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
                     Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
                     Total_Hole_MFPs, Elastic_Hole_MFP, Tot_Nel, Tot_Nphot, NOP, &
                     Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
-                    At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar)
+                    At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar, aidCS)
             case (4)    ! photon
                 if (NumPar%very_verbose) then
                     text_line = 'Photon   time in thread #'//trim(adjustl(text_ch))//' in MC:'
@@ -1121,7 +1122,13 @@ subroutine From_where_in_VB(Mat_DOS, dE_cur, E)
             call random_number(RN)
             Tot_N = RN*Sum_DOS   ! chose this electron
             call Find_in_array_monoton(Mat_DOS%int_DOS, Tot_N, N_temmp) ! make increasing array
-            dE_cur = Mat_DOS%E(N_temmp)    ! add this energy to the band gap [eV]
+            !dE_cur = Mat_DOS%E(N_temmp)    ! add this energy to the band gap [eV]
+            if (N_temmp > 1) then   ! interpolate
+                dE_cur = Mat_DOS%E(N_temmp-1) + (Mat_DOS%E(N_temmp) - Mat_DOS%E(N_temmp-1)) * &
+                         (Tot_N-Mat_DOS%int_DOS(N_temmp-1))/(Mat_DOS%int_DOS(N_temmp) - Mat_DOS%int_DOS(N_temmp-1))
+            else    ! exact value
+                dE_cur = Mat_DOS%E(N_temmp)
+            endif
         endif
      else   ! search only in a part of VB:
         if (.not. allocated(Mat_DOS%E)) then  ! VB is treated as atomic energy level:
@@ -1138,7 +1145,13 @@ subroutine From_where_in_VB(Mat_DOS, dE_cur, E)
                 call random_number(RN)
                 Tot_N = RN*Sum_DOS   ! chose this electron
                 call Find_in_array_monoton(Mat_DOS%int_DOS, Tot_N, N_temmp) ! make increasing array
-                dE_cur = Mat_DOS%E(N_temmp)    ! [eV]
+                !dE_cur = Mat_DOS%E(N_temmp)    ! [eV]
+                if (N_temmp > 1) then   ! interpolate
+                    dE_cur = Mat_DOS%E(N_temmp-1) + (Mat_DOS%E(N_temmp) - Mat_DOS%E(N_temmp-1)) * &
+                         (Tot_N-Mat_DOS%int_DOS(N_temmp-1))/(Mat_DOS%int_DOS(N_temmp) - Mat_DOS%int_DOS(N_temmp-1))
+                else    ! exact value
+                    dE_cur = Mat_DOS%E(N_temmp)
+                endif
             else    ! if it's too close to the Ip, we can't resolve it in out grid for VB
                 dE_cur = 0.0d0 ! [eV]
             endif
@@ -1232,7 +1245,7 @@ subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At
     integer, intent(in) :: Nat_cur, Nshl_cur, Lowest_Ip_At, Lowest_Ip_Shl   ! # of atom, shell, and # of atom and shell for the VB
     real(8), intent(out) :: dE_cur  ! [eV] kinetic energy of an electron
     type(Error_handling), intent(inout) :: Error_message	! error messages are dealed with as objects
-    real(8) RN, Tot_N, Sum_DOS, E
+    real(8) RN, Tot_N, Sum_DOS, E, E_DOS
     integer N, N_temmp, M_temp
     character(100) Error_descript
     
@@ -1255,7 +1268,16 @@ subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At
                 call random_number(RN)
                 Tot_N = RN*Sum_DOS   ! chose this electron
                 call Find_in_array_monoton(Mat_DOS%int_DOS, Tot_N, N_temmp) ! make increasing array
-                dE_cur = E - Mat_DOS%E(N_temmp)    ! [eV]
+                !dE_cur = E - Mat_DOS%E(N_temmp)    ! [eV]
+
+                if (N_temmp > 1) then   ! interpolate
+                    E_DOS = Mat_DOS%E(N_temmp-1) + (Mat_DOS%E(N_temmp) - Mat_DOS%E(N_temmp-1)) * &
+                         (Tot_N-Mat_DOS%int_DOS(N_temmp-1))/(Mat_DOS%int_DOS(N_temmp) - Mat_DOS%int_DOS(N_temmp-1))
+                else    ! exact value
+                    E_DOS = Mat_DOS%E(N_temmp)    ! [eV]
+                endif
+                dE_cur = E - E_DOS
+
             else    ! if it's too close to the Ip, we can't resolve it in out grid for VB
                 dE_cur = E ! [eV]
             endif
@@ -1298,16 +1320,26 @@ subroutine SHI_energy_transfer(SHI_loc, MFP_Object, Target_atoms, Matter, Mat_DO
         
         E_cur = Target_atoms(Nat_cur)%Ip(Nshl_cur)  ! exactly ionization potential [eV]
         ! find the closest value in the precalculated array of energy losses:
-        call Find_in_array_monoton(MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E, Target_atoms(Nat_cur)%Ip(Nshl_cur), M_temp)
+        call Find_in_array_monoton(MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E, Target_atoms(Nat_cur)%Ip(Nshl_cur), M_temp) ! "Reading_files_and_parameters"
         if (M_temp .GT. 1) then
-            call Interpolate(5, MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp-1), &
-                MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp), MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp-1), &
-                MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp), E_cur, dL)  ! interpolate to find exact value
+            if (MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp-1) > 1.0d-10) then
+                call Interpolate(5, MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp-1), &
+                        MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp), MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp-1), &
+                        MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp), E_cur, dL)  ! interpolate to find exact value
+            else ! zero CS, interpolate linearly
+                call Interpolate(1, MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp-1), &
+                        MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%E(M_temp), MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp-1), &
+                        MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(M_temp), E_cur, dL)  ! interpolate to find exact value
+            endif
         else
             dL = MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(1)
         endif
         
-        Tot_N = 1.0d0/dL + RN*(1.0d0/MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(N) - 1.0d0/dL)
+        if ((dL > 0.0d0) .and. (MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(N) > 0.0d0)) then
+            Tot_N = 1.0d0/dL + RN*(1.0d0/MFP_Object(Nat_cur)%ELMFP(Nshl_cur)%L(N) - 1.0d0/dL)
+        else    ! infinite MFP
+            Tot_N = 1.5d21
+        endif
 
         if (Tot_N .LT. 1d20) then
             ! find the closest value in the precalculated array of energy losses:
@@ -1323,7 +1355,7 @@ subroutine SHI_energy_transfer(SHI_loc, MFP_Object, Target_atoms, Matter, Mat_DO
             dE = Target_atoms(Nat_cur)%Ip(Nshl_cur)  ! [eV]
         endif
         
-    case default ! BEB cross section:
+    case default ! BEB cross section (NOT WORKING FOR SHI!):
         call SHI_TotIMFP(SHI_loc, Target_atoms, Nat_cur, Nshl_cur, dL, dEdx, Matter, Mat_DOS, NumPar) ! get total MFP; from module "Cross_sections"
         call random_number(RN)
         dL = dL/RN   ! [A] sampled MFP
@@ -1390,8 +1422,12 @@ subroutine Next_free_path_1d(E, MFP_E_array, MFP_L_array, MFP) ! temp = MFP [A] 
     real(8), dimension(:), intent(in) :: MFP_E_array    ! [eV] array with mean free paths
     real(8), dimension(:), intent(in) :: MFP_L_array    ! [A] array with mean free paths
     real(8), intent(out) :: MFP    ! [A] interpolated mean free path
+    !----------------------
     integer N_temmp, N_last ! number of element in the array closest to the one we are looking for
-    call Find_in_array_monoton(MFP_E_array, E, N_temmp) ! find the closes value in the precalculated array of energy losses
+
+    ! find the closes value in the precalculated array of energy losses:
+    call Find_in_array_monoton(MFP_E_array, E, N_temmp)
+
     if (N_temmp .EQ. 1) then
         !MFP = 1.4d21    ! [A] infinity
         N_last = N_temmp
@@ -1407,8 +1443,15 @@ subroutine Next_free_path_1d(E, MFP_E_array, MFP_L_array, MFP) ! temp = MFP [A] 
             ! interpolate to find exact value:
             call Interpolate(5, MFP_E_array(N_last), MFP_E_array(N_temmp), MFP_L_array(N_last), MFP_L_array(N_temmp), E, MFP)
         endif
+!         if (E < 0.1e0) then ! testing
+!             print*, '--------------------'
+!             print*, MFP_E_array(N_last), MFP_E_array(N_temmp), E
+!             print*, MFP_L_array(N_last), MFP_L_array(N_temmp), MFP
+!             pause 'Next_free_path_1d'
+!         endif
     endif
 end subroutine Next_free_path_1d
+
 
 subroutine Next_free_path_2d(E, MFP_array, MFP) ! temp = MFP [A] for this array, whatever it is
     real(8), intent(in) :: E    ! [eV] energy of particle
@@ -1775,7 +1818,7 @@ end subroutine SHI_Monte_Carlo
 ! Monte-carlo of an electron
 subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, CDF_Phonon, Matter, target_atoms, &
             Total_el_MFPs, Elastic_MFP, Tot_Nel, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, Em_electrons, &
-            Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar)
+            Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar, aidCS)
     integer, intent(in) :: Lowest_Ip_At, Lowest_Ip_Shl ! number of atom and of shell which correspond to the lowest ionization potential
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
     type(CDF), intent(in) :: CDF_Phonon ! declare CDF for phonons
@@ -1801,7 +1844,8 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
     real(8), dimension(:,:), intent(inout) :: Out_Elat  ! [eV/A^3] lattuce energy density vs time vs R
     type(Differential_MFP), dimension(:), intent(in) :: DSF_DEMFP
     type(Flag), intent(inout) :: NumPar
-        
+    type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
+    !---------------------------
     real(8) Eel, RN, dE, dE_cur, mh, R, Em_Penetr, MFP_tot
     real(8) theta0, phi0, theta2, phi2, phi1, theta1, theta, phi, htheta, hphi
     real(8) IMFP, EMFP, L, X, Y, Z, dE_loc
@@ -1834,7 +1878,7 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
         ! => find IMFP of electron [A] needed for calculation of transferred energy:
         call Next_free_path(Eel, Total_el_MFPs(Nat_cur)%ELMFP(Nshl_cur)%E, Total_el_MFPs(Nat_cur)%ELMFP(Nshl_cur)%L, IMFP)
         ! => dE [eV] transferred energy:
-        call Electron_energy_transfer(Eel, Target_atoms, Nat_cur, Nshl_cur, IMFP, dE, Matter, Mat_DOS, NumPar, kind_of_particle)
+        call Electron_energy_transfer(Eel, Target_atoms, Nat_cur, Nshl_cur, IMFP, dE, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle)
         call Update_electron_angles(All_electrons(NOP)%E, dE, theta, phi)    ! => theta, phi
         
         ! 222222222222222222222222222222222
@@ -1896,8 +1940,8 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
             !dE = 0.0d0  ! Testing
         else if (NumPar%kind_of_EMFP .EQ. 1) then      ! CDF phonon peaks
             ! => dE [eV] transferred energy:
-            call Electron_energy_transfer(Eel, EMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, kind_of_particle)
-        else                                    ! Atomic cross-sections of Mott 
+            call Electron_energy_transfer(Eel, EMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, aidCS, kind_of_particle)
+        else   ! Atomic cross-sections of Mott
             dE = 0.0d0                          ! [eV] transferred energy
             do ii = 1, size(Target_atoms)        ! for all atomic spicies:
                !call NRG_transfer_elastic_atomic_OLD(Target_atoms, ii, Eel, dE_loc)
@@ -2004,7 +2048,7 @@ endsubroutine calculate_emission
 subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, &
             Hole_IMFP, Hole_EMFP, Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
             Total_Hole_MFPs, Elastic_Hole_MFP, Tot_Nel, Tot_Nphot, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
-            At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar)
+            At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar, aidCS)
     type(Electron), dimension(:), intent(inout), allocatable :: All_electrons   ! define array of electrons
     type(Hole), dimension(:), intent(inout), allocatable :: All_holes           ! define array of holes
     type(Photon), dimension(:), intent(inout), allocatable :: All_photons       ! define array of photons
@@ -2018,7 +2062,6 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
     !type(MFP), intent(in), target :: Elastic_Hole_MFP                        ! elastic mean free path
     type(MFP_elastic), intent(in) :: Elastic_Hole_MFP            ! elastic mean free path
     real(8), intent(in) :: t_cur
-    type(Flag), intent(inout) :: NumPar
     real(8), dimension(:,:), intent(in) :: El_IMFP    ! total IMFP for electron, to use in a subroutine, we need this shape of an array
     real(8), dimension(:,:), intent(in) :: El_EMFP    ! to use in a subroutine, we need this shape of an array
     real(8), dimension(:,:), intent(in) :: Hole_IMFP    ! total IMFP for electron, to use in a subroutine, we need this shape of an array
@@ -2031,6 +2074,8 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
     real(8), dimension(:), intent(inout) :: Out_R   ! [A] radius for distributions
     real(8), dimension(:), intent(inout) :: Out_V  ! inverse volume of cilinder layers [1/A^3]
     real(8), dimension(:,:), intent(inout) :: Out_Elat  ! [eV/A^3] lattuce energy density vs time vs R
+    type(Flag), intent(inout) :: NumPar
+    type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
     !-------------------------
     real(8) Eel, Egap, RN, dE, dE_cur, mh, R, MFP_tot, Ehole, t_Auger, t_Radiat
     real(8) theta0, phi0, theta2, phi2, theta, phi, phi1, theta1, htheta, hphi, hphi1, htheta1, hphi2, htheta2, Etest
@@ -2068,7 +2113,7 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             ! => find IMFP of incident hole [A] needed for calculation of transferred energy                        
             call Next_free_path(Eel, Total_Hole_MFPs(Nat_cur)%ELMFP(Nshl_cur)%E, Total_Hole_MFPs(Nat_cur)%ELMFP(Nshl_cur)%L, HIMFP)
             ! => dE [eV] transferred energy:
-            call Electron_energy_transfer(Eel, Target_atoms, Nat_cur, Nshl_cur, HIMFP, dE, Matter, Mat_DOS, NumPar, kind_of_particle)
+            call Electron_energy_transfer(Eel, Target_atoms, Nat_cur, Nshl_cur, HIMFP, dE, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle)
             ! => htheta, hphi of ionized electron, htheta1, hphi1 angles of incident hole:
             call Update_holes_angles_el(All_holes(NOP), Eel, dE, htheta, hphi, htheta1, hphi1)
 
@@ -2135,7 +2180,6 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
         else inel_vs_el  !Elastic
             ! => find EMFP of hole [A] needed for calculation of transferred energy:
             call Next_free_path(Eel, Elastic_Hole_MFP%Total%E, Elastic_Hole_MFP%Total%L, HEMFP)
-            !call Electron_energy_transfer(Eel, HEMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, kind_of_particle) ! => dE [eV] transferred energy
 
             !print*, 'Hole', NumPar%kind_of_EMFP
 
@@ -2151,7 +2195,7 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
 !                 pause '------------------ HOLE --------------------'
             else if (NumPar%kind_of_EMFP .EQ. 1) then      ! CDF phonon peaks
                 ! => dE [eV] transferred energy:
-                call Electron_energy_transfer(Eel, HEMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, kind_of_particle)
+                call Electron_energy_transfer(Eel, HEMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, aidCS, kind_of_particle)
             else                                    ! Atomic cross-sections of Mott
                 dE = 0.0d0                          ! [eV] transferred energy
                 do ii = 1, size(Target_atoms)        ! for all atomic spicies:

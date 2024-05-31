@@ -12,7 +12,9 @@ module Reading_files_and_parameters
   
   ! Open_MP related modules from external libraries:
   !USE IFLPORT, only : system
-  USE OMP_LIB, only : omp_get_max_threads
+#ifdef OMP_inside
+   USE OMP_LIB, only : omp_get_max_threads
+#endif
 
   implicit none
 private  ! hides items not listed on public statement
@@ -45,11 +47,16 @@ interface Trapeziod
 end interface Trapeziod
 
 public :: Find_in_array, Find_in_array_monoton, Linear_approx, get_file_stat, get_num_shells, print_time_step
-public :: Read_input_file, Linear_approx_2x1d_DSF, Find_VB_numbers, read_file_here, read_SHI_MFP, get_add_data, m_INPUT_file
+public :: Read_input_file, Linear_approx_2x1d_DSF, Find_VB_numbers, read_file_here, read_SHI_MFP, get_add_data, m_INPUT_file, &
+          Find_in_monoton_array_decreasing, set_default_numpar
 
 
 character(25), parameter :: m_form_factors_file = 'Atomic_form_factors.dat'
 character(25), parameter :: m_INPUT_file = 'INPUT_PARAMETERS.txt'
+character(10), parameter :: m_INPUT_CDF = 'INPUT_CDF'
+character(10), parameter :: m_INPUT_DOS = 'INPUT_DOS'
+character(10), parameter :: m_INPUT_DSF = 'INPUT_DSF'
+!character(10), parameter :: m_INPUT_EADL = 'INPUT_EADL'
 
 contains
 
@@ -73,7 +80,14 @@ subroutine get_file_stat(File_name, device_ID, Inode_number, File_mode, Number_o
    integer, intent(out), optional :: blocks_allocated ! Blocksize for file system I/O operations
    !(*) Times are in the same format returned by the TIME function (number of seconds since 00:00:00 Greenwich mean time, January 1, 1970).
    !=====================
+   ! The preprocessor option defining compilation with Gfortran: https://gcc.gnu.org/onlinedocs/gfortran/Preprocessing-Options.html
+#ifdef __GFORTRAN__
+   ! for gfortran compiler:
+   INTEGER :: info_array(13)
+#else
+   ! for intel fortran compiler:
    INTEGER :: info_array(12)
+#endif
 
    ! Get the statistics on the file:
    call STAT(trim(adjustl(File_name)), info_array) ! intrinsec fortran subroutine
@@ -93,8 +107,52 @@ subroutine get_file_stat(File_name, device_ID, Inode_number, File_mode, Number_o
 end subroutine get_file_stat
 
 
+
+subroutine set_default_numpar(Numpar)
+   type(Flag), intent(inout) :: NumPar
+   !------------------------
+   ! Default to start with:
+   NumPar%redo_IMFP = .false. ! don't recalculate inelastic MFPs, if possible
+   NumPar%redo_EMFP = .false. ! don't recalculate elastic MFPs, if possible
+   NumPar%redo_IMFP_SHI = .false. ! don't recalculate elastic MFPs, if possible
+   NumPar%include_photons = .false. ! no photons by default (unless user includes them)
+   NumPar%plasmon_Emax = .false. ! do not include plasmon integration limit in inelastic CDF
+   NumPar%field_include = .false.   ! no fields (bc NOT READY!)
+   NumPar%print_CDF = .false. ! don't print CDF file out
+   NumPar%print_CDF_optical = .false.  ! don't print optical CDF
+   NumPar%do_gnuplot = .true. ! gnuplot by default
+   NumPar%plot_extension = 'jpeg' ! default jpeg-files
+   NumPar%get_thermal = .false.   ! default: no thermal parameters
+   NumPar%CS_method = 1    ! choice of the method of CS integration (integration grid): default - tabulated files
+   NumPar%DOS_file = ''    ! no optional name, to use default
+   NumPar%CDF_file = ''    ! no optional name, to use default
+   NumPar%kind_of_EMFP = 1 ! kind of inelastic mean free path (0=atomic; 1=CDF, 2=DSF)
+   NumPar%kind_of_CDF = 1   ! kind of CDF used for inelastic CS: 0=Ritchie; 1=Single=pole
+   NumPar%kind_of_CDF_ph = 1  ! kind of CDF used for elastic CS: 0=Ritchie; 1=Single=pole
+   NumPar%kind_of_DR = 0    ! target electron dispersion relation used in CDF calculations
+   NumPar%dt_flag = 1      ! kind of time-grid (0=linear;1=log)
+   NumPar%CDF_elast_Zeff = 0 ! kind of effective charge of target atoms (1=1, 0=Barkas-like Zeff)
+   NumPar%out_dim = 1         ! dimensionality of the output plots: 0 = eV/A^3 (old); 1=eV/atom
+   ! Printout for testing:
+   NumPar%verbose = .false.
+   NumPar%very_verbose = .false.
+   ! Flags for marking parts of user-defined CDF:
+   NumPar%VB_CDF_defined = .false.
+   NumPar%phonon_CDF_defined = .false.
+   ! Parameters for MD (unfinished)
+   NumPar%MD_dt = 1.0d0
+   NumPar%MD_grid = 0
+   NumPar%Num_Z_points = 0
+   NumPar%Zout_min = 0.0d0
+   NumPar%Zout_max = 0.0d0
+   NumPar%Zout_dz = 0.0d0
+   NumPar%field_dt = 0.0d0    ! time-grid for fields update
+end subroutine set_default_numpar
+
+
+
 subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, dt, Output_path, Output_path_SHI, &
-           Material_name, NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names)
+           Material_name, NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names, aidCS)
    type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(CDF), intent(inout) :: CDF_Phonon   ! CDF parameters for phonon to be read from a file
    type(Solid), intent(inout) :: Matter   ! all material parameters
@@ -110,14 +168,15 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    logical, intent(out) :: read_well    ! did we read the file without an error?
    type(All_names), intent(out) :: File_names
    type(Flag), intent(inout) :: NumPar
-   
+   type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
+   !---------------------
    real(8) M, SUM_DOS
    integer FN, Reason, i, temp, temp1, temp2(1), temper, FN2
-   character(100)   Material_file   ! file with material parameters, name MUST coinside with 'Material_name'!!!
+   character(100)   Material_file   ! file with material parameters
    character(100)   Short_material_file ! short version of the 'material parameters file'
    character(100)   File_name   ! file name if needed to use
-   character(100)   DOS_file    ! file with material DOS, name MUST coinside with 'Material_name'!!!
-   character(100)   DSF_file, DSF_file_h    ! file with DSF differential cross-sections, name MUST coinside with 'Material_name'!!!
+   character(100)   DOS_file    ! files with material DOS and CDF
+   character(100)   DSF_file, DSF_file_h    ! file with DSF differential cross-sections
    character(100)   Error_descript  ! to write a description of an error, if any
    character(100)   Temp_char, temp_char1
    character(3) Name    ! for reading elements names
@@ -126,19 +185,6 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    logical file_exist    ! to check where file to be open exists
    logical file_opened   ! to check if a file is still opened
 
-   !----------------
-   ! Default to start with:
-   NumPar%redo_IMFP = .false. ! don't recalculate inelastic MFPs, if possible
-   NumPar%redo_EMFP = .false. ! don't recalculate elastic MFPs, if possible
-   NumPar%redo_IMFP_SHI = .false. ! don't recalculate elastic MFPs, if possible
-   NumPar%include_photons = .false. ! no photons by default (unless user includes them)
-   NumPar%plasmon_Emax = .false. ! do not include plasmon integration limit in inelastic CDF
-   NumPar%field_include = .false.   ! no fields (bc NOT READY!)
-   NumPar%print_CDF = .false. ! don't print CDF file out
-   NumPar%print_CDF_optical = .false.  ! don't print optical CDF
-   NumPar%do_gnuplot = .true. ! gnuplot by default
-   NumPar%plot_extension = 'jpeg' ! default jpeg-files
-   NumPar%get_thermal = .false.   ! default: no thermal parameters
 
    !----------------
    ! Reading the input file:
@@ -165,9 +211,9 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    READ(FN,*,IOSTAT=Reason) Material_name
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2013
-   Material_file = 'INPUT_CDF/'//trim(adjustl(Material_name))//'.cdf' ! that's the file where material properties must be storred, or alternatively:
-   Short_material_file = 'INPUT_EADL/'//trim(adjustl(Material_name))//'.scdf' ! that's the file where short version of material properties must be storred
-   DOS_file = 'INPUT_DOS/'//trim(adjustl(Material_name))//'.dos'      ! that's the file where material DOS must be storred!
+   !Material_file = 'INPUT_CDF/'//trim(adjustl(Material_name))//'.cdf' ! that's the file where material properties must be storred, or alternatively:
+   !Short_material_file = 'INPUT_EADL/'//trim(adjustl(Material_name))//'.scdf'
+   !DOS_file = 'INPUT_DOS/'//trim(adjustl(Material_name))//'.dos'      ! that's the file where material DOS must be storred!
    !//trim(adjustl(Material_name))//'_Electron_DSF_Differential_EMFPs.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
    
    READ(FN,*,IOSTAT=Reason) SHI%Zat   ! atomic number
@@ -215,9 +261,16 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
 
    temper = int(Matter%temp)    ! material temperature
    write(temp_char1, '(i)') temper
-   DSF_file = 'INPUT_DSF/'//trim(adjustl(Material_name))//'/'//trim(adjustl(Material_name))//'_Electron_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
-   DSF_file_h = 'INPUT_DSF/'//trim(adjustl(Material_name))//'/'//trim(adjustl(Material_name))//'_Hole_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
-
+   !DSF_file = 'INPUT_DSF/'//trim(adjustl(Material_name))//'/'//trim(adjustl(Material_name))//'_Electron_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
+   !DSF_file_h = 'INPUT_DSF/'//trim(adjustl(Material_name))//'/'//trim(adjustl(Material_name))//'_Hole_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
+   ! File where DSF differential EMFP for this material are storred:
+   DSF_file = trim(adjustl(m_INPUT_DSF))//trim(adjustl(NumPar%path_sep))// &
+              trim(adjustl(Material_name))//trim(adjustl(NumPar%path_sep))// &
+              trim(adjustl(Material_name))//'_Electron_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'
+   ! Same for holes:
+   DSF_file_h = trim(adjustl(m_INPUT_DSF))//trim(adjustl(NumPar%path_sep))// &
+                trim(adjustl(Material_name))//trim(adjustl(NumPar%path_sep))// &
+                trim(adjustl(Material_name))//'_Hole_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'
    
    READ(FN,*,IOSTAT=Reason) SHI%Kind_Zeff, SHI%fixed_Zeff   ! 0=Barkas; 1=Bohr; 2=Nikolaev-Dmitriev; 3=Schiwietz-Grande, 4 - fixed value;
    call read_file(Reason, i, read_well) ! reports if everything read well
@@ -288,23 +341,14 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2013
 
+#ifdef OMP_inside
    if (Num_th < 1) then ! use default: maximum number of available threads
       Num_th = omp_get_max_threads() ! number of processors available by default
    endif
-   
-   ! This option is not ready, so it is excluded from release:
-!    READ(FN,'(a)',IOSTAT=Reason) Temp_char  ! path to Gnuplot installed
-!    call read_file(Reason, i, read_well) ! reports if everything read well
-!    if (.not. read_well) goto 2013
-!    Temp_char = '0'
-!    if (trim(adjustl(Temp_char)) .EQ. '0') then ! no gmuplot installed, no need to create scripts
-!       print*, 'No Gnuplot script will be created'
-!    else
-!       allocate(File_names%F(10))
-!       File_names%F(1) = Temp_char
-!       print*, 'Gnuplot scripts will be created, calling Gnuplot from'
-!       print*, trim(adjustl(File_names%F(1)))
-!    endif
+#else
+   Num_th = 1  ! no OMP => no threads
+#endif
+
    !------------------------------------------------------
    ! Read optional parameters:
    read_well = .true.   ! to start with
@@ -320,12 +364,20 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       allocate(File_names%F(100))
    endif
 
-   
+
    !------------------------------------------------------
    ! Create an output folder:
    Output_path = 'OUTPUT_'//trim(adjustl(Material_name)) ! that should be a folder with output
    if (SHI%Zat .GT. 0) Output_path_SHI = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'OUTPUT_'//trim(adjustl(SHI%Name))//'_in_'//trim(adjustl(Material_name)) ! that should be a folder with output
+
+#ifndef __GFORTRAN__
+   ! for intel fortran compiler:
    inquire(DIRECTORY=trim(adjustl(Output_path)),exist=file_exist)    ! check if input file excists
+#else
+   ! for gfortran compiler:
+   inquire(FILE==trim(adjustl(Output_path)),exist=file_exist)    ! check if input file excists
+#endif
+
    if (file_exist) then
       write(*,'(a,a,a)') ' Folder ', trim(adjustl(Output_path)), ' already exists, save output files into it'
    else
@@ -342,8 +394,17 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    endif
    open(unit = Error_message%File_Num, FILE = trim(adjustl(File_name)))
    
-   ! read CDF-material parameters
-   call reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, Error_message, read_well) ! below
+
+   !------------------------------------------------------
+   ! Read CDF-material parameters:
+   if (LEN(trim(adjustl(NumPar%CDF_file))) > 0 ) then ! user provided the name:
+      Material_file = trim(adjustl(m_INPUT_CDF))//trim(adjustl(NumPar%path_sep))//trim(adjustl(NumPar%CDF_file))
+      Short_material_file = trim(adjustl(m_INPUT_CDF))//trim(adjustl(NumPar%path_sep))//trim(adjustl(NumPar%CDF_file))
+   else ! assume default name:
+      Material_file = trim(adjustl(m_INPUT_CDF))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Material_name))//'.cdf'
+      Short_material_file = trim(adjustl(m_INPUT_CDF))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Material_name))//'.scdf'
+   endif
+   call reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, aidCS, Error_message, read_well) ! below
    if (.not. read_well) goto 2015
    
    do i = 1, size(Target_atoms) ! all atoms
@@ -376,10 +437,16 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
        if (SHI%E .GE. 175.0d6/2.0d0*SHI%Mass) goto 2015
    endif
 
-   call reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_message, read_well)    ! read material DOS
+
+   !------------------------------------------------------
+   ! Read VB DOS file:
+   if (LEN(trim(adjustl(NumPar%DOS_file))) > 0 ) then ! user provided the name:
+      DOS_file = trim(adjustl(m_INPUT_DOS))//trim(adjustl(NumPar%path_sep))//trim(adjustl(NumPar%DOS_file))
+   else ! assume default name:
+      DOS_file = trim(adjustl(m_INPUT_DOS))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Material_name))//'.dos'
+   endif
+   call reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar, Error_message, read_well)    ! read material DOS
    if (.not. read_well) goto 2015
-
-
 
    temp_char1 = 'OUTPUT_'//trim(adjustl(Material_name))//'_DOS_analysis.dat'
    File_names%F(9) = trim(adjustl(temp_char1))  ! save for plotting later
@@ -472,7 +539,7 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
    type(Flag), intent(inout) :: NumPar ! numerical parameters
    !------------------------------------
    character(100) :: text, text2, ch_temp
-   integer :: i, Reason
+   integer :: i, Reason, i_read
    logical :: read_well
 
    i = 0 ! to start with
@@ -485,6 +552,44 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
    endif
 
    select case (text)
+   case ('grid', 'GRID', 'Grid')
+      ! Try to read which file extension to use:
+      read(text_in, *, IOSTAT=Reason) text, i_read
+      call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
+      if (.not. read_well) then  ! by default, use tabulated files
+         !NumPar%CS_method = 1   ! was specified above in the default NumPar
+         print*, 'Could not interprete grid index in line: ', trim(adjustl(text_in)), ', using default'
+      else ! useк provided grid index
+         NumPar%CS_method = i_read
+      endif
+
+   case ('UNITS', 'Units', 'units')
+      read(text_in, *, IOSTAT=Reason) text, i_read
+      call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
+      if (.not. read_well) then  ! default
+         print*, 'Could not interprete units index in line: ', trim(adjustl(text_in)), ', using default'
+      else  ! use the provided name for DOS file:
+         NumPar%out_dim = i_read
+      endif
+
+   case ('CDF', 'Cdf', 'cdf')
+      read(text_in, *, IOSTAT=Reason) text, text2
+      call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
+      if (.not. read_well) then  ! default
+         print*, 'Could not interprete CDF-file name in line: ', trim(adjustl(text_in)), ', using default'
+      else  ! use the provided name for DOS file:
+         NumPar%CDF_file = trim(adjustl(text2))
+      endif
+
+   case ('DOS', 'Dos', 'dos')
+      read(text_in, *, IOSTAT=Reason) text, text2
+      call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
+      if (.not. read_well) then  ! default
+         print*, 'Could not interprete DOS-file name in line: ', trim(adjustl(text_in)), ', using default'
+      else  ! use the provided name for DOS file:
+         NumPar%DOS_file = trim(adjustl(text2))
+      endif
+
    case ('gnuplot', 'plot', 'gnu', 'GNUPLOT', 'PLOT', 'GNU')
       NumPar%do_gnuplot = .true. ! use gnuplot to create plots
 
@@ -546,6 +651,7 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
 
    case ('INFO', 'Info', 'info')
       print*, trim(adjustl(starline))
+      print*, trim(adjustl(starline))
       print*, 'TREKIS-3 stands for: Time-Resolved Electron Kinteics in SHI-Irradiated Solids'
       print*, 'For all details and instruction, address the files !READ_ME_TREKIS_3.doc or !READ_ME_TREKIS_3.pdf'
       print*, 'DISCLAIMER'
@@ -561,6 +667,7 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
          ' 3) R. Rymzhanov, N. Medvedev, A. E. Volkov, J. Phys. D. Appl. Phys. 50 (2017) 475301', &
          'In a publication, we recommend that at least the following parameters should be mentioned for reproducibility of the results: material, its structure, density, speed of sound, the used CDF coefficients, which processes were included (active) in the simulation, ion type, its energy, the model for SHI charge, number of MC iterations.'
       print*, trim(adjustl(starline))
+      print*, trim(adjustl(starline))
    endselect
 end subroutine interpret_additional_data_INPUT
 
@@ -573,10 +680,6 @@ subroutine get_add_data(NumPar)
    !---------------
    character(1000) :: string
    integer :: i_arg, count_args, N_arg
-
-   ! Default values (don't print a lot of stuff):
-   NumPar%verbose = .false.
-   NumPar%very_verbose = .false.
 
    ! Count how many arguments the user provided:
    N_arg = COMMAND_ARGUMENT_COUNT() ! Fortran intrinsic function
@@ -628,33 +731,39 @@ end subroutine print_time_step
 
 
 
-subroutine reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, Error_message, read_well)
+subroutine reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, aidCS, Error_message, read_well)
    character(100), intent(in) :: Material_file, Short_material_file  ! files with material parameters (full or short)
    type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(Flag), intent(inout) :: NumPar ! numerical parameters
    type(CDF), intent(inout) :: CDF_Phonon   ! CDF parameters for phonon to be read from a file
    type(Solid), intent(inout) :: Matter   ! all material parameters
+   type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
    type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
    logical, intent(inout) :: read_well  ! did we read the file well?
-   
-   real(8) M
-   integer FN2, Reason, i, j, k, l, N, Shl, CDF_coef, Shl_num, comment_start
+   !-------------------------
+   real(8) :: M, temp_r(5)
+   integer FN2, Reason, i, j, k, l, N, Shl, CDF_coef, Shl_num, comment_start, Nsiz
    character(100) Error_descript, temp, read_line
    character(3) Name
    character(11) Shell_name
    character(30) Full_Name
    logical file_opened, file_exist, file_exist2
+   type(CDF) :: Ritchi_temp  ! Ritchi CDF
    
    FN2 = 201
    inquire(file=trim(adjustl(Material_file)),exist=file_exist)    ! check if the full input file exists
    inquire(file=trim(adjustl(Short_material_file)),exist=file_exist2)    ! check if the short input file exists
    if (file_exist) then
       open(unit = FN2, FILE = trim(adjustl(Material_file)), status = 'old', readonly)   ! yes, open full file and read
+      ! Save CDF-file name for output:
+      NumPar%CDF_file = trim(adjustl(Material_file))
       ! Find out when this file was last modified:
       call get_file_stat(trim(adjustl(Material_file)), Last_modification_time=NumPar%Last_mod_time_CDF) ! above
       !print*, 'CDF file last modified on:', NumPar%Last_mod_time_CDF
    else if (file_exist2) then ! if at least short version exists, the rest can be used within atomic approximation
       open(unit=FN2, FILE = trim(adjustl(Short_material_file)), status = 'old', readonly)   ! yes, open full file and read
+      ! Save CDF-file name for output:
+      NumPar%CDF_file = trim(adjustl(Short_material_file))
       ! Find out when this file was last modified:
       call get_file_stat(trim(adjustl(Short_material_file)), Last_modification_time=NumPar%Last_mod_time_CDF) ! above
       call read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_message, read_well)
@@ -667,6 +776,10 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
       goto 2014 ! go to the end of the subroutine, there is nothing else we could do
    endif
    
+   ! Defaults:
+   NumPar%VB_CDF_defined = .false.
+   !NumPar%phonon_CDF_defined = .false. ! unused
+
    i = 0
    !READ(FN2,*,IOSTAT=Reason) Matter%Target_name ! first line is the full material name
    Matter%Target_name = '' ! to start with
@@ -759,9 +872,91 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
 
    SP_CDF:if (.not. read_well) then ! check if there is a CDF
-      write(*,'(a)') ' No CDF parameters found in the file '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
+      ! Defaults:
       NumPar%kind_of_CDF = 1  ! single-pole CDF
       NumPar%kind_of_CDF_ph = 1 ! use single-pole approximation of phonon CDF
+
+      ! Check if there are partial CDF defined:
+      ! markers "VALENCE" or "PHONON"
+      backspace(FN2) ! read this line again:
+      Reason = 0  ! restart
+      do while (Reason == 0)
+         READ(FN2,'(a)',IOSTAT=Reason) temp
+         IF (Reason == 0)  THEN ! normal reading, try to interprete
+            if (LEN(trim(adjustl(temp))) > 0) then ! there is something written
+               select case( trim(adjustl(temp(1:3))) )
+               !--------------
+               case ('VAL', 'Val', 'val') ! valence CDF
+                  NumPar%VB_CDF_defined = .true.
+                  !print*, 'VB', NumPar%VB_CDF_defined
+
+                  READ(FN2,*,IOSTAT=Reason) CDF_coef, Shl_num, temp_r(1), temp_r(2), temp_r(3)
+                  if ((Reason == 0) .and. (CDF_coef > 0)) then ! there is CDF to be used in a cross section
+                     allocate(Ritchi_temp%E0(CDF_coef))
+                     allocate(Ritchi_temp%A(CDF_coef))
+                     allocate(Ritchi_temp%Gamma(CDF_coef))
+                     if (NumPar%kind_of_DR == 4) then
+                        allocate(Ritchi_temp%alpha(CDF_coef))
+                     endif
+                     do l = 1, CDF_coef    ! read all the CDF parameters:
+                        READ(FN2,*,IOSTAT=Reason) Ritchi_temp%E0(l), Ritchi_temp%A(l), Ritchi_temp%Gamma(l)
+                        call read_file(Reason, i, read_well) ! reports if everything read well
+                        if (.not. read_well) then
+                           write(*,'(a)') ' Could not interprete VB CDF parameters in '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
+                           NumPar%VB_CDF_defined = .false.
+                           exit
+                        endif
+                        ! For Delta-CDF:
+                        if (NumPar%kind_of_DR == 4) then
+                           call define_alpha(Ritchi_temp%A(l), Ritchi_temp%Gamma(l), Ritchi_temp%E0(l), Matter%Egap, Ritchi_temp%alpha(l))  ! below
+                        endif
+                     enddo
+                  else   ! something went wrong, use single-pole CDF
+                     write(*,'(a)') ' Could not interprete VB CDF parameters in '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
+                     NumPar%VB_CDF_defined = .false.
+                  endif
+
+               !--------------
+               case ('PHO', 'Pho', 'pho') ! phonon CDF
+                  NumPar%kind_of_CDF_ph = 0 ! user provided phonon CDF
+                  !print*, 'Phonons:', NumPar%kind_of_CDF_ph
+
+                  READ(FN2,*,IOSTAT=Reason) CDF_coef
+                  if (.not. allocated(CDF_Phonon%A)) allocate(CDF_Phonon%A(CDF_coef))
+                  if (.not. allocated(CDF_Phonon%E0)) allocate(CDF_Phonon%E0(CDF_coef))
+                  if (.not. allocated(CDF_Phonon%Gamma)) allocate(CDF_Phonon%Gamma(CDF_coef))
+                  if (NumPar%kind_of_DR .EQ. 4) then
+                     if (.not. allocated(CDF_Phonon%alpha)) allocate(CDF_Phonon%alpha(CDF_coef))   ! that's how many CDF functions
+                  endif
+                  do l = 1, CDF_coef    ! read all the CDF parameters for phonon peak:
+                     READ(FN2,*,IOSTAT=Reason) CDF_Phonon%E0(l), CDF_Phonon%A(l), CDF_Phonon%Gamma(l)
+                     call read_file(Reason, i, read_well) ! reports if everything read well
+                     if (.not. read_well) then
+                        write(*,'(a)') ' Could not interprete phonon CDF parameters in '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
+                        deallocate(CDF_Phonon%A)
+                        deallocate(CDF_Phonon%E0)
+                        deallocate(CDF_Phonon%Gamma)
+                        if (allocated(CDF_Phonon%alpha)) deallocate(CDF_Phonon%alpha)
+                        NumPar%kind_of_CDF_ph = 1 ! use single-pole
+                        exit
+                     endif
+                     ! For Delta-CDF:
+                     if (NumPar%kind_of_DR .EQ. 4) then
+                     call define_alpha(CDF_Phonon%A(l), CDF_Phonon%Gamma(l), CDF_Phonon%E0(l), 0.0d0, CDF_Phonon%alpha(l))  ! below
+                     endif
+                  enddo
+
+               end select
+            endif ! (LEN(trim(adjustl(temp))) > 0)
+         ENDIF ! (Reason == 0)
+      enddo ! while (Reason == 0)
+      !pause 'TEST CDF'
+
+      if (.not.NumPar%VB_CDF_defined) then
+         write(*,'(a)') ' No CDF parameters found in the file '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
+      else
+         write(*,'(a)') ' Only VB CDF found in the file '//trim(adjustl(Material_file))//'. For the rest, using single-pole approximation.'
+      endif
 
       ! Read the atomic parameters from EPICS-database:
       call check_atomic_parameters(NumPar, Target_atoms, Error_message=Error_message, read_well=read_well) ! from module 'Dealing_with_EADL'
@@ -772,14 +967,43 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
       ! Having all the atomic parameters, allocate CDFs:
       do j = 1, N  ! for each element
          Shl = size(Target_atoms(j)%Ip)
+
+         if (.not. allocated(Target_atoms(j)%Ritchi)) then
+            allocate(Target_atoms(j)%Ritchi(Shl)) ! allocate Ritchi-functions' coefficiants for each shell
+         endif
+
          do k = 1, Shl ! each shell
-            Target_atoms(j)%KOCS_SHI(k) = 1 ! Mark SHI CDF cross section for this shell
-            Target_atoms(j)%KOCS(k) = 1 ! Mark electron CDF cross section for this shell
+            Target_atoms(j)%KOCS_SHI(k) = 1   ! Mark SHI CDF cross section for this shell
+            Target_atoms(j)%KOCS(k) = 1      ! Mark electron CDF cross section for this shell
+
+            ! Special treatement for VB - it may be defined already:
+            if ( (j == 1) .and. (k == Shl) ) then ! VB
+               if ( NumPar%VB_CDF_defined ) then ! and only then
+                  Nsiz = size(Ritchi_temp%A)
+                  if (.not. allocated(Target_atoms(j)%Ritchi(k)%E0)) allocate(Target_atoms(j)%Ritchi(k)%E0(Nsiz))
+                  if (.not. allocated(Target_atoms(j)%Ritchi(k)%A)) allocate(Target_atoms(j)%Ritchi(k)%A(Nsiz))
+                  if (.not. allocated(Target_atoms(j)%Ritchi(k)%Gamma)) allocate(Target_atoms(j)%Ritchi(k)%Gamma(Nsiz))
+                  Target_atoms(j)%Ritchi(k)%E0 = Ritchi_temp%E0
+                  Target_atoms(j)%Ritchi(k)%A = Ritchi_temp%A
+                  Target_atoms(j)%Ritchi(k)%Gamma = Ritchi_temp%Gamma
+                  if (NumPar%kind_of_DR == 4) then
+                     if (.not. allocated(Target_atoms(j)%Ritchi(k)%alpha)) allocate(Target_atoms(j)%Ritchi(k)%alpha(Nsiz))
+                     Target_atoms(j)%Ritchi(k)%alpha = Ritchi_temp%alpha
+                  endif
+
+                  ! clean up:
+                  deallocate(Ritchi_temp%E0)
+                  deallocate(Ritchi_temp%A)
+                  deallocate(Ritchi_temp%Gamma)
+                  if (allocated(Ritchi_temp%alpha)) deallocate(Ritchi_temp%alpha)
+               endif
+            endif
+
             ! Define single CDF oscillator:
             if (.not. allocated(Target_atoms(j)%Ritchi(k)%E0)) allocate(Target_atoms(j)%Ritchi(k)%E0(1))
             if (.not. allocated(Target_atoms(j)%Ritchi(k)%A)) allocate(Target_atoms(j)%Ritchi(k)%A(1))
             if (.not. allocated(Target_atoms(j)%Ritchi(k)%Gamma)) allocate(Target_atoms(j)%Ritchi(k)%Gamma(1))
-            if (NumPar%kind_of_DR .EQ. 4) then
+            if (NumPar%kind_of_DR == 4) then
                if (.not. allocated(Target_atoms(j)%Ritchi(k)%alpha)) allocate(Target_atoms(j)%Ritchi(k)%alpha(1))
             endif
             !print*, 'spcdf', j, k, Target_atoms(j)%KOCS_SHI(k)
@@ -918,6 +1142,21 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
       if (.not. allocated(CDF_Phonon%E0)) allocate(CDF_Phonon%E0(1), source = 0.0d0)
       if (.not. allocated(CDF_Phonon%Gamma)) allocate(CDF_Phonon%Gamma(1), source = 0.0d0)
    endif
+
+
+   ! Allocate differential cross section arrays if required:
+   select case (NumPar%CS_method)
+   case (1)
+      if (.not. allocated(aidCS%EIdCS)) then
+         allocate(aidCS%EIdCS(size(Target_atoms))) ! for each atom type
+      endif
+      ! Each shell:
+      do j = 1, N  ! read for each element its shells data:
+         if (.not.allocated(aidCS%EIdCS(j)%Int_diff_CS)) then
+            allocate(aidCS%EIdCS(j)%Int_diff_CS( size(Target_atoms(j)%Ip) )) ! allocate table of integral of differential cross secion for each shell
+         endif
+      enddo
+   end select
 
 2014 continue   ! if we must skip to the end for some reason
    if (.not. read_well) print*, trim(adjustl(Material_file))
@@ -1085,11 +1324,11 @@ subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(Atom), dimension(:), allocatable, intent(inout) :: Atoms_temp  ! define target atoms as objects, we don't know yet how many they are
    !------------
-   integer :: i, j, N_at, Shl, Nj
+   integer :: i, j, k, N_at, Shl, Nj
    N_at = size(Target_atoms)
 
    allocate(Atoms_temp(N_at))
-   do i = 1, N_at
+   do i = 1, N_at ! all atoms
       Atoms_temp(i)%Zat = Target_atoms(i)%Zat
       Atoms_temp(i)%Mass = Target_atoms(i)%Mass
       Atoms_temp(i)%Pers = Target_atoms(i)%Pers
@@ -1132,7 +1371,7 @@ subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
             Atoms_temp(i)%Ritchi(j)%alpha = Target_atoms(i)%Ritchi(j)%alpha
          enddo
       endif
-   enddo
+   enddo ! i
 end subroutine copy_atomic_data
 
 
@@ -1253,36 +1492,46 @@ subroutine read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_
 end subroutine read_short_scdf
 
 
-subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, Error_message, read_well)    ! read material DOS
+subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar, Error_message, read_well)    ! read material DOS
     character(100), intent(in) :: DOS_file  ! file with material DOS
     type(Density_of_states), intent(inout) :: Mat_DOS  ! materail DOS
     type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
+    type(Flag), intent(inout) :: NumPar ! numerical parameters
     logical, intent(inout) :: read_well  ! did we read the file well?
     type(Solid), intent(in) :: Matter
     type(Atom), dimension(:), intent(in) :: Target_atoms
-    
+    !--------------------------------------
     real(8), dimension(:,:), allocatable :: Temp_DOS
     real(8) Sum_DOS, loc_DOS, E, dE, Sum_DOS_inv
     integer FN2, i, N, Reason, M
-    character(100) Error_descript
+    character(100) :: Error_descript, Free_DOS
     logical file_opened, file_exist, file_exist2
     FN2 = 202
     inquire(file=trim(adjustl(DOS_file)),exist=file_exist)    ! check if input file excists
-    inquire(file='INPUT_DOS/Free_electron_DOS.dos',exist=file_exist2)    ! check if input file excists
+    !inquire(file='INPUT_DOS/Free_electron_DOS.dos',exist=file_exist2)    ! check if input file excists
+    Free_DOS = trim(adjustl(m_INPUT_DOS))//trim(adjustl(NumPar%path_sep))//'Free_electron_DOS.dos'
+    inquire(file=trim(adjustl(Free_DOS)),exist=file_exist2)    ! check if input file excists
+
     if (file_exist) then
        print*, 'DOS file is there: ', trim(adjustl(DOS_file))
        open(unit = FN2, FILE = trim(adjustl(DOS_file)), status = 'old', readonly)   ! if yes, open it and read
+       ! Save DOS file name for output:
+       NumPar%DOS_file = trim(adjustl(DOS_file))
     elseif (file_exist2) then   ! Free-electron DOS approximation
        print*, 'DOS file ', trim(adjustl(DOS_file)), ' is not found, '
        print*, 'free-electron DOS approximation is used for valence band holes'
-       open(unit = FN2, FILE = 'INPUT_DOS/Free_electron_DOS.dos', status = 'old', readonly)   ! if yes, open it and read
+       open(unit = FN2, FILE = trim(adjustl(Free_DOS)), status = 'old', readonly)   ! if yes, open it and read
+       ! Save DOS file name for output:
+       NumPar%DOS_file = trim(adjustl(Free_DOS))
     else ! no DOS, try atomic approxiamtion instead...
        print*, 'Neither file ', trim(adjustl(DOS_file)), ' nor Free_electron_DOS.dos'
-       print*, 'containing density of states are not found.'
+       print*, 'containing density of states are found.'
        print*, 'The calculations proceed within the atomic approximation for energy levels.'
-       Error_descript = 'Files '//trim(adjustl(DOS_file))//' and INPUT_DOS/Free_electron_DOS.dos are not found!'    ! description of an error
+       Error_descript = 'Files '//trim(adjustl(DOS_file))//' and '//trim(adjustl(Free_DOS))//' are not found!'    ! description of an error
        call Save_error_details(Error_message, 6, Error_descript) ! write it into the error-log file
        read_well = .false.  ! no file found
+       ! Save DOS file name for output:
+       NumPar%DOS_file = ''   ! nothing
        goto 2016
     endif
 
@@ -1871,6 +2120,66 @@ subroutine Find_in_2D_array(Array, Value, Indx, Number)
    Number = i
 end subroutine Find_in_2D_array
 
+
+
+
+subroutine Find_in_monoton_array_decreasing(Array, Value0, Number)
+   REAL(8), dimension(:), INTENT(in) :: Array ! in which we are looking for the Value
+   REAL(8), INTENT(in) :: Value0   ! to be found in the array as near as possible
+   integer, INTENT(out) :: Number ! number of the element which we are looking for
+   !----------------------
+   integer :: Nsiz, i, N, i_cur, i_1, i_2, coun
+   real(8) :: temp_val, val_1, val_2
+
+   Nsiz = size(Array)
+
+   i_1 = 1     ! to start with
+   i_2 = Nsiz  ! to start with
+   val_1 = Array(i_1)   ! to start with
+   val_2 = Array(i_2)   ! to start with
+
+   i_cur = FLOOR((i_1+i_2)/2.0)
+   temp_val = Array(i_cur)
+
+   if (isnan(Value0)) then
+       print*, 'The subroutine Find_in_monotonous_1D_array'
+       print*, 'cannot proceed, the value of Value0 is', Value0
+       write(*, '(f,f,f,f)') Value0, Array(i_cur), Array(i_1), Array(i_2)
+       pause 'STOPPED WORKING...'
+   else
+       if (Value0 < Array(Nsiz)) then ! smaller than the last value
+           i_cur = Nsiz
+       elseif (Value0 > Array(1)) then ! bigger than the first value
+           i_cur = 1
+       else
+           coun = 0
+           do while ( abs(i_1 - i_2) > 1) ! until find the interval where the value is in
+               if (temp_val > Value0) then
+                   i_1 = i_cur
+                   val_1 = Array(i_1)
+                   i_cur = FLOOR((i_1+i_2)/2.0)
+                   temp_val = Array(i_cur)
+                else
+                   i_2 = i_cur
+                   val_2 = temp_val
+                   i_cur = FLOOR((i_1+i_2)/2.0)
+                   temp_val = Array(i_cur)
+                endif
+                coun = coun + 1
+                if (coun > 1e3) then
+                    print*, 'PROBLEM WITH CONVERGANCE IN'
+                    print*, 'Find_in_monoton_array_decreasing', coun
+                    write(*, '(f,f,f,f)') Value0, Array(i_cur), Array(i_1), Array(i_2)
+                    pause 'STOPPED WORKING...'
+                endif
+           enddo
+       endif
+   endif
+   Number = i_cur
+end subroutine Find_in_monoton_array_decreasing
+
+
+
 subroutine Find_in_monotonous_1D_array(Array, Value0, Number)
    REAL(8), dimension(:), INTENT(in) :: Array ! in which we are looking for the Value
    REAL(8), INTENT(in) :: Value0   ! to be found in the array as near as possible
@@ -2143,7 +2452,7 @@ subroutine Linear_approx_2x1d_DSF(Array_dL, Array_dE, In_val, Value1)
    Nsiz = size(Array_dL)
 
    ! The following subroutine works for monotoneusly increasing array,
-   ! where as Array passed is decreaseing, so use negative array to find the correct index:
+   ! whereas the Array passed is decreaseing, so use negative array to find the correct index:
    call Find_in_array_monoton(-Array_dL, -In_val, Number)    ! find the closest value in the array to a given one
 
    if (Number == 1) then
