@@ -61,7 +61,7 @@ cd Source_files
       ) ELSE (    :: With OpenMP
          echo Compiling with DEBUG_OMP option, OpenMP but no optimizations are included
          echo Started at: %date% %time%
-         SET "Compile_options=/F9999999999 /QxHost /QaxAVX /fpp /Qopenmp /D OMP_inside /real-size:64 /debug:all /O1 /Qipo /traceback /gen-interfaces /warn:interfaces /check:bounds /fpe:0 /fp:precise /Qvec /standard-semantics /assume:nofpe_summary"
+         SET "Compile_options=/F9999999999 /QxHost /QaxAVX /fpp /Qopenmp /real-size:64 /debug:all /O1 /Qipo /traceback /gen-interfaces /warn:interfaces /check:bounds /fpe:0 /fp:precise /Qvec /standard-semantics /assume:nofpe_summary"
          SET "Name_of_exe=TREKIS_DEBUG_OMP.exe"    :: Set name of the executable
       )
       echo %Starline%
@@ -84,7 +84,7 @@ cd Source_files
                echo Started at: %date% %time%
                echo %Starline%
                :: List compiler options
-               SET "Compile_options=/F9999999999 /fpp /Qopenmp /D OMP_inside /real-size:64 /O1 /fpe:0 /fp:fast /Qipo /Qopt-report /standard-semantics /assume:nofpe_summary"
+               SET "Compile_options=/F9999999999 /fpp /Qopenmp /real-size:64 /O1 /fpe:0 /fp:fast /Qipo /Qopt-report /standard-semantics /assume:nofpe_summary"
                :: Set name of the executable:
                SET "Name_of_exe=TREKIS_OMP.exe"
             )
@@ -97,7 +97,7 @@ cd Source_files
          echo %Starline%
 
          :: List compiler options
-         SET "Compile_options=/F9999999999 /fpp /Qopenmp /D OMP_inside /real-size:64 /O3 /Qipo /standard-semantics /assume:nofpe_summary /static"
+         SET "Compile_options=/F9999999999 /fpp /Qopenmp /real-size:64 /O3 /Qipo /standard-semantics /assume:nofpe_summary /static"
 
          :: Set name of the executable:
          SET "Name_of_exe=TREKIS.exe"

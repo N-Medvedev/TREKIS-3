@@ -107,7 +107,7 @@ call get_num_shells(Target_atoms, Nshtot) ! from module 'Reading_files_and_param
 
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! Set OpenMP parallel threading parameters:
-#ifdef OMP_inside
+#ifdef _OPENMP
     call OMP_SET_DYNAMIC(0) ! standard openmp subroutine
     call OMP_SET_NUM_THREADS(Num_th)    ! start using threads with openmp: Num_th is the number of threads, defined in the input file
 #else ! if you set to use OpenMP in compiling: 'make OMP=no'
@@ -231,7 +231,7 @@ Nit = 0
 !$omp private (MC_stat, my_id, c1)
 !$omp do schedule(dynamic) reduction( + : Nit, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_field_all, Out_E_field, Out_diff_coeff)
 do MC_stat = 1, NMC   ! MC iterations to be averaged
-#ifdef OMP_inside
+#ifdef _OPENMP
     my_id = 1 + OMP_GET_THREAD_NUM() ! identify which thread it is
 #else ! if you set to use OpenMP in compiling: 'make OMP=no'
     my_id = 1   ! no OMP => no threads
