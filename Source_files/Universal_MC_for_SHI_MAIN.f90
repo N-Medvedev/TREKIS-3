@@ -47,6 +47,7 @@
 ! Include all the separate file with modules to use in the main program:
 #include 'Universal_Constants.f90'
 #include 'Objects.f90'
+#include 'MPI_subroutines.f90'
 #include 'Variables.f90'
 #include 'Dealing_with_EADL.f90'
 #include 'Gnuplotting_subs.f90'
@@ -71,120 +72,154 @@ use Sorting_output_data, only: TREKIS_title, Radius_for_distributions, Allocate_
                             Deallocate_out_arrays, parse_time, print_parameters
 use Cross_sections, only: SHI_TotIMFP, Equilibrium_charge_SHI, get_single_pole
 use Analytical_IMFPs, only: Analytical_electron_dEdx, Analytical_ion_dEdx, printout_optical_CDF
-use Monte_Carlo, only : Monte_Carlo_modelling
+use Monte_Carlo, only : do_Monte_Carlo
 use Thermal_parameters, only : Get_thermal_parameters
+
+use MPI_subroutines, only : initialize_MPI, initialize_random_seed, MPI_barrier_wrapper
+
+#ifdef MPI_USED
+use mpi
+#endif
 !MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
 implicit none
 
 !VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+#ifdef _OPENMP
 integer OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS ! OMP-related variables must be declared here
+#endif
+!VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+Error_message%Err = .false. ! no errors at the beginning, turn it into 'true' if any occurs
 
+!MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
+! MPI initialization:
+call initialize_MPI(MPI_param, Error_message)   ! module "MPI_subroutines"
+if (Error_message%Err) goto 2012  ! if we couldn't get MPI initialized, stop the program
 ! Print the program name:
-call TREKIS_title(6)   ! module "Sorting_output_data"
+if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+    call TREKIS_title(6)   ! module "Sorting_output_data"
+    ! Get the starting date and time:
+    call date_and_time(values=c1) ! standard FORTRAN time and date
+    ctim=c1
+    write(*, 1005) ctim(5), ctim(6), ctim(7), ctim(3), ctim(2), ctim(1)
+endif
+
+!------------------------------------------------------
+! Synchronize MPI processes to make sure the title is printed before anything else
+call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+!------------------------------------------------------
 
 !TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-Error_message%Err = .false. ! no errors at the beginning, turn it into 'true' if any occurs
-call get_path_separator(Numpar%path_sep, Error_message, read_well)   ! module "Variables"
+call get_path_separator(Numpar%path_sep, Error_message, read_well, MPI_param)   ! module "Variables"
 
-call random_seed() ! standard FORTRAN seeding of random numbers
-call date_and_time(values=c1) ! standard FORTRAN time and date
- ctim=c1
-write(*, 1005) ctim(5), ctim(6), ctim(7), ctim(3), ctim(2), ctim(1)
+! One needs to make sure each process is using a different random seed:
+call initialize_random_seed(MPI_param)   ! module "MPI_subroutines"
+
 
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! Set default values of flags, proir to reading them from screen or file:
 call set_default_numpar(Numpar) ! module "Reading_files_and_parameters"
 
 ! Get additional options provided by the user in the command line:
-call get_add_data(Numpar) ! module "Reading_files_and_parameters"
+call get_add_data(Numpar, MPI_param) ! module "Reading_files_and_parameters"
+
 
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! Reading input file:
 call Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, dt, Output_path, Output_path_SHI, Material_name, &
-        NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names, aidCS)  ! module  'Reading_files_and_parameters'
+        NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names, aidCS, MPI_param)  ! module  'Reading_files_and_parameters'
+
 if (.not. read_well) goto 2012  ! if we couldn't read the input files, there is nothing else to do, go to end
 call get_num_shells(Target_atoms, Nshtot) ! from module 'Reading_files_and_parameters'
+
 
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! Set OpenMP parallel threading parameters:
 #ifdef _OPENMP
     call OMP_SET_DYNAMIC(0) ! standard openmp subroutine
     call OMP_SET_NUM_THREADS(Num_th)    ! start using threads with openmp: Num_th is the number of threads, defined in the input file
-#else ! if you set to use OpenMP in compiling: 'make OMP=no'
+#else ! if you set not to use OpenMP in compiling: 'make OMP=no'
 !   print*, 'No openmp to deal with...'
-!   pause 'NO OPENMP'
 #endif
 
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! If single-pole approximation is required, make it:
-call get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_message)   ! module "Cross_sections"
+call get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_message, MPI_param)   ! module "Cross_sections"
 if (Error_message%Err) goto 2012  ! if we couldn't get the cross section, cannot continue
 
 ! Optical CDF for reconstructed CDF from Ritchie-Howie fitted loss function:
-call printout_optical_CDF(Output_path, Target_atoms, Matter, NumPar, Mat_DOS)  ! module "Cross_sections"
+if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+    call printout_optical_CDF(Output_path, Target_atoms, Matter, NumPar, Mat_DOS)  ! module "Analytical_IMFPs"
+endif
 
 !IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 ! Print parameters on screen:
-call print_parameters(6, SHI, Material_name, Target_atoms, Matter, NumPar, CDF_Phonon, &
-                        Tim, dt, NMC, Num_th, .false., .true.)   ! module "Sorting_output_data"
+if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+    call print_parameters(6, SHI, Material_name, Target_atoms, Matter, NumPar, CDF_Phonon, &
+                        Tim, dt, NMC, Num_th, .false., .true., MPI_param)   ! module "Sorting_output_data"
+endif
 
 if (SHI%Zat .LE. 0) goto  3012  ! if ion is to be skipped, skip ion:
-
 !AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 ! Write down the analytical dEdx of SHI, and IMFP of an electron, valence hole, photon:
-if (NumPar%verbose) call print_time_step('Starting SHI mean-free-paths calculations:', msec=.true.)
-call Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI, SHI_MFP, Error_message, read_well, NumPar, Matter, Mat_DOS, File_names)  ! precalculate SHI mean free path and energy loss
+if (NumPar%verbose) call print_time_step('Starting SHI mean-free-paths calculations:', MPI_param, msec=.true.)
+
+call Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI, SHI_MFP, Error_message, read_well, NumPar, Matter, Mat_DOS, File_names, MPI_param)  ! precalculate SHI mean free path and energy loss
 if (.not. read_well) goto 2012  ! if we couldn't read the input files, there is nothing else to do, go to end
 !if (allocated(File_names%F)) call Gnuplot_ion_old(NumPar%path_sep, File_names%F(1), Output_path_SHI, File_names%F(6), Nshtot+2)   ! From module "Gnuplotting_subs"
+
+
 call Equilibrium_charge_SHI(SHI, Target_atoms)  ! get Barcas' equilibrium charge from module Cross_sections
 
 ! Plot SHI's parameters if requisted:
 if (NumPar%do_gnuplot) then
-    call Gnuplot_ion(NumPar, SHI, Target_atoms, File_names, Output_path_SHI)   ! module "Gnuplotting_subs"
+    if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+        call Gnuplot_ion(NumPar, SHI, Target_atoms, File_names, Output_path_SHI)   ! module "Gnuplotting_subs"
+    endif
 endif
 3012 continue ! if the ion skipped, go on from here:
 
-
 ! 1) Electron MFPs:
-if (NumPar%verbose) call print_time_step('Starting electron mean-free-paths calculations:', msec=.true.)
+if (NumPar%verbose) call print_time_step('Starting electron mean-free-paths calculations:', MPI_param, msec=.true.)
 kind_of_particle = 'Electron'
 call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_el_MFPs, &
-        Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, aidCS, kind_of_particle, File_names) ! from module Analytical_IMPS
+        Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, aidCS, kind_of_particle, File_names, MPI_param) ! from module Analytical_IMPS
 
 ! 2) Hole MFPs:
-if (NumPar%verbose) call print_time_step('Starting VB hole mean-free-paths calculations:', msec=.true.)
+if (NumPar%verbose) call print_time_step('Starting VB hole mean-free-paths calculations:', MPI_param, msec=.true.)
 kind_of_particle = 'Hole'
 call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_Hole_MFPs, & 
-          Elastic_Hole_MFP, Error_message, read_well, DSF_DEMFP_H, Mat_DOS, NumPar, aidCS, kind_of_particle, File_names) ! from module Analytical_IMPS
+          Elastic_Hole_MFP, Error_message, read_well, DSF_DEMFP_H, Mat_DOS, NumPar, aidCS, kind_of_particle, File_names, MPI_param) ! from module Analytical_IMPS
 
 ! 3) Photon MFPs:
 if (NumPar%include_photons) then ! only if we include photons:
-    if (NumPar%verbose) call print_time_step('Starting photon mean-free-paths calculations:', msec=.true.)
+    if (NumPar%verbose) call print_time_step('Starting photon mean-free-paths calculations:', MPI_param, msec=.true.)
     kind_of_particle = 'Photon'
     call Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_Photon_MFPs, &
-            Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, aidCS, kind_of_particle, File_names) ! from module Analytical_IMPS
+            Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, aidCS, kind_of_particle, File_names, MPI_param) ! from module Analytical_IMPS
 else
    allocate(Total_Photon_MFPs(0))
 endif
 
 ! Plot electron, hole, and photon MFPs, as well as DOS, if requisted:
 if (NumPar%do_gnuplot) then
-    call Gnuplot_electron_hole(NumPar, Target_atoms, File_names, Output_path)   ! module "Gnuplotting_subs"
+    if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+        call Gnuplot_electron_hole(NumPar, Target_atoms, File_names, Output_path)   ! module "Gnuplotting_subs"
+    endif
 endif
 
 
 !TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-! Thermal parameters (electron-phonon coupling, heat capacity, conductivity), if requested:
-call Get_thermal_parameters(Output_path, CDF_Phonon, Target_atoms, Matter, NumPar, Mat_DOS, File_names) ! module "Thermal_parameters"
+! Thermal parameters (electron-phonon coupling, heat capacity, conductivity), if requested (unfinished):
+call Get_thermal_parameters(Output_path, CDF_Phonon, Target_atoms, Matter, NumPar, Mat_DOS, File_names, MPI_param) ! module "Thermal_parameters"
 !TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 
-
 if ((NMC .LE. 0) .OR. (Tim .LE. 0.0d0)) then
-    !write(*,'(a)') '----------------------------------------------------'
-    write(*,'(a)') trim(adjustl(dashline))
-    write(*,'(a)') 'No Monte Carlo routine will be performed since'
-    write(*,'(a,i6)') 'Number of MC iterations = ', NMC
-    write(*,'(a, ES16.7)') 'Time of MC analysis = ', Tim
+    if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+        write(*,'(a)') trim(adjustl(dashline))
+        write(*,'(a)') 'No Monte Carlo routine will be performed since'
+        write(*,'(a,i6)') 'Number of MC iterations = ', NMC
+        write(*,'(a, ES16.7)') 'Time of MC analysis = ', Tim
+    endif
     goto 2012 ! skip MC at all
 endif
 
@@ -192,10 +227,10 @@ endif
 if ((.not. read_well) .OR. (SHI%Zat .LE. 0)) goto 2012
 
 ! Prepare differential SHI MFP for the given energy:
-if (NumPar%verbose) call print_time_step('Calculating SHI mean free paths for given energy:', msec=.true.)
+if (NumPar%verbose) call print_time_step('Calculating SHI mean free paths for given energy:', MPI_param, msec=.true.)
 do i = 1, size(Target_atoms)
     do j = 1, size(SHI_MFP(i)%ELMFP)
-        call SHI_TotIMFP(SHI, Target_atoms, i, j, Sigma, dEdx, Matter, Mat_DOS, NumPar, diff_SHI_MFP)
+        call SHI_TotIMFP(SHI, Target_atoms, i, j, Sigma, dEdx, Matter, Mat_DOS, NumPar, diff_SHI_MFP)   ! module "Analytical_IMFPs"
         SHI_MFP(i)%ELMFP(j)%E(:) = SHI_MFP(1)%ELMFP(1)%E(:) ! [eV] energy
         Total_el_MFPs(i)%ELMFP(j)%E(:) = Total_el_MFPs(1)%ELMFP(1)%E(:) ! [eV] energy
         Total_Hole_MFPs(i)%ELMFP(j)%E(:) = Total_Hole_MFPs(1)%ELMFP(1)%E(:) ! [eV] energy
@@ -203,14 +238,21 @@ do i = 1, size(Target_atoms)
 enddo
 
 
-
 !AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-if (NumPar%verbose) call print_time_step('Preparing output directory and files:', msec=.true.)
+if (NumPar%verbose) call print_time_step('Preparing output directory and files:', MPI_param, msec=.true.)
+
 ! Find the number of atom and shell which correspond to the valence band:
 call Find_VB_numbers(Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl)    ! module Reading_files_and_parameters
 ! Fill the array of cylindrical radii:
 call Radius_for_distributions(Target_atoms, Out_Distr, Out_V, Tim, dt, NumPar%dt_flag, Matter%Layer)      ! module Reading_files_and_parameters
 !BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+
+
+!------------------------------------------------------
+! Synchronize MPI to make sure all the parameters are known to all processes
+! (may not be necessary, just a precaution)
+call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+!------------------------------------------------------
 
 
 !MCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMC
@@ -219,114 +261,142 @@ call Allocate_out_arrays(target_atoms, Out_Distr, Mat_DOS, Out_tot_Ne, Out_tot_N
       Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, &
       Out_theta, Out_theta_h, Out_theta1, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_E_field, Out_diff_coeff) ! Module 'Sorting_output_data.f90'
 
-write(*,'(a)') ' '
-!write(*,'(a)') '--------------------------------------------------------'
-write(*,'(a)') trim(adjustl(dashline))
-if (NumPar%verbose) call print_time_step('Starting MC iterations:', msec=.true.)
+if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+    write(*,'(a)') ' '
+    write(*,'(a)') trim(adjustl(dashline))
+    if (NumPar%verbose) call print_time_step('Starting MC iterations:', MPI_param, msec=.true.)
+endif
 
-! The subroutine for MC is stored in the module Monte_Carlo_modelling.
-! The iteration in MC are largely independent, so they can be parallelized with openmp:
-Nit = 0
-!$omp parallel &
-!$omp private (MC_stat, my_id, c1)
-!$omp do schedule(dynamic) reduction( + : Nit, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_field_all, Out_E_field, Out_diff_coeff)
-do MC_stat = 1, NMC   ! MC iterations to be averaged
-#ifdef _OPENMP
-    my_id = 1 + OMP_GET_THREAD_NUM() ! identify which thread it is
-#else ! if you set to use OpenMP in compiling: 'make OMP=no'
-    my_id = 1   ! no OMP => no threads
-#endif
-
-    ! Perform all the MC calculations within this subroutine:
-    call Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
+! The subroutine for MC is stored in the module Monte_Carlo_modelling:
+call do_Monte_Carlo(NMC, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
      Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, aidCS, &
      Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, &
      Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
      Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
-     Error_message, DSF_DEMFP, DSF_DEMFP_H, Out_field_all, Out_E_field, Out_diff_coeff)  ! module "Monte_carlo"
-    Nit = Nit + 1   ! count the number of iteration to test parallelization
-    call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
-    write(*, 1008) 'Thread #', my_id, ' Iteration #', Nit, ' at ', c1(5), c1(6), c1(7)
-enddo
-!$omp end do
-!$omp end parallel
+     Error_message, DSF_DEMFP, DSF_DEMFP_H, Out_field_all, Out_E_field, Out_diff_coeff, MPI_param) ! module "Monte_Carlo"
 
-if (NumPar%verbose) call print_time_step('Preparing MC output data:', msec=.true.)
+if (NumPar%verbose) call print_time_step('Preparing MC output data:', MPI_param, msec=.true.)
+
 ! Average the distributions over the statistics:
-Out_tot_Ne = Out_tot_Ne/dble(NMC)
-Out_tot_Nphot = Out_tot_Nphot/dble(NMC)
-Out_tot_E = Out_tot_E/dble(NMC)
-Out_E_e = Out_E_e/dble(NMC)
-Out_E_phot = Out_E_phot/dble(NMC)
-Out_E_at = Out_E_at/dble(NMC)
-Out_E_h = Out_E_h/dble(NMC)
-Out_Eat_dens = Out_Eat_dens/dble(NMC)
-Out_Distr%ne = Out_ne/dble(NMC)
-Out_Distr%Ee = Out_Ee/dble(NMC)
-Out_nphot = Out_nphot/dble(NMC)
-Out_Ephot = Out_Ephot/dble(NMC)
-Out_Ee_vs_E = Out_Ee_vs_E/dble(NMC) ! electron spectrum
-Out_Eh_vs_E = Out_Eh_vs_E/dble(NMC) ! VB holes spectrum
-Out_Elat = Out_Elat/dble(NMC)
-Out_theta = Out_theta/dble(NMC)
-Out_theta_h = Out_theta_h/dble(NMC)
-Out_field_all = Out_field_all/dble(NMC)
-Out_E_field = Out_E_field/dble(NMC)
-Out_Ne_Em = Out_Ne_Em/dble(NMC)
-Out_E_Em = Out_E_Em/dble(NMC)
-Out_Ee_vs_E_Em = Out_Ee_vs_E_Em/dble(NMC)
-Out_diff_coeff = Out_diff_coeff/dble(NMC)
-do k = 1, size(Out_Distr%Atom(1)%Shl(1)%nh,1) ! for all the timesteps:
-    do i = 1, size(Out_Distr%Atom)    ! for all atoms
-        do j = 1, size(Out_Distr%Atom(i)%Shl)    ! for all shells of atom
-            Out_Distr%Atom(i)%Shl(j)%nh(k,:) = Out_nh(k,:,i,j)/dble(NMC)
-            Out_Distr%Atom(i)%Shl(j)%Eh(k,:) = Out_Eh(k,:,i,j)/dble(NMC)
-            Out_Distr%Atom(i)%Shl(j)%Ehkin(k,:) = Out_Ehkin(k,:,i,j)/dble(NMC)
-        enddo ! j
-    enddo   ! i
-enddo   ! k
-
+if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+    Out_tot_Ne = Out_tot_Ne/dble(NMC)
+    Out_tot_Nphot = Out_tot_Nphot/dble(NMC)
+    Out_tot_E = Out_tot_E/dble(NMC)
+    Out_E_e = Out_E_e/dble(NMC)
+    Out_E_phot = Out_E_phot/dble(NMC)
+    Out_E_at = Out_E_at/dble(NMC)
+    Out_E_h = Out_E_h/dble(NMC)
+    Out_Eat_dens = Out_Eat_dens/dble(NMC)
+    Out_Distr%ne = Out_ne/dble(NMC)
+    Out_Distr%Ee = Out_Ee/dble(NMC)
+    Out_nphot = Out_nphot/dble(NMC)
+    Out_Ephot = Out_Ephot/dble(NMC)
+    Out_Ee_vs_E = Out_Ee_vs_E/dble(NMC) ! electron spectrum
+    Out_Eh_vs_E = Out_Eh_vs_E/dble(NMC) ! VB holes spectrum
+    Out_Elat = Out_Elat/dble(NMC)
+    Out_theta = Out_theta/dble(NMC)
+    Out_theta_h = Out_theta_h/dble(NMC)
+    Out_field_all = Out_field_all/dble(NMC)
+    Out_E_field = Out_E_field/dble(NMC)
+    Out_Ne_Em = Out_Ne_Em/dble(NMC)
+    Out_E_Em = Out_E_Em/dble(NMC)
+    Out_Ee_vs_E_Em = Out_Ee_vs_E_Em/dble(NMC)
+    Out_diff_coeff = Out_diff_coeff/dble(NMC)
+    do k = 1, size(Out_Distr%Atom(1)%Shl(1)%nh,1) ! for all the timesteps:
+        do i = 1, size(Out_Distr%Atom)    ! for all atoms
+            do j = 1, size(Out_Distr%Atom(i)%Shl)    ! for all shells of atom
+                Out_Distr%Atom(i)%Shl(j)%nh(k,:) = Out_nh(k,:,i,j)/dble(NMC)
+                Out_Distr%Atom(i)%Shl(j)%Eh(k,:) = Out_Eh(k,:,i,j)/dble(NMC)
+                Out_Distr%Atom(i)%Shl(j)%Ehkin(k,:) = Out_Ehkin(k,:,i,j)/dble(NMC)
+            enddo ! j
+        enddo   ! i
+    enddo   ! k
+endif ! (MPI_param%process_rank == 0)
 !OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
-2011    continue
 call Save_output(Output_path_SHI, File_names, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, CDF_Phonon, &
                 SHI, Out_R, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_nphot, Out_Ephot,&
                 Out_Ee_vs_E, Out_Eh_vs_E, Out_E_at, Out_E_h, Out_Eat_dens, Out_Distr, &
                 Out_Elat, Out_theta, Out_theta_h, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
-                NumPar, Out_E_field, Out_diff_coeff) !Module 'Sorting_output_data.f90'
+                NumPar, Out_E_field, Out_diff_coeff, MPI_param) ! module 'Sorting_output_data.f90'
 
 ! clean up after using temporary arrays:
 call Deallocate_out_arrays(Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_R, Out_V, &
     Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, &
     Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, Out_theta, Out_theta_h, Out_field_all, Out_Ne_Em, Out_E_Em, &
-    Out_Ee_vs_E_Em, Out_E_field)       !Module 'Sorting_output_data.f90'
+    Out_Ee_vs_E_Em, Out_E_field)       ! module 'Sorting_output_data.f90'
 
 ! Gnuplot the data, if requested:
-call Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)   ! module "Gnuplotting_subs"
+if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+    call Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)   ! module "Gnuplotting_subs"
+endif
 !MCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMC
-
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! End of the program:
 ! Printing out the duration of the program, starting and ending time and date:
-2012 call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
-as1=dble(24*60*60*(c1(3)-ctim(3))+3600*(c1(5)-ctim(5))+60*(c1(6)-ctim(6))+(c1(7)-ctim(7))+(c1(8)-ctim(8))*0.001) ! sec
+2012 continue
 
-call parse_time(as1,Text_var) ! module "Sorting_output_data.f90"
-print*, '   '
-write(*,'(a, a)') 'Duration of execution of the program: ', trim(adjustl(Text_var))
-print*, '   '
-write(*, 1001) ctim(5),ctim(6),ctim(7), ctim(3), ctim(2), ctim(1)
-write(*, 1002) c1(5), c1(6), c1(7), c1(3),c1(2), c1(1)		
-print*, '   '
+if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+    call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
+    as1=dble(24*60*60*(c1(3)-ctim(3))+3600*(c1(5)-ctim(5))+60*(c1(6)-ctim(6))+(c1(7)-ctim(7))+(c1(8)-ctim(8))*0.001) ! sec
+
+    call parse_time(as1, Text_var) ! module "Sorting_output_data.f90"
+    print*, '   '
+    write(*,'(a, a)') 'Duration of execution of the program: ', trim(adjustl(Text_var))
+    print*, '   '
+    write(*, 1001) ctim(5),ctim(6),ctim(7), ctim(3), ctim(2), ctim(1)
+    write(*, 1002) c1(5), c1(6), c1(7), c1(3),c1(2), c1(1)
+    print*, '   '
+endif
+
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Closing the remaining opened files:
-flush(100)
-! Closing the opened files:
-if (Error_message%Err) then ! if error occured (thus it's = "true") then save the error log file:
-   close(100)
-else ! if there was no error, no need to keep the file, delete it:
-   close(100, status='delete')
+#ifdef MPI_USED
+   ! https://www.open-mpi.org/doc/v3.0/man3/MPI_File_close.3.php
+   !call MPI_FILE_CLOSE(Error_message%File_Num, MPI_param%ierror)    ! module "MPI"
+   !if (MPI_param%ierror /= MPI_SUCCESS) then
+   !   write(Error_message%Err_descript, '(A,I0,A)') '[MPI process #', MPI_param%process_rank, '] Failure in closing Error-log file'
+   !   print*, trim(adjustl(Error_message%Err_descript)) ! print it also on the sreen
+   !   call MPI_Abort(MPI_COMM_WORLD, -1, MPI_param%ierror)   ! module "MPI"
+   !endif
+
+   inquire(Error_message%File_Num, opened=file_opened)
+   if (file_opened) then
+      if (Error_message%Err) then ! if error occured (thus it's = "true") then save the error log file:
+         close(Error_message%File_Num)
+      else ! if there was no error, no need to keep the file, delete it:
+         close(Error_message%File_Num, status='delete')
+      endif
+   endif
+
+#else
+   if (Error_message%Err) then ! if error occured (thus it's = "true") then save the error log file:
+      close(Error_message%File_Num)
+   else ! if there was no error, no need to keep the file, delete it:
+      close(Error_message%File_Num, status='delete')
+   endif
+#endif
+
+
+!-------------------------------------
+#ifdef MPI_USED
+	!write(*,'(a,i0,a)') '[MPI process #', MPI_param%process_rank, '] test 3'
+	if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+        print*, 'Finilizing MPI'
+	endif
+	call MPI_FINALIZE(MPI_param%ierror)
+	if (MPI_param%ierror /= 0) then
+		write(*, *) 'Error finalizing MPI!'
+	endif
+#endif
+!-------------------------------------
+
+if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+    print*, 'TREKIS has completed its calculations...'
 endif
+
+
+
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Formats defined for printing out on the screen:
 1001 format ('Beginning: ', i2.2, ':', i2.2, ':', i2.2, '  ', i2.2, '/', i2.2, '/', i4.4)
@@ -336,14 +406,9 @@ endif
 1007 format ('Step at: ', i2.2, ':', i2.2, ':', i2.2, ':', i3.3, '  ', i2.2, '/', i2.2, '/', i4.4)
 1008 format (a, i4, a, i6, a, i2.2, ':', i2.2, ':', i2.2)
 
-if (NumPar%path_sep .EQ. '\') then
-    !PAUSE 'The program is finished, press RETURN to go out...'
-endif
-
-print*, 'TREKIS has completed its calculations...'
 STOP
 
 contains
-
+! currently nothing
 
 END PROGRAM Universal_MC_for_SHI

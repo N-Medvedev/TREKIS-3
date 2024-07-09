@@ -8,6 +8,7 @@ MODULE Cross_sections
   use Objects                           ! since it uses derived types, it must know about them from module 'Objects'
   use Reading_files_and_parameters, only: Find_in_array_monoton, Linear_approx_2x1d_DSF, print_time_step, Find_in_monoton_array_decreasing
   use Dealing_with_EADL, only: get_photon_cross_section_EPDL, NEXT_DESIGNATOR
+!    use Variables, only : MPI_param
 implicit none
 PRIVATE
 
@@ -550,12 +551,13 @@ function Loss_func_old(A,E,Gamma,dE,dq, NumPar, Matter, Mtarget, photon, k, Eff_
 end function Loss_func_old
 
 
-subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_message)   ! module "Cross_sections"
+subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_message, MPI_param)   ! module "Cross_sections"
    type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(Flag), intent(inout) :: NumPar ! numerical parameters
    type(CDF), intent(inout) :: CDF_Phonon   ! CDF parameters for phonon to be read from a file
    type(Solid), intent(inout) :: Matter   ! all material parameters
    type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
+   type(Used_MPI_parameters), intent(in) :: MPI_param ! MPI parameters
    !--------------------------
    integer :: i, j, N_at, N_shl
    real(8) :: NVB, N_at_mol, Omega, ksum, fsum, contrib, Mean_Mass, E_debye, E_eistein
@@ -566,7 +568,7 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
    !--------------------------
    ! 1) single-pole CDF for inelastic scattering
    if (NumPar%kind_of_CDF == 1) then
-      if (NumPar%verbose) call print_time_step('Getting electornic single-pole CDF calculations:', msec=.true.)
+      if (NumPar%verbose) call print_time_step('Getting electornic single-pole CDF calculations:', MPI_param, msec=.true.)
 
       ! For all atoms, define CDF for each shell
       do i = 1, N_at
@@ -623,8 +625,10 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
             if (NumPar%verbose) then
                call sumrules(Target_atoms(i)%Ritchi(j)%A, Target_atoms(i)%Ritchi(j)%E0, Target_atoms(i)%Ritchi(j)%Gamma, &
                               ksum, fsum, Target_atoms(i)%Ip(j), Omega) ! below
-               write(*,'(a,f10.3,a,f10.3,a,f12.5)') 'K-sum rule:', ksum, ' Na=', Target_atoms(i)%Nel(j), ' F-sum rule:', fsum
-               print*, '------------------------'
+               if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                  write(*,'(a,f10.3,a,f10.3,a,f12.5)') 'K-sum rule:', ksum, ' Na=', Target_atoms(i)%Nel(j), ' F-sum rule:', fsum
+                  print*, '------------------------'
+               endif
             endif
          enddo ! j
       enddo ! i
@@ -650,33 +654,35 @@ subroutine get_single_pole(Target_atoms, NumPar, CDF_Phonon, Matter, Error_messa
       endselect
 
    case (1) ! single-pole - get the coefficients
-      if (NumPar%verbose) call print_time_step('Getting phononic single-pole CDF calculations:', msec=.true.)
+      if (NumPar%verbose) call print_time_step('Getting phononic single-pole CDF calculations:', MPI_param, msec=.true.)
 
-         ! Debye energy [eV]:
-         call Debye_energy(Matter%At_Dens, Matter%Vsound, E_debye) ! below
-         ! Einstein energy [eV]:
-         E_eistein = Einstein_energy(E_debye) ! below
+      ! Debye energy [eV]:
+      call Debye_energy(Matter%At_Dens, Matter%Vsound, E_debye) ! below
+      ! Einstein energy [eV]:
+      E_eistein = Einstein_energy(E_debye) ! below
 
-         ! Set it at 2 x Einstein frequency (empirical coeff):
-         CDF_Phonon%E0(1) = 2.0d0 * E_eistein   ! [eV]
-         ! Gamma set equal to (empirical approximation):
-         CDF_Phonon%Gamma(1) = CDF_Phonon%E0(1) * 0.5d0
-         ! A is set via normalization (sum rule):
-         CDF_Phonon%A(1) = 1.0d0   ! just to get sum rule to renormalize below
+      ! Set it at 2 x Einstein frequency (empirical coeff):
+      CDF_Phonon%E0(1) = 2.0d0 * E_eistein   ! [eV]
+      ! Gamma set equal to (empirical approximation):
+      CDF_Phonon%Gamma(1) = CDF_Phonon%E0(1) * 0.5d0
+      ! A is set via normalization (sum rule):
+      CDF_Phonon%A(1) = 1.0d0   ! just to get sum rule to renormalize below
 
-         Mean_Mass = SUM(Target_atoms(:)%Pers * Target_atoms(:)%Mass)*g_Mp / N_at_mol  ! average atomic mass
+      Mean_Mass = SUM(Target_atoms(:)%Pers * Target_atoms(:)%Mass)*g_Mp / N_at_mol  ! average atomic mass
 
-         Omega = w_plasma( 1d6*Matter%At_dens/N_at_mol, Mass=Mean_Mass )  ! below
-         call sumrules(CDF_Phonon%A, CDF_Phonon%E0, CDF_Phonon%Gamma, ksum, fsum, 1.0d-8, Omega) ! below
+      Omega = w_plasma( 1d6*Matter%At_dens/N_at_mol, Mass=Mean_Mass )  ! below
+      call sumrules(CDF_Phonon%A, CDF_Phonon%E0, CDF_Phonon%Gamma, ksum, fsum, 1.0d-8, Omega) ! below
 
-         CDF_Phonon%A(1) = N_at_mol/ksum
+      CDF_Phonon%A(1) = N_at_mol/ksum
 
-         ! Now we can recalculate sum-rules:
-         if (NumPar%verbose) then
+      ! Now we can recalculate sum-rules:
+      if (NumPar%verbose) then
+         if (MPI_param%process_rank == 0) then   ! only MPI master process does it
             call sumrules(CDF_Phonon%A, CDF_Phonon%E0, CDF_Phonon%Gamma, ksum, fsum, 1.0d-8, Omega) ! below
             write(*,'(a,f10.3,a,f10.3,a,f12.5)') 'K-sum rule:', ksum, ' Na=', N_at_mol, ' F-sum rule:', fsum
             print*, '------------------------'
          endif
+      endif
    endselect
 
 end subroutine get_single_pole
@@ -1014,7 +1020,7 @@ subroutine TotIMFP(Ele, i_E, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_D
          if (it_is_electron) then
             do i = 1, size(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw)
                if (aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) < 1.0d-15) then
-                  aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) = 1.0d20
+                  aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) = 1.0d15
                else
                   aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i) = 1.0d0/(Mass*aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(i)) ! [A]
                endif
@@ -1023,7 +1029,7 @@ subroutine TotIMFP(Ele, i_E, Target_atoms, Nat, Nshl, Sigma, dEdx, Matter, Mat_D
          if (it_is_hole) then
             do i = 1, size(aidCS%HIdCS%diffCS(i_E)%dsdhw)
                if (aidCS%HIdCS%diffCS(i_E)%dsdhw(i) < 1.0d-15) then
-                  aidCS%HIdCS%diffCS(i_E)%dsdhw(i) = 1.0d20
+                  aidCS%HIdCS%diffCS(i_E)%dsdhw(i) = 1.0d15
                else
                   aidCS%HIdCS%diffCS(i_E)%dsdhw(i) = 1.0d0/(Mass*aidCS%HIdCS%diffCS(i_E)%dsdhw(i)) ! [A]
                endif
@@ -1115,20 +1121,20 @@ subroutine allocate_diff_CS_tables(Ele, i_E, Target_atoms, Nat, Nshl, Matter, Ma
     case (1)
       if (it_is_electron) then
          if (.not.allocated(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw)) then
-            allocate(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(Nsiz))
+            allocate(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%dsdhw(Nsiz), source = 0.0d0)
          endif
 
          if (.not.allocated(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw)) then
-            allocate(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(Nsiz))
+            allocate(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw(Nsiz), source = 0.0d0)
          endif
       endif ! it_is_electron
       if (it_is_hole) then
          if (.not.allocated(aidCS%HIdCS%diffCS(i_E)%dsdhw)) then
-            allocate(aidCS%HIdCS%diffCS(i_E)%dsdhw(Nsiz))
+            allocate(aidCS%HIdCS%diffCS(i_E)%dsdhw(Nsiz), source = 0.0d0)
          endif
 
          if (.not.allocated(aidCS%HIdCS%diffCS(i_E)%hw)) then
-            allocate(aidCS%HIdCS%diffCS(i_E)%hw(Nsiz))
+            allocate(aidCS%HIdCS%diffCS(i_E)%hw(Nsiz), source = 0.0d0)
          endif
       endif ! it_is_hole
       !print*, Nat, Nshl, i_E, size(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw)
@@ -1219,20 +1225,20 @@ subroutine allocate_diff_CS_elastic_tables(Ele, i_E, Target_atoms, CDF_Phonon, M
     case (1)
       if (it_is_electron) then
          if (.not.allocated(aidCS%EEdCS%diffCS(i_E)%dsdhw)) then
-            allocate(aidCS%EEdCS%diffCS(i_E)%dsdhw(Nsiz))
+            allocate(aidCS%EEdCS%diffCS(i_E)%dsdhw(Nsiz), source = 0.0d0)
          endif
 
          if (.not.allocated(aidCS%EEdCS%diffCS(i_E)%hw)) then
-            allocate(aidCS%EEdCS%diffCS(i_E)%hw(Nsiz))
+            allocate(aidCS%EEdCS%diffCS(i_E)%hw(Nsiz), source = 0.0d0)
          endif
       endif ! it_is_electron
       if (it_is_hole) then
          if (.not.allocated(aidCS%HEdCS%diffCS(i_E)%dsdhw)) then
-            allocate(aidCS%HEdCS%diffCS(i_E)%dsdhw(Nsiz))
+            allocate(aidCS%HEdCS%diffCS(i_E)%dsdhw(Nsiz), source = 0.0d0)
          endif
 
          if (.not.allocated(aidCS%HEdCS%diffCS(i_E)%hw)) then
-            allocate(aidCS%HEdCS%diffCS(i_E)%hw(Nsiz))
+            allocate(aidCS%HEdCS%diffCS(i_E)%hw(Nsiz), source = 0.0d0)
          endif
       endif ! it_is_hole
       !print*, Nat, Nshl, i_E, size(aidCS%EIdCS(Nat)%Int_diff_CS(Nshl)%diffCS(i_E)%hw)
@@ -1855,6 +1861,13 @@ subroutine Electron_energy_transfer_inelastic(Ele, Target_atoms, Nat, Nshl, L_to
         endif
     !endif
     
+    ! patch the problem with interpolation of border values that may produce undefined results:
+    if (isnan(dE_out)) then
+      dE_out = Emin
+      !print*, 'Electron_energy_transfer_inelastic', dE_out
+      !print*, Emin, Emax, Ele
+      !print*, Mass, kind_of_particle
+    endif
 end subroutine Electron_energy_transfer_inelastic
 
 
@@ -2011,12 +2024,20 @@ subroutine interpolate_transferred_energy(Ele, Int_diff_CS, L_need, hw_out, sing
       endif
 
       ! Interpolate the transferred energy between the values for the two energy grid points:
-      call Interpolate(5, &
+      if ((hw_1 < 1.0d-10) .or. (hw_2<1.0d-10)) then ! use linear interpolation
+         !print*, 'interpolate_transferred_energy #', MPI_param%process_rank, '::', i_E, i_hw, Int_diff_CS%E(i_E), Int_diff_CS%E(i_E+1), 'hw=', hw_1, hw_2, Ele
+         call Interpolate(1, &
                        Int_diff_CS%E(i_E), &
                        Int_diff_CS%E(i_E+1), &
                        hw_1, hw_2, &
                        Ele, hw_out)  ! module "Reading_files_and_parameters"
-
+      else  ! use log-log interpolation
+         call Interpolate(5, &
+                       Int_diff_CS%E(i_E), &
+                       Int_diff_CS%E(i_E+1), &
+                       hw_1, hw_2, &
+                       Ele, hw_out)  ! module "Reading_files_and_parameters"
+      endif
       !print*, Ele, Int_diff_CS%E(i_E), Int_diff_CS%E(i_E+1)
       !print*, i_hw, L_need, Int_diff_CS%diffCS(i_E)%dsdhw(i_hw), Int_diff_CS%diffCS(i_E)%dsdhw(i_hw+1)
       !print*, E, hw_1, hw_2, hw_out
@@ -2882,12 +2903,15 @@ subroutine Elastic_cross_section(Ee, i_E, CDF_Phonon, Target_atoms, Matter, EMFP
    character(*), intent(in) :: kind_of_particle
    real(8), intent(in), optional :: prefact  ! prefactor if required (e.g. for negative frequencies)
    !--------------------------
-         
    real(8) Sigma_Tot    ! [cm^2] total elastic cross-section
    real(8) Sigma_el, Zeff, Zt, Mass
    integer i, Mnum
 
+   EMFP = 1.34d16
    dEdx = 0.0d0
+
+   !print*, 'MPI#',MPI_param%process_rank,  NumPar%kind_of_EMFP, Matter%At_Dens, SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
+
    ! Get the total cross-section:
    if (NumPar%kind_of_EMFP .EQ. 1) then   ! CDF cross section
 
@@ -2907,6 +2931,11 @@ subroutine Elastic_cross_section(Ee, i_E, CDF_Phonon, Target_atoms, Matter, EMFP
       else  ! no prefactor needed, default option
          call Tot_EMFP(Ee, i_E, Target_atoms, CDF_Phonon, Matter, EMFP, dEdx, NumPar, Mat_DOS, aidCS, kind_of_particle, Zeff) ! below
       endif
+
+
+!       print*, 'MPI#', MPI_param%process_rank,  NumPar%kind_of_EMFP, Matter%At_Dens, Zeff, numpar%CDF_elast_Zeff, 'Ee=', Ee, EMFP, dEdx, CDF_Phonon%E0(:), CDF_Phonon%Gamma(:), CDF_Phonon%A(:), trim(adjustl(kind_of_particle))
+
+
    else  ! Mott cross section
       select case (kind_of_particle)
       case ('Electron', 'electron', 'e')
@@ -3081,6 +3110,7 @@ subroutine Tot_EMFP(Ele, i_E, Target_atoms, CDF_Phonon, Matter, Sigma, dEdx, Num
     !dEdx = Mass*ddEdx !*dE ! energy losses [eV/A]
     dEdx = (Zeff*Zeff) * Mass*ddEdx !*dE ! energy losses [eV/A]
 
+    !print*, 'MPI-2#', MPI_param%process_rank, 'L=', Ele, i_E, Ltot1, Sigma, Zeff, Mass, Edebay, Mtarget, E_low, Emax, Matter%temp, Target_atoms(1)%Zat
 
     ! And for diff.CS tables:
     select case (NumPar%CS_method)
@@ -3304,6 +3334,8 @@ subroutine get_screening_ff(complex_CDF, Matter, Target_atoms, hq, screening, p_
       !FF = form_factor(q, matter%form_factor(Target_atoms(i)%Zat,:), dble(Target_atoms(i)%Zat))  ! above
       a(:) = matter%form_factor(Target_atoms(i)%Zat,:)
       FF = form_factor(q, a(:), dble(Target_atoms(i)%Zat))  ! above
+
+      !print*, 'get_screening_ff:', MPI_param%process_rank, FF
 
       ! Exclude the valence part of the charge (it will be screened by CDF of valence band):
       FF = min(FF, Z)

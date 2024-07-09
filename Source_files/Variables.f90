@@ -5,6 +5,7 @@
 
 module Variables
 use Objects                 ! Objects.f90
+use MPI_subroutines, only : Save_error_details
 
 implicit none
 
@@ -34,7 +35,11 @@ type(Cylinder_distr) :: Out_Distr   ! OUTPUT radial distributions
 
 type(Differential_MFP), dimension(:), allocatable :: DSF_DEMFP, DSF_DEMFP_H
 type(Flag) :: NumPar ! numerical parameters and flags are here
-    
+
+! MPI parameters:
+type(Used_MPI_parameters) :: MPI_param
+
+
 !-----------------------------------------------
 ! Those below are normal standard type variables:
 real(8) Tim ! [fs] total time
@@ -47,7 +52,7 @@ integer Lowest_Ip_At, Lowest_Ip_Shl ! number of atom and shell corresponding to 
 character(100) Input_files, Material_name, Output_path, Output_path_SHI
 character(200), dimension(10) :: Output_file    ! for number of different files
 character(100) Text_var
-logical file_exist  ! for checking existance of files
+logical file_exist, file_opened  ! for checking existance of files
 logical read_well ! there was an error in the reading file, true/false?
 real(8) lat_inc, lat_decr
 ! For OPENMP:
@@ -98,10 +103,12 @@ character(100), parameter :: starline = '***************************************
 
 contains
 
-subroutine get_path_separator(path_sep, Error_message, read_well)
+subroutine get_path_separator(path_sep, Error_message, read_well, MPI_param)
     type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
     CHARACTER(len=1), intent(out) :: path_sep   ! path separator
     logical, intent(inout) :: read_well ! did the data read well?
+    type(Used_MPI_parameters), intent(inout) :: MPI_param
+    !----------------------------
     CHARACTER(len = 100) :: path, Err_data
     CALL get_environment_variable("PATH",path)
     if (path(1:1) .EQ. '/') then        !unix based OS
@@ -110,7 +117,7 @@ subroutine get_path_separator(path_sep, Error_message, read_well)
         path_sep = '\'
     else
         Err_data = 'Path separator is not defined' ! unknown OS
-        call Save_error_details(Error_message, 0, Err_data)
+        call Save_error_details(Error_message, 0, Err_data, MPI_param)
         read_well = .false. ! didn't read well this data
     endif
 end subroutine

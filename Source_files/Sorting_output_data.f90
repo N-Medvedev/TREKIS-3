@@ -14,8 +14,8 @@ private  ! hides items not listed on public statement
 
 public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time, print_parameters
 
-character(10), parameter :: m_Version = '3.2.0'
-character(12), parameter :: m_Update = '31.05.2024'
+character(10), parameter :: m_Version = '3.3.0'
+character(12), parameter :: m_Update = '09.07.2024'
 
 contains
 
@@ -40,7 +40,7 @@ end subroutine TREKIS_title
 
 
 subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, NumPar, CDF_Phonon, Tim, dt, NMC, Num_th, &
-            print_title, print_atomic)
+            print_title, print_atomic, MPI_param)
     integer, intent(in) :: print_to ! file number to print to
     class(Ion), intent (in) :: SHI  ! all about SHI
     character(*), intent(in) :: Material_name   ! path for the output files
@@ -53,6 +53,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
     integer, intent(in) :: NMC ! number of MC iterations
     integer, intent(in) :: Num_th   ! number of threads for parralel calculations with openmp
     logical, intent(in) :: print_title, print_atomic  ! yes or no
+    type(Used_MPI_parameters), intent(in) :: MPI_param ! MPI parameters
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     integer :: j, k
     character(100) :: ch_temp, ch_temp2
@@ -257,12 +258,19 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
 
     write(ch_temp, '(i5)') NMC
     write(print_to, '(a)') ' Number of MC iterations: '//trim(adjustl(ch_temp))
+
+#ifdef MPI_USED
+    write(ch_temp, '(i5)') MPI_param%size_of_cluster
+    write(print_to, '(a)') ' Number of processes used in MPI '//trim(adjustl(ch_temp))
+#else ! in MPI is unused
 #ifdef _OPENMP
     write(ch_temp, '(i5)') Num_th
-    write(print_to, '(a)') ' Number of threads used for OpenMP '//trim(adjustl(ch_temp))
+    write(print_to, '(a)') ' Number of threads used in OpenMP '//trim(adjustl(ch_temp))
 #else ! if you set to use OpenMP in compiling: 'make OMP=no'
     write(print_to, '(a)') ' Compiled without OpenMP'
 #endif
+#endif
+
 
     if (NumPar%verbose) then
         if (NumPar%very_verbose) then
@@ -324,7 +332,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
 
     write(print_to,'(a)') trim(adjustl(dashline))
 
-    call print_time_step(' Printed', msec=.true., print_to=print_to) ! module "Reading_files_and_parameters"
+    call print_time_step(' Printed', MPI_param, msec=.true., print_to=print_to) ! module "Reading_files_and_parameters"
     write(print_to,'(a)') trim(adjustl(starline))
 end subroutine print_parameters
 
@@ -333,7 +341,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
                 SHI, Out_R, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_nphot, Out_Ephot, &
                 Out_Ee_vs_E, Out_Eh_vs_E, Out_E_at, Out_E_h, Out_Eat_dens, &
                 Out_Distr, Out_Elat, Out_theta, Out_theta_h, Out_field_all, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, NumPar, &
-                Out_E_field, Out_diff_coeff)
+                Out_E_field, Out_diff_coeff, MPI_param)
     character(*), intent(in) :: Output_path, Material_name
     type(All_names), intent(inout) :: File_names   ! all file names for printing out stuff
     integer, dimension(:), intent(in) :: ctim
@@ -366,6 +374,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     real(8), dimension(:), intent(in) :: Out_E_Em
     type(Cylinder_distr), intent(in) :: Out_Distr   ! OUTPUT radial distributions
     type(Flag), intent(inout) :: NumPar
+    type(Used_MPI_parameters), intent(in) :: MPI_param ! MPI parameters
     !-------------------------------------------------
     real(8) :: t, as1, tim_glob, out_val
     integer :: c1(8), i, j,k,l,N, Nat, N_R, FN, FN1, FN2, FN3, FN31, FN4, Lowest_Ip_At, Lowest_Ip_Shl !, NOTP
@@ -375,6 +384,11 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     logical :: file_exist, file_opened
     real(8), dimension(:), allocatable :: time_grid ! grid_points in time
     
+    !----------------------------
+    if (MPI_param%process_rank /= 0) return     ! only MPI master process does it, all the others have nothing to do here
+    !----------------------------
+
+
     Nat = size(Target_atoms)    ! number of atoms
     N = size(Out_tot_Ne)        ! number of time-steps
     N_R = size(Out_R)           ! number of grid-points for radius
@@ -478,7 +492,7 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))//trim(adjustl(ch_temp))
     open(unit = FN1, FILE = trim(adjustl(File_name)))
 
-    call print_parameters(FN1, SHI, Material_name, Target_atoms, Matter, NumPar, CDF_Phonon, Tim, dt, NMC, Num_th, .true., .true.) ! see above
+    call print_parameters(FN1, SHI, Material_name, Target_atoms, Matter, NumPar, CDF_Phonon, Tim, dt, NMC, Num_th, .true., .true., MPI_param) ! see above
 
     write(ch_temp2, '(f6.3)' ) SHI%Zeff
     write(FN1, '(a)') 'Ion equilibrium charge:         '//trim(adjustl(ch_temp2))//' [electron charge]'
@@ -1422,9 +1436,9 @@ end subroutine Radius_for_distributions
 
 
 
-subroutine parse_time(sec,chtest)
+subroutine parse_time(sec, chtest)
    real(8), intent(inout) :: sec ! time interval in [sec]
-   character(*), intent(out) :: chtest ! split it into miuns, hours, days...
+   character(*), intent(out) :: chtest ! split it into mins, hours, days...
    character(100) temp
    real(8) days, hours, mins
    days = 0.0d0

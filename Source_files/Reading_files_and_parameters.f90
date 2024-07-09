@@ -10,10 +10,17 @@ module Reading_files_and_parameters
                                  Count_lines_in_file, m_atomic_folder, m_atomic_data_file, SkipCount_lines_in_file
   use Variables, only: dashline, starline
   
+  use MPI_subroutines, only : MPI_barrier_wrapper, MPI_fileopen_wrapper, MPI_fileclose_wrapper, Save_error_details, MPI_error_wrapper
+
+
   ! Open_MP related modules from external libraries:
   !USE IFLPORT, only : system
 #ifdef _OPENMP
    USE OMP_LIB, only : omp_get_max_threads
+#endif
+
+#ifdef MPI_USED
+   use mpi !, only : MPI_FILE_OPEN, MPI_COMM_WORLD, MPI_MODE_RDWR, MPI_Abort, MPI_SUCCESS
 #endif
 
   implicit none
@@ -48,7 +55,8 @@ end interface Trapeziod
 
 public :: Find_in_array, Find_in_array_monoton, Linear_approx, get_file_stat, get_num_shells, print_time_step
 public :: Read_input_file, Linear_approx_2x1d_DSF, Find_VB_numbers, read_file_here, read_SHI_MFP, get_add_data, m_INPUT_file, &
-          Find_in_monoton_array_decreasing, set_default_numpar
+          Find_in_monoton_array_decreasing, set_default_numpar, &
+          broadcast_SHI_MFP, broadcast_el_MFPs, broadcast_el_aidCS_electrons, broadcast_el_aidCS_holes, broadcast_Elastic_MFP
 
 
 character(25), parameter :: m_form_factors_file = 'Atomic_form_factors.dat'
@@ -152,7 +160,7 @@ end subroutine set_default_numpar
 
 
 subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, dt, Output_path, Output_path_SHI, &
-           Material_name, NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names, aidCS)
+           Material_name, NMC, Num_th, Error_message, read_well, DSF_DEMFP, DSF_DEMFP_H, NumPar, File_names, aidCS, MPI_param)
    type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(CDF), intent(inout) :: CDF_Phonon   ! CDF parameters for phonon to be read from a file
    type(Solid), intent(inout) :: Matter   ! all material parameters
@@ -169,9 +177,10 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    type(All_names), intent(out) :: File_names
    type(Flag), intent(inout) :: NumPar
    type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
+   type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
    !---------------------
    real(8) M, SUM_DOS
-   integer FN, Reason, i, temp, temp1, temp2(1), temper, FN2
+   integer FN, Reason, i, temp, temp1, temp2(1), temper, FN2, err_ind, access_mode
    character(100)   Material_file   ! file with material parameters
    character(100)   Short_material_file ! short version of the 'material parameters file'
    character(100)   File_name   ! file name if needed to use
@@ -184,38 +193,80 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    character(100) command, temp_ch, File_name_INPUT, text   ! to pass to cmd a command
    logical file_exist    ! to check where file to be open exists
    logical file_opened   ! to check if a file is still opened
-
+   !----------------
+   ! initialize variables:
+   file_exist = .false. ! to start with
+   file_opened = .false.
+   Material_file = ''
+   Short_material_file = ''
+   File_name = ''
+   DOS_file = ''
+   DSF_file = ''
+   DSF_file_h = ''
+   Error_descript = ''
+   Temp_char = ''
+   temp_char1 = ''
+   Name = ''
+   Full_Name = ''
+   command = ''
+   temp_ch = ''
+   File_name_INPUT = ''
+   text = ''
 
    !----------------
    ! Reading the input file:
-
-   !File_name_INPUT = 'INPUT_PARAMETERS.txt'
+   ! In MPI version, it must be done by one process (master process),
+   ! and then the data read must be broadcasted to all other processes.
    File_name_INPUT = trim(adjustl(m_INPUT_file))
 
    FN = 200
-   inquire(file=trim(adjustl(File_name_INPUT)),exist=file_exist)     ! check if input file excists
+   if (MPI_param%process_rank == 0) then   ! only MPI master process will read the input file
+      inquire(file=trim(adjustl(File_name_INPUT)),exist=file_exist)     ! check if input file excists
+   else
+      goto 3333   ! other processes should not try to read the file
+   endif
+
    if (file_exist) then
-      open(unit = FN, FILE = trim(adjustl(File_name_INPUT)), status = 'old', readonly)   ! if yes, open it and read
+      open(unit = FN, FILE = trim(adjustl(File_name_INPUT)), status = 'old', IOSTAT=err_ind, readonly)   ! if yes, open it and read
+      !call MPI_fileopen_wrapper(MPI_param, trim(adjustl(File_name_INPUT)), FN, Error_message, readonly=.true.)  ! WRONG
+
+      if (err_ind /= 0) then ! some error while opening file
+         Error_descript = 'File '//trim(adjustl(File_name_INPUT))//' could not be opened!'    ! description of an error
+#ifdef MPI_USED
+         Error_descript = trim(adjustl(Error_descript))//' [MPI process #'//trim(adjustl(MPI_param%rank_ch))//']'
+#endif
+         !call Save_error_details(Error_message, 2, Error_descript, MPI_param) ! write it into the error-log file
+         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
+         read_well = .false.   ! it didn't read well the input file...
+         goto 2013 ! go to the end of the subroutine, there is nothing else we could do
+      endif
    else ! if no, save error message about it:
       File_name = 'OUTPUT_Error_log.dat'
-      open(unit = 100, FILE = trim(adjustl(File_name)))
       Error_message%File_Num = 100	! file number with error-log
+      ! Open file with error log:
+      open(unit = Error_message%File_Num, FILE = trim(adjustl(File_name)), IOSTAT=err_ind, action="write")
+
       Error_descript = 'File '//trim(adjustl(File_name_INPUT))//' is not found!'    ! description of an error
-      call Save_error_details(Error_message, 1, Error_descript) ! write it into the error-log file
-      print*, trim(adjustl(Error_descript)) ! print it also on the sreen
+#ifdef MPI_USED
+      Error_descript = trim(adjustl(Error_descript))//' [MPI process #'//trim(adjustl(MPI_param%rank_ch))//']'
+#endif
+      ! If file opened ok, write into it:
+      if (err_ind == 0) then
+         call Save_error_details(Error_message, 1, Error_descript, MPI_param) ! write it into the error-log file
+      else
+         print*, 'File '//trim(adjustl(File_name))//' could not be opened [MPI process #'//trim(adjustl(MPI_param%rank_ch))//']'
+      endif
+      print*, trim(adjustl(Error_descript)) ! print it also on the screen
       read_well = .false.   ! it didn't read well the input file...
       goto 2013 ! go to the end of the subroutine, there is nothing else we could do
    endif
-   
+   !----------------------------------------------
+   ! Start reading the input file:
    i = 0
    READ(FN,*,IOSTAT=Reason) Material_name
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2013
-   !Material_file = 'INPUT_CDF/'//trim(adjustl(Material_name))//'.cdf' ! that's the file where material properties must be storred, or alternatively:
-   !Short_material_file = 'INPUT_EADL/'//trim(adjustl(Material_name))//'.scdf'
-   !DOS_file = 'INPUT_DOS/'//trim(adjustl(Material_name))//'.dos'      ! that's the file where material DOS must be storred!
-   !//trim(adjustl(Material_name))//'_Electron_DSF_Differential_EMFPs.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
-   
+
    READ(FN,*,IOSTAT=Reason) SHI%Zat   ! atomic number
    call read_file(Reason, i, read_well) ! reports if everything read well
    if (.not. read_well) goto 2013
@@ -261,8 +312,6 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
 
    temper = int(Matter%temp)    ! material temperature
    write(temp_char1, '(i)') temper
-   !DSF_file = 'INPUT_DSF/'//trim(adjustl(Material_name))//'/'//trim(adjustl(Material_name))//'_Electron_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
-   !DSF_file_h = 'INPUT_DSF/'//trim(adjustl(Material_name))//'/'//trim(adjustl(Material_name))//'_Hole_DSF_Differential_EMFPs_'//trim(adjustl(temp_char1))//'K.dat'     ! that's the file where DSF differential EMFP for this material must be storred!
    ! File where DSF differential EMFP for this material are storred:
    DSF_file = trim(adjustl(m_INPUT_DSF))//trim(adjustl(NumPar%path_sep))// &
               trim(adjustl(Material_name))//trim(adjustl(NumPar%path_sep))// &
@@ -357,43 +406,67 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       call read_file(Reason, i, read_well, no_end=.true.)   ! below
       if (.not. read_well) exit RDID  ! end of file, stop reading
 
-      call interpret_additional_data_INPUT(text, NumPar) ! below
+      call interpret_additional_data_INPUT(text, NumPar, MPI_param) ! below
    enddo RDID
    ! If gnuplotting is required:
    if (NumPar%do_gnuplot) then
       allocate(File_names%F(100))
    endif
 
+3333 continue ! here go the processes that are not reading the input file by themselves
+
+   !------------------------------------------------------
+   ! Synchronize MPI processes: make sure all processes are here to recieve the input data from the master process
+   call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+   !------------------------------------------------------
+   ! MPI master process shares info with all worker-processes:
+   call broadcast_input_data(NumPar, Matter, Material_name, SHI, Tim, dt, NMC, Num_th, MPI_param)   ! below
+   !------------------------------------------------------
+
+   if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+      if (NumPar%verbose) print*, 'The input file is read: '//trim(adjustl(File_name_INPUT))
+   endif
 
    !------------------------------------------------------
    ! Create an output folder:
    Output_path = 'OUTPUT_'//trim(adjustl(Material_name)) ! that should be a folder with output
    if (SHI%Zat .GT. 0) Output_path_SHI = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//'OUTPUT_'//trim(adjustl(SHI%Name))//'_in_'//trim(adjustl(Material_name)) ! that should be a folder with output
 
+   if (MPI_param%process_rank == 0) then   ! only MPI master process does it
 #ifndef __GFORTRAN__
-   ! for intel fortran compiler:
-   inquire(DIRECTORY=trim(adjustl(Output_path)),exist=file_exist)    ! check if input file excists
+      ! for intel fortran compiler:
+      inquire(DIRECTORY=trim(adjustl(Output_path)),exist=file_exist)    ! check if input file excists
 #else
-   ! for gfortran compiler:
-   inquire(FILE==trim(adjustl(Output_path)),exist=file_exist)    ! check if input file excists
+      ! for gfortran compiler:
+      inquire(FILE==trim(adjustl(Output_path)),exist=file_exist)    ! check if input file excists
 #endif
 
-   if (file_exist) then
-      write(*,'(a,a,a)') ' Folder ', trim(adjustl(Output_path)), ' already exists, save output files into it'
-   else
-      write(*,'(a,a,a)') ' Folder ', trim(adjustl(Output_path)), ' was created, save output files into it'
-      command='mkdir '//trim(adjustl(Output_path)) ! to create a folder use this command
-      CALL system(command)  ! create the folder
+      if (file_exist) then
+         write(*,'(a,a,a)') ' Folder ', trim(adjustl(Output_path)), ' already exists, save output files into it'
+      else
+         write(*,'(a,a,a)') ' Folder ', trim(adjustl(Output_path)), ' was created, save output files into it'
+         command='mkdir '//trim(adjustl(Output_path)) ! to create a folder use this command
+         CALL system(command)  ! create the folder
+      endif
    endif
 
-   Error_message%File_Num = 100 ! this is the file where error-log will be storred
+   !------------------------------------------------------
+   ! Synchronize MPI processes after creating the output directory:
+   call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+   !------------------------------------------------------
+
+   Error_message%File_Num = 101 ! this is the file where error-log will be storred
    if (SHI%Zat .GT. 0) then
-    File_name = trim(adjustl(Output_path))//'/'//trim(adjustl(SHI%Name))//'_in_'//trim(adjustl(Material_name))//'_error_log.txt'
+      File_name = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(SHI%Name))//'_in_'//trim(adjustl(Material_name))//'_error_log.txt'
    else
-    File_name = trim(adjustl(Output_path))//'/'//trim(adjustl(Material_name))//'_error_log.txt'
+      File_name = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Material_name))//'_error_log.txt'
    endif
-   open(unit = Error_message%File_Num, FILE = trim(adjustl(File_name)))
-   
+
+   ! Opening file for (possibly) parallel i/o in it:
+   if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+      open(unit = Error_message%File_Num, FILE = trim(adjustl(File_name)), action="write")
+   endif
+   !call MPI_fileopen_wrapper(MPI_param, trim(adjustl(File_name)), Error_message%File_Num, Error_message)  ! module "MPI_subroutines"
 
    !------------------------------------------------------
    ! Read CDF-material parameters:
@@ -404,39 +477,62 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       Material_file = trim(adjustl(m_INPUT_CDF))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Material_name))//'.cdf'
       Short_material_file = trim(adjustl(m_INPUT_CDF))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Material_name))//'.scdf'
    endif
-   call reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, aidCS, Error_message, read_well) ! below
+
+   call reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, &
+                                    aidCS, Error_message, read_well, MPI_param) ! below
+   !------------------------------------------------------
+   ! MPI master process shares if the file read well or not:
+#ifdef MPI_USED
+   call mpi_bcast(read_well, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'reading_material_parameters:{read_well}') ! module "MPI_subroutines"
+#endif
+   !------------------------------------------------------
    if (.not. read_well) goto 2015
+   !------------------------------------------------------
+   ! MPI master process shares (CDF) material info with all worker-processes:
+   call broadcast_material_parameters(Target_atoms, NumPar, CDF_Phonon, Matter, aidCS, MPI_param)   ! below
+   !------------------------------------------------------
    
    do i = 1, size(Target_atoms) ! all atoms
        temp2(1) = maxval(Target_atoms(i)%KOCS_SHI(:)) ! check if there is at least one shell for which we use BEB instead of CDF
        if (temp2(1) .GE. 2) then ! BEB cross sections are used, then:
-         print*, 'Cannot use Brandt-Kitagawa model with BEB cross section, using point charge instead'
+         if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+            print*, 'Cannot use Brandt-Kitagawa model with BEB cross section, using point charge instead'
+         endif
          SHI%Kind_ion = 0
          exit
       endif
    enddo
-   
+
+   !-----------------
+   ! Printout warning for too high (relativistic) or too low energies:
    if (SHI%Zat .GT. 0) then ! if there is an SHI:
        ! If SHI energy is too small:
        if (SHI%E .LE. (SHI%Mass*g_Mp + g_me)*(SHI%Mass*g_Mp + g_me)/(SHI%Mass*g_Mp*g_me)*Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))/4.0d0) then
-           write(*,'(a,e,a,e,a)') 'The SHI energy is ', SHI%E, ' [eV] which is smaller than the minimum allowed energy of ', (SHI%Mass*g_Mp + g_me)*(SHI%Mass*g_Mp + g_me)/(SHI%Mass*g_Mp*g_me)*Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))/4.0d0, ' [eV]'
-           print*, 'Calculations cannot be performed, sorry. Try to increase the ion energy.'
+           if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+               write(*,'(a,e,a,e,a)') 'The SHI energy is ', SHI%E, ' [eV] which is smaller than the minimum allowed energy of ', (SHI%Mass*g_Mp + g_me)*(SHI%Mass*g_Mp + g_me)/(SHI%Mass*g_Mp*g_me)*Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))/4.0d0, ' [eV]'
+               print*, 'Calculations cannot be performed, sorry. Try to increase the ion energy.'
+           endif
            read_well = .false.  ! under such conditions, calculations cannot be performed
+           goto 2015
        endif
-       if (SHI%E .LE. (SHI%Mass*g_Mp + g_me)*(SHI%Mass*g_Mp + g_me)/(SHI%Mass*g_Mp*g_me)*Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))/4.0d0) goto 2015
        ! if SHI energy is too high (relativistic):
        if (SHI%E .GE. 175.0d6/2.0d0*SHI%Mass) then
-           write(*,'(a,f17.3,a,f17.3,a)') 'The SHI energy is ', SHI%E, ' [eV] which is higher than the maximum allowed energy of ', 175.0d6/2.0d0*SHI%Mass, ' [eV]'
-           print*, 'Calculations cannot be performed, sorry. Try to decrease the ion energy.'
+           if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+               write(*,'(a,f17.3,a,f17.3,a)') 'The SHI energy is ', SHI%E, ' [eV] which is higher than the maximum allowed energy of ', 175.0d6/2.0d0*SHI%Mass, ' [eV]'
+               print*, 'Calculations cannot be performed, sorry. Try to decrease the ion energy.'
+           endif
            read_well = .false.  ! under such conditions, calculations cannot be performed
+           goto 2015
        else if (SHI%E .GE. 175.0d6/4.0d0*SHI%Mass) then
-           write(*,'(a,f17.3,a,f17.3,a)') 'The SHI energy is ', SHI%E, ' [eV] which is higher than the energy of ', 17.50d6*SHI%Mass, ' [eV]'
-           print*, 'Note that the calculations might not be very reliable, since NO relativistic effects are included!'
+           if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+               write(*,'(a,f17.3,a,f17.3,a)') 'The SHI energy is ', SHI%E, ' [eV] which is higher than the energy of ', 17.50d6*SHI%Mass, ' [eV]'
+               print*, 'Note that the calculations might not be very reliable, since NO relativistic effects are included!'
+           endif
        else
+         ! all good
        endif
-       if (SHI%E .GE. 175.0d6/2.0d0*SHI%Mass) goto 2015
    endif
-
 
    !------------------------------------------------------
    ! Read VB DOS file:
@@ -445,30 +541,61 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    else ! assume default name:
       DOS_file = trim(adjustl(m_INPUT_DOS))//trim(adjustl(NumPar%path_sep))//trim(adjustl(Material_name))//'.dos'
    endif
-   call reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar, Error_message, read_well)    ! read material DOS
+   call reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar, Error_message, read_well, MPI_param)    ! read material DOS
+   !------------------------------------------------------
+   ! MPI master process shares if the file read well or not:
+#ifdef MPI_USED
+   call mpi_bcast(read_well, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'reading_material_DOS:{read_well}') ! module "MPI_subroutines"
+#endif
+   !------------------------------------------------------
    if (.not. read_well) goto 2015
+   !------------------------------------------------------
+   ! MPI master process shares (CDF) material info with all worker-processes:
+   call broadcast_material_DOS(Mat_DOS, MPI_param)   ! below
+   !------------------------------------------------------
 
-   temp_char1 = 'OUTPUT_'//trim(adjustl(Material_name))//'_DOS_analysis.dat'
-   File_names%F(9) = trim(adjustl(temp_char1))  ! save for plotting later
-   open(25, file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char1)))
-   write(25, *) '#E[eV]   k[1/m]   DOS[a.u.]    Int_DOS[a.u.]   Eff_mass[me]'
-   if (Target_atoms(1)%Ip(size(Target_atoms(1)%Ip)) .LT. 0.2d0) then      ! Metal: Use DOS from bottom of CB to calculate dispersion relation
+
+   ! Printout DOS parameters:
+   if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+      temp_char1 = 'OUTPUT_'//trim(adjustl(Material_name))//'_DOS_analysis.dat'
+      File_names%F(9) = trim(adjustl(temp_char1))  ! save for plotting later
+      open(25, file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char1)))
+      write(25, *) '#E[eV]   k[1/m]   DOS[a.u.]    Int_DOS[a.u.]   Eff_mass[me]'
+      if (Target_atoms(1)%Ip(size(Target_atoms(1)%Ip)) .LT. 0.2d0) then      ! Metal: Use DOS from bottom of CB to calculate dispersion relation
         do i = 1, size(Mat_DOS%E)
             write(25,'(e,e,e,e,e)') Mat_DOS%E(i), Mat_DOS%k_inv(i), Mat_DOS%DOS_inv(i), Mat_DOS%int_DOS_inv(i), Mat_DOS%Eff_m_inv(i)
         enddo
-   else         !! Insulator or semoconductor: Use DOS from top of CB to calculate dispersion relation
+      else         !! Insulator or semoconductor: Use DOS from top of CB to calculate dispersion relation
         do i = 1, size(Mat_DOS%k)
             write(25,'(e,e,e,e,e)') Mat_DOS%E(i), Mat_DOS%k(i), Mat_DOS%DOS(i), Mat_DOS%int_DOS(i), Mat_DOS%Eff_m(i)
         enddo
-   endif
-   close(25)
+      endif
+      close(25)
+   endif ! (MPI_param%process_rank == 0)
 
+
+   ! DSF files:
    if (NumPar%kind_of_EMFP .EQ. 2) then
-       call reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message, read_well)
+       call reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message, read_well, MPI_param) ! below
+       !------------------------------------------------------
+       ! MPI master process shares (CDF) material info with all worker-processes:
+       call broadcast_DSF_cross_sections(DSF_DEMFP, read_well, NumPar, MPI_param, 'DSF_DEMFP')   ! below
+       !------------------------------------------------------
+       if (.not. read_well) goto 2015
+
        ! Find out when this file was last modified:
-       call get_file_stat(trim(adjustl(DSF_file)), Last_modification_time=NumPar%Last_mod_time_DSF) ! above
+       if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         call get_file_stat(trim(adjustl(DSF_file)), Last_modification_time=NumPar%Last_mod_time_DSF) ! above
+       endif
        !print*, 'DSF file last modified on:', NumPar%Last_mod_time_DSF
-       call reading_DSF_cross_sections(DSF_file_h, DSF_DEMFP_H, NumPar, Error_message, read_well)
+
+       call reading_DSF_cross_sections(DSF_file_h, DSF_DEMFP_H, NumPar, Error_message, read_well, MPI_param)   ! below
+       !------------------------------------------------------
+       ! MPI master process shares (CDF) material info with all worker-processes:
+       call broadcast_DSF_cross_sections(DSF_DEMFP_H, read_well, NumPar, MPI_param, 'DSF_DEMFP_H')   ! below
+       !------------------------------------------------------
+       if (.not. read_well) goto 2015
    else
       allocate(DSF_DEMFP(0))
       allocate(DSF_DEMFP_H(0))
@@ -476,29 +603,273 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
 
 
    if (NumPar%CDF_elast_Zeff == 2) then   ! elastic cross section requires form factors:
-      FN2 = 26
-      open(FN2, file = trim(adjustl(m_atomic_folder))//trim(adjustl(NumPar%path_sep))//trim(adjustl(m_form_factors_file)))
-      call read_form_factors(FN2, Matter%form_factor, Error_message, read_well)  ! below
+      ! Independent reads for each process, no need for MPI-specific reads
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         FN2 = 26
+         open(FN2, file = trim(adjustl(m_atomic_folder))//trim(adjustl(NumPar%path_sep))//trim(adjustl(m_form_factors_file)))
+         call read_form_factors(FN2, Matter%form_factor, Error_message, read_well, MPI_param)  ! below
+         close(26)
+      endif
+      !------------------------------------------------------
+      ! MPI master process shares (CDF) material info with all worker-processes:
+      call broadcast_form_factors(Matter%form_factor, read_well, MPI_param)   ! below
+      !------------------------------------------------------
       if (.not. read_well) goto 2015
-      close(26)
+   endif
+   
+!2013 if (.not. read_well) print*, 'Error in INPUT_PARAMETERS.txt file or input files. See log!!'
+2013 if (.not. read_well) then
+      Error_descript = 'Error in '//trim(adjustl(m_INPUT_file)) //' file or input files. See log!!'
+#ifdef MPI_USED
+      Error_descript = trim(adjustl(Error_descript))//' [MPI process #'//trim(adjustl(MPI_param%rank_ch))//']'
+#endif
+      if (MPI_param%process_rank == 0) print*, trim(adjustl(Error_descript))
    endif
 
-   
-!2013 if (.not. read_well) print*, 'Error in INPUT_PARAMETERS.txt file or inrut files. See log!!'
-2013 if (.not. read_well) print*, 'Error in '//trim(adjustl(m_INPUT_file)) //' file or inrut files. See log!!'
-
 2015 continue   ! if we must skip to the end for some reason
-   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
-   if (file_opened) close(FN)             ! and if it is, close it
+   if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+      inquire(unit=FN,opened=file_opened)    ! check if this file is opened
+      if (file_opened) close(FN)             ! and if it is, close it
+   endif
 end subroutine Read_input_file
 
 
 
-subroutine read_form_factors(FN, form_factor, Err, read_well)
+
+subroutine broadcast_input_data(NumPar, Matter, Material_name, SHI, Tim, dt, NMC, Num_th, MPI_param)
+   type(Flag), intent(inout) :: NumPar ! numerical parameters
+   type(Solid), intent(inout) :: Matter   ! material properties
+   character(*), intent(inout) :: Material_name   ! path for the output files
+   class(Ion), intent (inout) :: SHI  ! we'll read an information about SHI from input-file
+   real(8), intent(inout) :: Tim !  [fs] total duration of the analysis
+   real(8), intent(inout) :: dt  !  [fs] timestep
+   integer, intent(inout) :: NMC ! number of MC iterations
+   integer, intent(inout) :: Num_th   ! number of threads for parralel calculations with openmp
+   type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
+   !-------------------------------------------
+   integer :: Nsiz
+   character(100):: error_part
+
+#ifdef MPI_USED
+
+   error_part = 'ERROR in broadcast_input_data:'
+
+   ! Mater thread shares info read from the input file with all the other processes:
+
+   Nsiz = LEN(Material_name)
+   call mpi_bcast(Material_name, Nsiz, MPI_CHARACTER, 0,MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Material_name}') ! module "MPI_subroutines"
+   !print*, '[process #', MPI_param%process_rank, ']', trim(adjustl(Material_name)), LEN(trim(adjustl(Material_name)))
+
+   call mpi_bcast(SHI%Zat, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {SHI%Zat}') ! module "MPI_subroutines"
+
+   Nsiz = LEN(SHI%Name)
+   call mpi_bcast(SHI%Name, Nsiz, &
+                  MPI_CHARACTER, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {SHI%Name}') ! module "MPI_subroutines"
+
+   Nsiz = LEN(SHI%Full_Name)
+   call mpi_bcast(SHI%Full_Name, Nsiz, &
+                  MPI_CHARACTER, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {SHI%Full_Name}') ! module "MPI_subroutines"
+
+   call mpi_bcast(SHI%Mass, 1, &
+                  MPI_DOUBLE_PRECISION, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {SHI%Mass}') ! module "MPI_subroutines"
+
+   call mpi_bcast(SHI%E, 1, &
+                  MPI_DOUBLE_PRECISION, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {SHI%E}') ! module "MPI_subroutines"
+
+   ! For processes that didn't do it yet:
+   if (MPI_param%process_rank /= 0) then
+      call Particle_event(SHI, E=SHI%E, t0=0.0d0, tn=0.0d0, X=0.0d0, Y=0.0d0, Z=0.0d0) ! set initial data
+   endif
+
+   call mpi_bcast(Tim, 1, &
+                  MPI_DOUBLE_PRECISION, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Tim}') ! module "MPI_subroutines"
+
+   call mpi_bcast(dt, 1, &
+                  MPI_DOUBLE_PRECISION, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {dt}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%dt_flag, 1, &
+                  MPI_INTEGER, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%dt_flag}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%cut_off, 1, &
+                  MPI_DOUBLE_PRECISION, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Matter%cut_off}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%Layer, 1, &
+                  MPI_DOUBLE_PRECISION, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Matter%Layer}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%temp, 1, &
+                  MPI_DOUBLE_PRECISION, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Matter%temp}') ! module "MPI_subroutines"
+
+   call mpi_bcast(SHI%Kind_Zeff, 1, &
+                  MPI_INTEGER, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {SHI%Kind_Zeff}') ! module "MPI_subroutines"
+
+   call mpi_bcast(SHI%fixed_Zeff, 1, &
+                  MPI_DOUBLE_PRECISION, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {SHI%fixed_Zeff}') ! module "MPI_subroutines"
+
+   call mpi_bcast(SHI%Kind_ion, 1, &
+                  MPI_INTEGER, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {SHI%Kind_ion}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%kind_of_EMFP, 1, &
+                  MPI_INTEGER, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%kind_of_EMFP}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%CDF_elast_Zeff, 1, &
+                  MPI_INTEGER, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%CDF_elast_Zeff}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%kind_of_DR, 1, &
+                  MPI_INTEGER, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%kind_of_DR}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%El_eff_mass, 1, &
+                  MPI_DOUBLE_PRECISION, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Matter%El_eff_mass}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%plasmon_Emax, 1, &
+                  MPI_LOGICAL, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%plasmon_Emax}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%hole_mass, 1, &
+                  MPI_DOUBLE_PRECISION, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Matter%hole_mass}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%include_photons, 1, &
+                  MPI_LOGICAL, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%include_photons}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%work_function, 1, &
+                  MPI_DOUBLE_PRECISION, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Matter%work_function}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%bar_length, 1, &
+                  MPI_DOUBLE_PRECISION, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Matter%bar_length}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%bar_height, 1, &
+                  MPI_DOUBLE_PRECISION, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Matter%bar_height}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NMC, 1, &
+                  MPI_INTEGER, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NMC}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Num_th, 1, &
+                  MPI_INTEGER, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Num_th}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%CS_method, 1, &
+                  MPI_INTEGER, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%CS_method}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%out_dim, 1, &
+                  MPI_INTEGER, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%out_dim}') ! module "MPI_subroutines"
+
+   Nsiz = LEN(NumPar%CDF_file)
+   call mpi_bcast(NumPar%CDF_file, Nsiz, &
+                  MPI_CHARACTER, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%CDF_file}') ! module "MPI_subroutines"
+
+   Nsiz = LEN(NumPar%DOS_file)
+   call mpi_bcast(NumPar%DOS_file, Nsiz, &
+                  MPI_CHARACTER, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%DOS_file}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%redo_IMFP, 1, &
+                  MPI_LOGICAL, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%redo_IMFP}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%redo_EMFP, 1, &
+                  MPI_LOGICAL, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%redo_EMFP}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%redo_IMFP_SHI, 1, &
+                  MPI_LOGICAL, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%redo_IMFP_SHI}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%get_thermal, 1, &
+                  MPI_LOGICAL, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%get_thermal}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%print_CDF, 1, &
+                  MPI_LOGICAL, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%print_CDF}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%print_CDF_optical, 1, &
+                  MPI_LOGICAL, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%print_CDF_optical}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%verbose, 1, &
+                  MPI_LOGICAL, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%verbose}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%very_verbose, 1, &
+                  MPI_LOGICAL, 0, &
+                  MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {NumPar%very_verbose}') ! module "MPI_subroutines"
+#endif
+
+end subroutine broadcast_input_data
+
+
+
+
+subroutine read_form_factors(FN, form_factor, Err, read_well, MPI_param)
    integer, intent(in) :: FN  ! file number with the database
    real(8), dimension(:,:), allocatable, intent(inout) :: form_factor   ! coefficients used to construct form factors
    type(Error_handling), intent(inout) :: Err	! error log
    logical, intent(inout) :: read_well
+   type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
    !----------------------------------
    real(8), dimension(:), allocatable :: read_vec	! to read the coeffs
    integer :: N_line, i, j, Reason, count_lines
@@ -522,7 +893,10 @@ subroutine read_form_factors(FN, form_factor, Err, read_well)
          form_factor(i,:) = read_vec(:)   ! save into working array
       else
          write(Error_descript,'(a,i3)') 'In read_form_factors could not read line ', count_lines
-         call Save_error_details(Err, 2, Error_descript)	! module "Objects"
+#ifdef MPI_USED
+         Error_descript = trim(adjustl(Error_descript))//' [MPI process #'//trim(adjustl(MPI_param%rank_ch))//']'
+#endif
+         call Save_error_details(Err, 2, Error_descript, MPI_param)	! module "Objects"
          return
       endif
    enddo
@@ -533,10 +907,48 @@ subroutine read_form_factors(FN, form_factor, Err, read_well)
 end subroutine read_form_factors
 
 
+subroutine broadcast_form_factors(form_factor, read_well, MPI_param)   ! below
+   real(8), dimension(:,:), allocatable, intent(inout) :: form_factor   ! coefficients used to construct form factors
+   logical, intent(inout) :: read_well
+   type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
+   !---------------------------------------
+   integer :: N1, N2
+   character(100):: error_part
 
-subroutine interpret_additional_data_INPUT(text_in, NumPar)
+#ifdef MPI_USED
+   error_part = 'ERROR in broadcast_form_factors:'
+   call mpi_bcast(read_well, 1, MPI_LOGICAL, 0,MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {form_factor:read_well}') ! module "MPI_subroutines"
+
+   ! Mater thread shares info read from the input file with all the other processes:
+   if (MPI_param%process_rank == 0) then
+      N1 = size(form_factor,1)
+      N2 = size(form_factor,2)
+   else  ! unknown sze yet
+      N1 = 0
+      N2 = 0
+   endif
+   call mpi_bcast(N1, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {form_factor:N1}') ! module "MPI_subroutines"
+   call mpi_bcast(N2, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {form_factor:N2}') ! module "MPI_subroutines"
+
+   if (MPI_param%process_rank /= 0) then
+      if (.not.allocated(form_factor)) allocate(form_factor(N1,N2))
+   endif
+
+   call mpi_bcast(form_factor, N1*N2, MPI_DOUBLE_PRECISION, 0,MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {form_factor}') ! module "MPI_subroutines"
+#endif
+end subroutine broadcast_form_factors
+
+
+
+
+subroutine interpret_additional_data_INPUT(text_in, NumPar, MPI_param)
    character(*), intent(in) :: text_in ! text read from the file
    type(Flag), intent(inout) :: NumPar ! numerical parameters
+   type(Used_MPI_parameters), intent(in) :: MPI_param ! MPI parameters
    !------------------------------------
    character(100) :: text, text2, ch_temp
    integer :: i, Reason, i_read
@@ -558,8 +970,10 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
       call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
       if (.not. read_well) then  ! by default, use tabulated files
          !NumPar%CS_method = 1   ! was specified above in the default NumPar
-         print*, 'Could not interprete grid index in line: ', trim(adjustl(text_in)), ', using default'
-      else ! useк provided grid index
+         if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+            print*, 'Could not interprete grid index in line: ', trim(adjustl(text_in)), ', using default'
+         endif
+      else ! user provided grid index
          NumPar%CS_method = i_read
       endif
 
@@ -567,7 +981,9 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
       read(text_in, *, IOSTAT=Reason) text, i_read
       call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
       if (.not. read_well) then  ! default
-         print*, 'Could not interprete units index in line: ', trim(adjustl(text_in)), ', using default'
+         if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+            print*, 'Could not interprete units index in line: ', trim(adjustl(text_in)), ', using default'
+         endif
       else  ! use the provided name for DOS file:
          NumPar%out_dim = i_read
       endif
@@ -576,7 +992,9 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
       read(text_in, *, IOSTAT=Reason) text, text2
       call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
       if (.not. read_well) then  ! default
-         print*, 'Could not interprete CDF-file name in line: ', trim(adjustl(text_in)), ', using default'
+         if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+            print*, 'Could not interprete CDF-file name in line: ', trim(adjustl(text_in)), ', using default'
+         endif
       else  ! use the provided name for DOS file:
          NumPar%CDF_file = trim(adjustl(text2))
       endif
@@ -585,7 +1003,9 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
       read(text_in, *, IOSTAT=Reason) text, text2
       call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
       if (.not. read_well) then  ! default
-         print*, 'Could not interprete DOS-file name in line: ', trim(adjustl(text_in)), ', using default'
+         if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+            print*, 'Could not interprete DOS-file name in line: ', trim(adjustl(text_in)), ', using default'
+         endif
       else  ! use the provided name for DOS file:
          NumPar%DOS_file = trim(adjustl(text2))
       endif
@@ -605,69 +1025,93 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar)
       select case (trim(adjustl(NumPar%plot_extension)))
       case ('NO', 'No', 'no')
          NumPar%do_gnuplot = .false. ! no gnuplot to create plots
-         print*, 'No gnuplot scripts will be created'
+         if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+            print*, 'No gnuplot scripts will be created'
+         endif
       case default
-         print*, "Gnuplot scripts will be created with extension '."//trim(adjustl(NumPar%plot_extension))//"'"
+         if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+            print*, "Gnuplot scripts will be created with extension '."//trim(adjustl(NumPar%plot_extension))//"'"
+         endif
       end select
 
    case ('redo_MFP', 'REDO_MFP', 'Redo_MFP', 'redo_mfp')
       NumPar%redo_IMFP = .true. ! recalculate inelastic MFPs, if possible
       NumPar%redo_EMFP = .true. ! recalculate elastic MFPs, if possible
       NumPar%redo_IMFP_SHI = .true. ! recalculate SHI inelastic MFPs, if possible
-      print*, 'Mean free paths will be recalculated'
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'Mean free paths will be recalculated'
+      endif
 
    case ('redo_MFP_SHI', 'REDO_MFP_SHI', 'Redo_MFP_SHI', 'redo_mfp_shi', 'redo_IMFP_SHI', 'REDO_IMFP_SHI', 'Redo_IMFP_SHI', 'redo_imfp_shi')
       NumPar%redo_IMFP_SHI = .true. ! recalculate SHI inelastic MFPs, if possible
-      print*, 'Inelastic Mean free paths will be recalculate'
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'Inelastic Mean free paths will be recalculate'
+      endif
 
    case ('redo_IMFP', 'REDO_IMFP', 'Redo_IMFP', 'redo_imfp')
       NumPar%redo_IMFP = .true. ! recalculate inelastic MFPs, if possible
-      print*, 'Inelastic Mean free paths will be recalculated'
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'Inelastic Mean free paths will be recalculated'
+      endif
 
    case ('redo_EMFP', 'REDO_EMFP', 'Redo_EMFP', 'redo_emfp')
       NumPar%redo_EMFP = .true. ! recalculate elastic MFPs, if possible
-      print*, 'Elastic Mean free paths will be recalculated'
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'Elastic Mean free paths will be recalculated'
+      endif
 
    case ('get_thermal', 'thermal', 'make_thermal', 'Get_thermal', 'Thermal', 'Make_thermal')
       NumPar%get_thermal = .true.
-      print*, 'Thermal parameters will be calculated'
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'Thermal parameters will be calculated'
+      endif
 
    case ('print_CDF', 'Print_CDF', 'print_cdf', 'PRINT_CDF')
       NumPar%print_CDF = .true.
-      print*, 'File with CDF parameters will be printed out'
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'File with CDF parameters will be printed out'
+      endif
 
    case ('print_optical', 'Print_optical', 'Print_Optical', 'print_optical_cdf', 'PRINT_OPTICAL_CDF')
       NumPar%print_CDF_optical = .true.
-      print*, 'File with optical CDF will be printed out'
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'File with optical CDF will be printed out'
+      endif
 
    case ('Verbose', 'verbose', 'VERBOSE')
       NumPar%verbose = .true.
-      print*, 'Verbose option is on, TREKIS will print a lot of extra stuff...'
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'Verbose option is on, TREKIS will print a lot of extra stuff...'
+      endif
 
    case ('Very_verbose', 'very_verbose', 'VERY_VERBOSE', 'Very_Verbose', 'Very-verbose', 'very-verbose', 'VERY-VERBOSE', 'Very-Verbose')
       NumPar%verbose = .true.
       NumPar%very_verbose = .true.
-      print*, 'Very-verbose option is on, TREKIS will print A LOT of extra stuff...'
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'Very-verbose option is on, TREKIS will print A LOT of extra stuff...'
+      endif
 
    case ('INFO', 'Info', 'info')
-      print*, trim(adjustl(starline))
-      print*, trim(adjustl(starline))
-      print*, 'TREKIS-3 stands for: Time-Resolved Electron Kinteics in SHI-Irradiated Solids'
-      print*, 'For all details and instruction, address the files !READ_ME_TREKIS_3.doc or !READ_ME_TREKIS_3.pdf'
-      print*, 'DISCLAIMER'
-      print*, 'Although we endeavour to ensure that the code TREKIS-3 and results delivered are correct, no warranty is given as to its accuracy. We assume no responsibility for possible errors or omissions. We shall not be liable for any damage arising from the use of this code or its parts or any results produced with it, or from any action or decision taken as a result of using this code or any related material.', &
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, trim(adjustl(starline))
+         print*, trim(adjustl(starline))
+         print*, 'TREKIS-3 stands for: Time-Resolved Electron Kinteics in SHI-Irradiated Solids'
+         print*, 'For all details and instruction, address the files !READ_ME_TREKIS_3.doc or !READ_ME_TREKIS_3.pdf'
+         print*, 'DISCLAIMER'
+         print*, 'Although we endeavour to ensure that the code TREKIS-3 and results delivered are correct, no warranty is given as to its accuracy. We assume no responsibility for possible errors or omissions. We shall not be liable for any damage arising from the use of this code or its parts or any results produced with it, or from any action or decision taken as a result of using this code or any related material.', &
          'This code is distributed as is for non-commercial peaceful purposes only, such as research and education. It is explicitly prohibited to use the code, its parts, its results or any related material for military-related and other than peaceful purposes. By using this code or its materials, you agree with these terms and conditions.'
-      print*, 'HOW TO CITE'
-      print*, 'The use of the code is at your own risk. Should you choose to use it, please cite the following works.'
-      print*, 'The code itself: ', &
+         print*, 'HOW TO CITE'
+         print*, 'The use of the code is at your own risk. Should you choose to use it, please cite the following works.'
+         print*, 'The code itself: ', &
          'N. Medvedev, R. Rymzhanov, A.E. Volkov, (2023). TREKIS-3 [Computer software]. https://doi.org/10.5281/zenodo.8394462', &
          ' 1) N. Medvedev, R. A. Rymzhanov, A. E. Volkov, J. Phys. D. Appl. Phys. 48 (2015) 355303', &
          ' 2) R. A. Rymzhanov, N. Medvedev, A. E. Volkov, Nucl. Instrum. Methods B 388 (2016) 41', &
          'Should you use this code to create initial conditions for further molecular dynamics simulations of atomic response to the electronic excitation by a swift heavy ion (e.g. with LAMMPS), the following citation is required:', &
          ' 3) R. Rymzhanov, N. Medvedev, A. E. Volkov, J. Phys. D. Appl. Phys. 50 (2017) 475301', &
          'In a publication, we recommend that at least the following parameters should be mentioned for reproducibility of the results: material, its structure, density, speed of sound, the used CDF coefficients, which processes were included (active) in the simulation, ion type, its energy, the model for SHI charge, number of MC iterations.'
-      print*, trim(adjustl(starline))
-      print*, trim(adjustl(starline))
+         print*, trim(adjustl(starline))
+         print*, trim(adjustl(starline))
+      endif
    endselect
 end subroutine interpret_additional_data_INPUT
 
@@ -675,8 +1119,9 @@ end subroutine interpret_additional_data_INPUT
 
 
 ! Reads additional data from the command line passed along with the XTANT:
-subroutine get_add_data(NumPar)
+subroutine get_add_data(NumPar, MPI_param)
    type(Flag), intent(inout) :: NumPar ! numerical parameters
+   type(Used_MPI_parameters), intent(in) :: MPI_param ! MPI parameters
    !---------------
    character(1000) :: string
    integer :: i_arg, count_args, N_arg
@@ -691,20 +1136,26 @@ subroutine get_add_data(NumPar)
       call GET_COMMAND_ARGUMENT(i_arg, string)  ! intrinsic
 
       ! Act on the command passed:
-      call interpret_additional_data_INPUT(string, NumPar) ! above
+      call interpret_additional_data_INPUT(string, NumPar, MPI_param) ! above
 
    enddo ALLARG
 end subroutine get_add_data
 
 
 
-subroutine print_time_step(text, num, msec, print_to)
+subroutine print_time_step(text, MPI_param, num, msec, print_to)
    CHARACTER(len=*) :: text   ! text to print out
+   type(Used_MPI_parameters), intent(in) :: MPI_param ! MPI parameters
    real(8), intent(in), optional :: num   ! to print out this number
    logical, intent(in), optional :: msec  ! print msec or not?
    integer, intent(in), optional :: print_to ! file number to print to
+   !--------------------------------
    character(len=100) :: var
    integer :: FN, c1(8) ! time stamps
+
+   if (MPI_param%process_rank /= 0) then   ! only MPI master process does it
+      return   ! other processes do not do anything here
+   endif
 
    if (present(print_to)) then   ! file number
       FN = print_to
@@ -731,7 +1182,8 @@ end subroutine print_time_step
 
 
 
-subroutine reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, aidCS, Error_message, read_well)
+subroutine reading_material_parameters(Material_file, Short_material_file, Target_atoms, NumPar, CDF_Phonon, Matter, &
+                                       aidCS, Error_message, read_well, MPI_param)
    character(100), intent(in) :: Material_file, Short_material_file  ! files with material parameters (full or short)
    type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(Flag), intent(inout) :: NumPar ! numerical parameters
@@ -740,38 +1192,58 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
    type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
    logical, intent(inout) :: read_well  ! did we read the file well?
+   type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
    !-------------------------
    real(8) :: M, temp_r(5)
    integer FN2, Reason, i, j, k, l, N, Shl, CDF_coef, Shl_num, comment_start, Nsiz
-   character(100) Error_descript, temp, read_line
+   character(200) Error_descript, temp, read_line
    character(3) Name
    character(11) Shell_name
    character(30) Full_Name
    logical file_opened, file_exist, file_exist2
    type(CDF) :: Ritchi_temp  ! Ritchi CDF
    
+   read_well = .true.   ! no problem here
+
+   if (MPI_param%process_rank /= 0) then
+      return   ! nothing to do for non-master processes
+   endif
+
+
    FN2 = 201
+
    inquire(file=trim(adjustl(Material_file)),exist=file_exist)    ! check if the full input file exists
    inquire(file=trim(adjustl(Short_material_file)),exist=file_exist2)    ! check if the short input file exists
    if (file_exist) then
+      ! Independent read-only, no need for MPI-specific fileopen:
       open(unit = FN2, FILE = trim(adjustl(Material_file)), status = 'old', readonly)   ! yes, open full file and read
+      !call MPI_fileopen_wrapper(MPI_param, trim(adjustl(Material_file)), FN2, Error_message, readonly=.true.)  ! module "MPI_subroutines"
+
       ! Save CDF-file name for output:
       NumPar%CDF_file = trim(adjustl(Material_file))
       ! Find out when this file was last modified:
       call get_file_stat(trim(adjustl(Material_file)), Last_modification_time=NumPar%Last_mod_time_CDF) ! above
       !print*, 'CDF file last modified on:', NumPar%Last_mod_time_CDF
    else if (file_exist2) then ! if at least short version exists, the rest can be used within atomic approximation
+      ! Independent read-only, no need for MPI-specific fileopen:
       open(unit=FN2, FILE = trim(adjustl(Short_material_file)), status = 'old', readonly)   ! yes, open full file and read
+      !call MPI_fileopen_wrapper(MPI_param, trim(adjustl(Short_material_file)), FN2, Error_message, readonly=.true.)  ! module "MPI_subroutines"
+
       ! Save CDF-file name for output:
       NumPar%CDF_file = trim(adjustl(Short_material_file))
       ! Find out when this file was last modified:
       call get_file_stat(trim(adjustl(Short_material_file)), Last_modification_time=NumPar%Last_mod_time_CDF) ! above
-      call read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_message, read_well)
+      call read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_message, read_well, MPI_param) ! below
       goto 2014 ! short version is done, skip reading the long one below
    else ! if no, save error message about it:
-      Error_descript = 'File '//trim(adjustl(Material_file))//' is not found!'    ! description of an error
-      call Save_error_details(Error_message, 2, Error_descript) ! write it into the error-log file
-      print*, trim(adjustl(Error_descript)) ! print it also on the sreen
+      !if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         Error_descript = 'File '//trim(adjustl(Material_file))//' is not found!'    ! description of an error
+#ifdef MPI_USED
+         Error_descript = trim(adjustl(Error_descript))//' [MPI process #'//trim(adjustl(MPI_param%rank_ch))//']'
+#endif
+         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
+         call Save_error_details(Error_message, 2, Error_descript, MPI_param) ! write it into the error-log file
+      !endif
       read_well = .false.   ! it didn't read well the input file...
       goto 2014 ! go to the end of the subroutine, there is nothing else we could do
    endif
@@ -821,10 +1293,13 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
       call Decompose_compound(temp, Numpar%path_sep, Target_atoms, read_well) ! from module "Dealing_with_EADL"
       if (.not.read_well) goto 2014
       N = size(Target_atoms) ! that's how many atoms we have
-      print*, 'The material formula ', trim(adjustl(temp)), ' was interpreted as:'
-      do j = 1, N  ! read for each element it's basic data:
-         write(*,'(a,a,a,i3,a,f5.1,a,f7.2)') 'Atom ', Target_atoms(j)%Name, ' number #', Target_atoms(j)%Zat, ', composition: ', Target_atoms(j)%Pers, ', mass', Target_atoms(j)%Mass
-      enddo
+
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'The material formula ', trim(adjustl(temp)), ' was interpreted as:'
+         do j = 1, N  ! read for each element it's basic data:
+            write(*,'(a,a,a,i3,a,f5.1,a,f7.2)') 'Atom ', Target_atoms(j)%Name, ' number #', Target_atoms(j)%Zat, ', composition: ', Target_atoms(j)%Pers, ', mass', Target_atoms(j)%Mass
+         enddo
+      endif
    else ! if it is a number:
       call read_file(Reason, i, read_well) ! reports if everything read well
       if (.not. read_well) goto 2014
@@ -952,14 +1427,16 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
       enddo ! while (Reason == 0)
       !pause 'TEST CDF'
 
-      if (.not.NumPar%VB_CDF_defined) then
-         write(*,'(a)') ' No CDF parameters found in the file '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
-      else
-         write(*,'(a)') ' Only VB CDF found in the file '//trim(adjustl(Material_file))//'. For the rest, using single-pole approximation.'
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         if (.not.NumPar%VB_CDF_defined) then
+            write(*,'(a)') ' No CDF parameters found in the file '//trim(adjustl(Material_file))//'. Using single-pole approximation.'
+         else
+            write(*,'(a)') ' Only VB CDF found in the file '//trim(adjustl(Material_file))//'. For the rest, using single-pole approximation.'
+         endif
       endif
 
       ! Read the atomic parameters from EPICS-database:
-      call check_atomic_parameters(NumPar, Target_atoms, Error_message=Error_message, read_well=read_well) ! from module 'Dealing_with_EADL'
+      call check_atomic_parameters(NumPar, Target_atoms, Error_message=Error_message, read_well=read_well, MPI_param=MPI_param) ! from module 'Dealing_with_EADL'
 
       ! Construct the valence band form the valence atomic shells:
       call make_valence_band(Target_atoms, NumPar, Matter, Error_message, read_well) ! below
@@ -1072,7 +1549,7 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
             Target_atoms(j)%Shell_name(k) = Shell_name    ! save the name of this shell
 
             ! If some data are missing in the input file, get it from EADL database:
-            call check_atomic_parameters(NumPar, Target_atoms, j, k, shl, Error_message, read_well) ! from module 'Dealing_with_EADL'
+            call check_atomic_parameters(NumPar, Target_atoms, j, k, shl, Error_message, read_well, MPI_param) ! from module 'Dealing_with_EADL'
 
             if (Target_atoms(j)%Ip(k) .LT. 1.0d-1) Target_atoms(j)%Ip(k) = 1.0d-1 ! [eV], introduce at least a minimum "band gap"
             if (CDF_coef .GT. 0) then ! there is CDF to be used in a cross section
@@ -1160,9 +1637,352 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
 
 2014 continue   ! if we must skip to the end for some reason
    if (.not. read_well) print*, trim(adjustl(Material_file))
+   ! Independent file opens, no need for MPI-specific file-close:
    inquire(unit=FN2,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN2)             ! and if it is, close it
+   !call MPI_fileclose_wrapper(MPI_param, FN2, Error_message)   ! module "MPI_subroutines"
 end subroutine reading_material_parameters
+
+
+
+subroutine broadcast_material_parameters(Target_atoms, NumPar, CDF_Phonon, Matter, aidCS, MPI_param) ! MPI-related routine
+   type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+   type(Flag), intent(inout) :: NumPar ! numerical parameters
+   type(CDF), intent(inout) :: CDF_Phonon   ! CDF parameters for phonon to be read from a file
+   type(Solid), intent(inout) :: Matter   ! all material parameters
+   type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
+   type(Used_MPI_parameters), intent(inout) :: MPI_param
+   !------------------------------------------
+   integer :: Nsiz, i, j, k, l, Nat, N1, N2, N3, N4
+   character(100) :: error_part
+   logical :: do_broadcast, do_broadcast2, do_broadcast1
+
+#ifdef MPI_USED
+   ! initialize:
+   do_broadcast = .false.
+   do_broadcast1 = .false.
+   do_broadcast2 = .false.
+
+   error_part = 'ERROR in broadcast_material_parameters'
+
+   Nsiz = LEN(NumPar%CDF_file)
+   call mpi_bcast(NumPar%CDF_file, Nsiz, MPI_CHARACTER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {CDF_file}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%VB_CDF_defined, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {VB_CDF_defined}') ! module "MPI_subroutines"
+
+   Nsiz = LEN(Matter%Target_name)
+   call mpi_bcast(Matter%Target_name, Nsiz, MPI_CHARACTER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_name}') ! module "MPI_subroutines"
+
+   Nsiz = LEN(Matter%Chem)
+   call mpi_bcast(Matter%Chem, Nsiz, MPI_CHARACTER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Chem}') ! module "MPI_subroutines"
+
+   if (MPI_param%process_rank == 0) then
+      Nat = size(Target_atoms)   ! define number of atoms in the compound
+   else
+      Nat = 0  ! unknown yet, get from the master process
+   endif
+   call mpi_bcast(Nat, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Nat}') ! module "MPI_subroutines"
+   if (.not.allocated(Target_atoms)) allocate(Target_atoms(Nat))
+
+   !------------------------------------------------------
+   ! Synchronize MPI processes: make sure all processes know the size of the Target_atoms and allocated it
+   call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+   !------------------------------------------------------
+   ! Now we know the numer of atoms in the compound, define the parameters of each:
+   do i = 1, Nat
+      call mpi_bcast(Target_atoms(i)%Zat, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Zat}') ! module "MPI_subroutines"
+
+      call mpi_bcast(Target_atoms(i)%Pers, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Pers}') ! module "MPI_subroutines"
+
+      call mpi_bcast(Target_atoms(i)%Mass, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Mass}') ! module "MPI_subroutines"
+
+      Nsiz = LEN(Target_atoms(i)%Name)
+      call mpi_bcast(Target_atoms(i)%Name, Nsiz, MPI_CHARACTER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Name}') ! module "MPI_subroutines"
+
+      Nsiz = LEN(Target_atoms(i)%Full_Name)
+      call mpi_bcast(Target_atoms(i)%Full_Name, Nsiz, MPI_CHARACTER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Full_Name}') ! module "MPI_subroutines"
+      !print*, '[Process #', MPI_param%process_rank, '] B:', i, Target_atoms(i)%Zat, Target_atoms(i)%Pers, Target_atoms(i)%Mass, Target_atoms(i)%Name, Target_atoms(i)%Full_Name
+
+   enddo
+
+   call mpi_bcast(Matter%Dens, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Dens}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%At_Dens, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {At_Dens}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%v_f, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {v_f}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%Vsound, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Vsound}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%E_F, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {E_F}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%Egap, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Egap}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%N_VB_el, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {N_VB_el}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%Layer, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Layer}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%work_function, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {work_function}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%bar_length, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {bar_length}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%bar_height, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {bar_height}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%hole_mass, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {hole_mass}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%El_eff_mass, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {El_eff_mass}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%v_f, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {v_f}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%cut_off, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {cut_off}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%temp, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {temp}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Matter%cut_off, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {cut_off}') ! module "MPI_subroutines"
+
+   ! That's how to deal with an array, if it is unknown whether it is allocated or not:
+   do_broadcast = allocated(Matter%form_factor) ! to chech if we need to do the broadcas or not
+   call mpi_bcast(do_broadcast, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {do_broadcast #1}') ! module "MPI_subroutines"
+   !------------------------------------------------------
+   ! Synchronize MPI processes: make sure all processes know the size of the form_factor and allocated it
+   call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+   !------------------------------------------------------
+   if (do_broadcast) then  ! broadcast the form-factors, only if they were allocated
+      if (MPI_param%process_rank == 0) then
+         N1 = size(Matter%form_factor,1)
+         N2 = size(Matter%form_factor,2)
+      else
+         N1 = 0
+         N2 = 0
+      endif
+      call mpi_bcast(N1, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {N1}') ! module "MPI_subroutines"
+      call mpi_bcast(N2, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {N2}') ! module "MPI_subroutines"
+      !------------------------------------------------------
+      ! Synchronize MPI processes: make sure all processes know the size of the form_factor and allocated it
+      call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+      !------------------------------------------------------
+      if (MPI_param%process_rank /= 0) then  ! knowing the size, allocate the arrays
+         if (.not.allocated(Matter%form_factor)) allocate(Matter%form_factor(N1,N2))
+      endif
+      call mpi_bcast(Matter%form_factor, N1*N2, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {form_factor}') ! module "MPI_subroutines"
+      !print*, '[Process #', MPI_param%process_rank, '] N:', size(Matter%form_factor,1), size(Matter%form_factor,2), Matter%form_factor(2,3)
+   endif
+
+   call mpi_bcast(NumPar%kind_of_CDF, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {kind_of_CDF}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%kind_of_CDF_ph, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {kind_of_CDF_ph}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%VB_CDF_defined, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {VB_CDF_defined}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%phonon_CDF_defined, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {phonon_CDF_defined}') ! module "MPI_subroutines"
+
+      ! Now we know the numer of atoms in the compound, define the parameters of each:
+   do i = 1, Nat
+      call mpi_bcast(Target_atoms(i)%N_shl, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%N_shl}') ! module "MPI_subroutines"
+      !------------------------------------------------------
+      ! Synchronize MPI processes: make sure all processes know the size of the form_factor and allocated it
+      call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+      !------------------------------------------------------
+      ! Now we can allocate the target-atoms shells-related arrays:
+      if (MPI_param%process_rank /= 0) then  ! knowing the size, allocate the arrays
+         if (.not.allocated(Target_atoms(i)%Shell_name)) allocate(Target_atoms(i)%Shell_name(Target_atoms(i)%N_shl))
+         if (.not.allocated(Target_atoms(i)%Shl_num)) allocate(Target_atoms(i)%Shl_num(Target_atoms(i)%N_shl))
+         if (.not.allocated(Target_atoms(i)%Nel)) allocate(Target_atoms(i)%Nel(Target_atoms(i)%N_shl))
+         if (.not.allocated(Target_atoms(i)%Ip)) allocate(Target_atoms(i)%Ip(Target_atoms(i)%N_shl))
+         if (.not.allocated(Target_atoms(i)%Ek)) allocate(Target_atoms(i)%Ek(Target_atoms(i)%N_shl))
+         if (.not.allocated(Target_atoms(i)%Auger)) allocate(Target_atoms(i)%Auger(Target_atoms(i)%N_shl))
+         if (.not.allocated(Target_atoms(i)%Radiat)) allocate(Target_atoms(i)%Radiat(Target_atoms(i)%N_shl))
+         if (.not.allocated(Target_atoms(i)%Ritchi)) allocate(Target_atoms(i)%Ritchi(Target_atoms(i)%N_shl))
+         if (.not.allocated(Target_atoms(i)%PQN)) allocate(Target_atoms(i)%PQN(Target_atoms(i)%N_shl))
+         if (.not.allocated(Target_atoms(i)%KOCS)) allocate(Target_atoms(i)%KOCS(Target_atoms(i)%N_shl))
+         if (.not.allocated(Target_atoms(i)%KOCS_SHI)) allocate(Target_atoms(i)%KOCS_SHI(Target_atoms(i)%N_shl))
+      endif
+      ! Now, broadcast the values into these arrays:
+      Nsiz = size(Target_atoms(i)%Shell_name)
+      N1 = LEN(Target_atoms(i)%Shell_name(1))
+      call mpi_bcast(Target_atoms(i)%Shell_name, Nsiz*N1, MPI_CHARACTER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Shell_name}') ! module "MPI_subroutines"
+
+      call mpi_bcast(Target_atoms(i)%Shl_num, Nsiz, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Shl_num}') ! module "MPI_subroutines"
+
+      call mpi_bcast(Target_atoms(i)%Nel, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Nel}') ! module "MPI_subroutines"
+
+      call mpi_bcast(Target_atoms(i)%Ip, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Ip}') ! module "MPI_subroutines"
+
+      call mpi_bcast(Target_atoms(i)%Ek, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Ek}') ! module "MPI_subroutines"
+
+      call mpi_bcast(Target_atoms(i)%Auger, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Auger}') ! module "MPI_subroutines"
+
+      do_broadcast = allocated(Target_atoms(i)%Radiat) ! to chech if we need to do the broadcas or not
+      call mpi_bcast(do_broadcast, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {do_broadcast #2}') ! module "MPI_subroutines"
+      if (do_broadcast) then
+         call mpi_bcast(Target_atoms(i)%Radiat, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+         call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Radiat}') ! module "MPI_subroutines"
+      endif
+
+      call mpi_bcast(Target_atoms(i)%PQN, Nsiz, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%PQN}') ! module "MPI_subroutines"
+
+      call mpi_bcast(Target_atoms(i)%KOCS, Nsiz, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%KOCS}') ! module "MPI_subroutines"
+
+      call mpi_bcast(Target_atoms(i)%KOCS_SHI, Nsiz, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%KOCS_SHI}') ! module "MPI_subroutines"
+
+      do_broadcast1 = allocated(Target_atoms(i)%Ritchi)
+      call mpi_bcast(do_broadcast1, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {do_broadcast1 #2.5}') ! module "MPI_subroutines"
+
+      if (do_broadcast1) then
+       do j = 1, size(Target_atoms(i)%Ritchi) ! all CDF oscillators for each shell
+         ! Check if Ritchi oscillators are allocated:
+         do_broadcast = allocated(Target_atoms(i)%Ritchi(j)%E0) ! to chech if we need to do the broadcas or not
+         call mpi_bcast(do_broadcast, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+         call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {do_broadcast #3}') ! module "MPI_subroutines"
+
+         if (do_broadcast) then
+            N1 = size(Target_atoms(i)%Ritchi(j)%E0)
+            call mpi_bcast(N1, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Ritchi(j)%E0:N1}') ! module "MPI_subroutines"
+            if (MPI_param%process_rank /= 0) then  ! knowing the size, allocate the arrays
+               if (.not.allocated(Target_atoms(i)%Ritchi(j)%E0)) allocate(Target_atoms(i)%Ritchi(j)%E0(N1))
+               if (.not.allocated(Target_atoms(i)%Ritchi(j)%A)) allocate(Target_atoms(i)%Ritchi(j)%A(N1))
+               if (.not.allocated(Target_atoms(i)%Ritchi(j)%Gamma)) allocate(Target_atoms(i)%Ritchi(j)%Gamma(N1))
+               if (.not.allocated(Target_atoms(i)%Ritchi(j)%alpha)) allocate(Target_atoms(i)%Ritchi(j)%alpha(N1))
+            endif
+            !------------------------------------------------------
+            ! Synchronize MPI processes: make sure all processes know the size of the form_factor and allocated it
+            call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+            !------------------------------------------------------
+            call mpi_bcast(Target_atoms(i)%Ritchi(j)%E0, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Ritchi(j)%E0}') ! module "MPI_subroutines"
+
+            call mpi_bcast(Target_atoms(i)%Ritchi(j)%A, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Ritchi(j)%A}') ! module "MPI_subroutines"
+
+            call mpi_bcast(Target_atoms(i)%Ritchi(j)%Gamma, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Ritchi(j)%Gamma}') ! module "MPI_subroutines"
+
+            do_broadcast2 = allocated(Target_atoms(i)%Ritchi(j)%alpha) ! to chech if we need to do the broadcas or not
+            call mpi_bcast(do_broadcast2, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {do_broadcast2 #4}') ! module "MPI_subroutines"
+            if (do_broadcast2) then
+               call mpi_bcast(Target_atoms(i)%Ritchi(j)%alpha, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+               call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Target_atoms(i)%Ritchi(j)%alpha}') ! module "MPI_subroutines"
+            endif
+         endif ! do_broadcast
+         !print*, '[Process #', MPI_param%process_rank, '] ShN:', i, j, N1, size(Target_atoms(i)%Ritchi(j)%E0), Target_atoms(i)%Ritchi(j)%E0(:)
+       enddo ! j
+      endif ! do_broadcast1
+   enddo ! i
+
+   !------------------------------------------------------
+   ! Synchronize MPI processes
+   call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+   !------------------------------------------------------
+   do_broadcast = allocated(CDF_Phonon%A)
+   call mpi_bcast(do_broadcast, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {do_broadcast #5}') ! module "MPI_subroutines"
+   if (do_broadcast) then
+      Nsiz = size(CDF_Phonon%A)
+      call mpi_bcast(Nsiz, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {CDF_Phonon:Nsiz}') ! module "MPI_subroutines"
+
+      if (MPI_param%process_rank /= 0) then  ! knowing the size, allocate the arrays
+         if (.not. allocated(CDF_Phonon%A)) allocate(CDF_Phonon%A(Nsiz))
+         if (.not. allocated(CDF_Phonon%E0)) allocate(CDF_Phonon%E0(Nsiz))
+         if (.not. allocated(CDF_Phonon%Gamma)) allocate(CDF_Phonon%Gamma(Nsiz))
+      endif
+
+      call mpi_bcast(CDF_Phonon%E0, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {CDF_Phonon%E0}') ! module "MPI_subroutines"
+
+      call mpi_bcast(CDF_Phonon%A, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {CDF_Phonon%A}') ! module "MPI_subroutines"
+
+      call mpi_bcast(CDF_Phonon%Gamma, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {CDF_Phonon%Gamma}') ! module "MPI_subroutines"
+
+      do_broadcast2 = allocated(CDF_Phonon%alpha) ! to chech if we need to do the broadcas or not
+      call mpi_bcast(do_broadcast2, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {do_broadcast2 #6}') ! module "MPI_subroutines"
+      if (do_broadcast2) then
+         if (MPI_param%process_rank /= 0) then  ! knowing the size, allocate the arrays
+            if (.not. allocated(CDF_Phonon%alpha)) allocate(CDF_Phonon%alpha(Nsiz))
+         endif
+         call mpi_bcast(CDF_Phonon%alpha, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+         call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {CDF_Phonon%alpha}') ! module "MPI_subroutines"
+      endif ! do_broadcast2
+      !print*, '[Process #', MPI_param%process_rank, '] Ph:', Nsiz, size(CDF_Phonon%E0), CDF_Phonon%E0(:)
+   endif ! do_broadcast
+
+   ! Allocate differential cross section arrays if required:
+   call mpi_bcast(NumPar%CS_method, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {CS_method}') ! module "MPI_subroutines"
+
+   select case (NumPar%CS_method)
+   case (1)
+      do_broadcast = allocated(aidCS%EIdCS)
+      call mpi_bcast(do_broadcast, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {do_broadcast #7}') ! module "MPI_subroutines"
+      if (do_broadcast) then
+         Nsiz = size(Target_atoms)
+         if (MPI_param%process_rank /= 0) then  ! knowing the size, allocate the arrays
+            if (.not. allocated(aidCS%EIdCS)) allocate(aidCS%EIdCS(Nsiz)) ! for each atom type
+            ! Each shell:
+            do j = 1, Nsiz  ! read for each element its shells data:
+               if (.not.allocated(aidCS%EIdCS(j)%Int_diff_CS)) then
+                  allocate(aidCS%EIdCS(j)%Int_diff_CS( size(Target_atoms(j)%Ip) )) ! allocate table of integral of differential cross secion for each shell
+               endif
+            enddo
+         endif
+      endif
+   end select
+
+   !pause 'broadcast_material_parameters'
+#endif
+end subroutine broadcast_material_parameters
 
 
 
@@ -1421,7 +2241,7 @@ end function Int_Ritchi_x
 
 
 
-subroutine read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_message, read_well)
+subroutine read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_message, read_well, MPI_param)
    integer, intent(in) :: FN2 ! file number to read from
    type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    type(Flag), intent(inout) :: NumPar ! numerical parameters
@@ -1429,6 +2249,8 @@ subroutine read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_
    type(Solid), intent(inout) :: Matter   ! all material parameters
    type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
    logical, intent(inout) :: read_well  ! did we read the file well?
+   type(Used_MPI_parameters), intent(inout) :: MPI_param
+   !----------------------------
    real(8) M
    integer Reason, i, j, k, l, N, Shl, CDF_coef, Shl_num, comment_start
    character(100) Error_descript, read_line
@@ -1482,7 +2304,7 @@ subroutine read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_
    Matter%At_Dens = 1.0d-3*Matter%Dens/(g_Mp*SUM(Target_atoms(:)%Mass*Target_atoms(:)%Pers)/SUM(Target_atoms(:)%Pers))
    Matter%v_f = sqrt(2.0d0*Matter%E_f/g_me) ! units as used in one-pole approximation (not SI!)
    
-   call check_atomic_parameters(NumPar, Target_atoms, Error_message=Error_message, read_well=read_well) ! from module 'Dealing_with_EADL'
+   call check_atomic_parameters(NumPar, Target_atoms, Error_message=Error_message, read_well=read_well, MPI_param=MPI_param) ! from module 'Dealing_with_EADL'
    
    do j = 1, N ! now mark all the cross sections as BEB:
       Target_atoms(j)%KOCS(:) = 2 ! BEB cross section for all shells
@@ -1492,7 +2314,7 @@ subroutine read_short_scdf(FN2, Target_atoms, NumPar, CDF_Phonon, Matter, Error_
 end subroutine read_short_scdf
 
 
-subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar, Error_message, read_well)    ! read material DOS
+subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar, Error_message, read_well, MPI_param)    ! read material DOS
     character(100), intent(in) :: DOS_file  ! file with material DOS
     type(Density_of_states), intent(inout) :: Mat_DOS  ! materail DOS
     type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
@@ -1500,12 +2322,20 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar,
     logical, intent(inout) :: read_well  ! did we read the file well?
     type(Solid), intent(in) :: Matter
     type(Atom), dimension(:), intent(in) :: Target_atoms
+    type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
     !--------------------------------------
     real(8), dimension(:,:), allocatable :: Temp_DOS
     real(8) Sum_DOS, loc_DOS, E, dE, Sum_DOS_inv
     integer FN2, i, N, Reason, M
     character(100) :: Error_descript, Free_DOS
     logical file_opened, file_exist, file_exist2
+
+
+    if (MPI_param%process_rank /= 0) then   ! only MPI master process does it
+      return   ! nothing to do here for non-master processes
+    endif
+
+
     FN2 = 202
     inquire(file=trim(adjustl(DOS_file)),exist=file_exist)    ! check if input file excists
     !inquire(file='INPUT_DOS/Free_electron_DOS.dos',exist=file_exist2)    ! check if input file excists
@@ -1513,22 +2343,28 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar,
     inquire(file=trim(adjustl(Free_DOS)),exist=file_exist2)    ! check if input file excists
 
     if (file_exist) then
-       print*, 'DOS file is there: ', trim(adjustl(DOS_file))
+       if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'DOS file is there: ', trim(adjustl(DOS_file))
+       endif
        open(unit = FN2, FILE = trim(adjustl(DOS_file)), status = 'old', readonly)   ! if yes, open it and read
        ! Save DOS file name for output:
        NumPar%DOS_file = trim(adjustl(DOS_file))
     elseif (file_exist2) then   ! Free-electron DOS approximation
-       print*, 'DOS file ', trim(adjustl(DOS_file)), ' is not found, '
-       print*, 'free-electron DOS approximation is used for valence band holes'
+       if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'DOS file ', trim(adjustl(DOS_file)), ' is not found, '
+         print*, 'free-electron DOS approximation is used for valence band holes'
+       endif
        open(unit = FN2, FILE = trim(adjustl(Free_DOS)), status = 'old', readonly)   ! if yes, open it and read
        ! Save DOS file name for output:
        NumPar%DOS_file = trim(adjustl(Free_DOS))
     else ! no DOS, try atomic approxiamtion instead...
-       print*, 'Neither file ', trim(adjustl(DOS_file)), ' nor Free_electron_DOS.dos'
-       print*, 'containing density of states are found.'
-       print*, 'The calculations proceed within the atomic approximation for energy levels.'
+       if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'Neither file ', trim(adjustl(DOS_file)), ' nor Free_electron_DOS.dos'
+         print*, 'containing density of states are found.'
+         print*, 'The calculations proceed within the atomic approximation for energy levels.'
+       endif
        Error_descript = 'Files '//trim(adjustl(DOS_file))//' and '//trim(adjustl(Free_DOS))//' are not found!'    ! description of an error
-       call Save_error_details(Error_message, 6, Error_descript) ! write it into the error-log file
+       call Save_error_details(Error_message, 6, Error_descript, MPI_param) ! write it into the error-log file
        read_well = .false.  ! no file found
        ! Save DOS file name for output:
        NumPar%DOS_file = ''   ! nothing
@@ -1601,7 +2437,7 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar,
         endif
         !print*, i, Mat_DOS%E(i), Mat_DOS%DOS(i), Mat_DOS%int_DOS(i), Mat_DOS%int_DOS_inv(i)
     enddo
-     
+
     SUM_DOS = Mat_DOS%int_DOS_inv(size(Mat_DOS%E))   ! sum of all electrons in the DOS, to normalize it
     Mat_DOS%DOS_inv = Mat_DOS%DOS_inv/SUM_DOS*Matter%N_VB_el    ! normalize it to the number of VB electron per molecule
     Mat_DOS%int_DOS_inv = Mat_DOS%int_DOS_inv/SUM_DOS*Matter%N_VB_el    ! normalize it to the number of VB electron per molecule
@@ -1618,16 +2454,74 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar,
 end subroutine reading_material_DOS
 
 
+subroutine broadcast_material_DOS(Mat_DOS, MPI_param)
+   type(Density_of_states), intent(inout) :: Mat_DOS  ! materail DOS
+   type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
+   !--------------------------------------
+   integer :: Nsiz
+   character(100) :: error_part
 
-subroutine reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message, read_well)    ! read material DOS
+#ifdef MPI_USED
+   error_part = 'ERROR in broadcast_material_DOS'
+   if (MPI_param%process_rank == 0) then
+      Nsiz = size(Mat_DOS%E)
+   else
+      Nsiz = 0
+   endif
+   call mpi_bcast(Nsiz, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Mat_DOS:Nsiz}') ! module "MPI_subroutines"
+
+   if (MPI_param%process_rank /= 0) then
+      if (.not.allocated(Mat_DOS%E)) allocate(Mat_DOS%E(Nsiz))
+      if (.not.allocated(Mat_DOS%k)) allocate(Mat_DOS%k(Nsiz))
+      if (.not.allocated(Mat_DOS%DOS)) allocate(Mat_DOS%DOS(Nsiz))
+      if (.not.allocated(Mat_DOS%int_DOS)) allocate(Mat_DOS%int_DOS(Nsiz))
+      if (.not.allocated(Mat_DOS%Eff_m)) allocate(Mat_DOS%Eff_m(Nsiz))
+      if (.not.allocated(Mat_DOS%DOS_inv)) allocate(Mat_DOS%DOS_inv(Nsiz))
+      if (.not.allocated(Mat_DOS%int_DOS_inv)) allocate(Mat_DOS%int_DOS_inv(Nsiz))
+      if (.not.allocated(Mat_DOS%k_inv)) allocate(Mat_DOS%k_inv(Nsiz))
+      if (.not.allocated(Mat_DOS%Eff_m_inv)) allocate(Mat_DOS%Eff_m_inv(Nsiz))
+   endif
+
+   call mpi_bcast(Mat_DOS%E, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Mat_DOS%E}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Mat_DOS%DOS, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Mat_DOS%DOS}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Mat_DOS%int_DOS, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Mat_DOS%int_DOS}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Mat_DOS%k, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Mat_DOS%k}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Mat_DOS%Eff_m, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Mat_DOS%Eff_m}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Mat_DOS%DOS_inv, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Mat_DOS%DOS_inv}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Mat_DOS%int_DOS_inv, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Mat_DOS%int_DOS_inv}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Mat_DOS%k_inv, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Mat_DOS%k_inv}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Mat_DOS%Eff_m_inv, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {Mat_DOS%Eff_m_inv}') ! module "MPI_subroutines"
+#endif
+end subroutine broadcast_material_DOS
+
+
+subroutine reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message, read_well, MPI_param)    ! read material DOS
     character(100), intent(in) :: DSF_file  ! file with DSF crossections
     type(Differential_MFP), dimension(:), allocatable, intent(inout) :: DSF_DEMFP  ! diffential elastic MFPs calculated with DSF
     type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
     logical, intent(inout) :: read_well  ! did we read the file well?
     type(Flag), intent(inout) :: NumPar
-
+    type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
+    !-------------------------------
     real(8), dimension(:,:), allocatable :: Temp_EMFP, Temp_array
-
     type(Differential_MFP), dimension(:), allocatable :: Temp_DEMFP
     real(8), dimension(:), allocatable :: Temp_E
     real(8) Sum_MFP, loc_EMFP, E, dE, Emin, Emax, Sum_MFP_emit
@@ -1635,16 +2529,24 @@ subroutine reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message
     character(100) Error_descript
     logical file_opened, file_exist, file_exist2
 
+    if (MPI_param%process_rank /= 0) then   ! only MPI master process does it
+      return   ! nothing to do here for non-master process
+    endif
+
     FN2 = 212
     inquire(file=trim(adjustl(DSF_file)),exist=file_exist)    ! check if input file excists
     if (file_exist) then
-       print*, 'File with DSF elastic cross-sections is there: ', trim(adjustl(DSF_file))
+       if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'File with DSF elastic cross-sections is there: ', trim(adjustl(DSF_file))
+       endif
        open(unit = FN2, FILE = trim(adjustl(DSF_file)), status = 'old', readonly)   ! if yes, open it and read
     else ! no DSF file, try CDF phonon peaks or atomic approxiamtion instead...
-       print*, 'File ', trim(adjustl(DSF_file)), ' is not found.'
-       print*, 'The calculations proceed with Mott atomic cross-sections.'
+       if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'File ', trim(adjustl(DSF_file)), ' is not found.'
+         print*, 'The calculations proceed with Mott atomic cross-sections.'
+       endif
        Error_descript = 'File '//trim(adjustl(DSF_file))//' is not found.'    ! description of an error
-       call Save_error_details(Error_message, 6, Error_descript) ! write it into the error-log file
+       call Save_error_details(Error_message, 6, Error_descript, MPI_param) ! write it into the error-log file
        read_well = .true.  ! no file found
        NumPar%kind_of_EMFP = 0
        goto 2017
@@ -1777,13 +2679,80 @@ end subroutine reading_DSF_cross_sections
 
 
 
-subroutine reading_DSF_cross_sections_OLD(DSF_file, DSF_DEMFP, NumPar, Error_message, read_well)    ! read material DOS
+subroutine broadcast_DSF_cross_sections(DSF_DEMFP, read_well, NumPar, MPI_param, marker)
+   type(Differential_MFP), dimension(:), allocatable, intent(inout) :: DSF_DEMFP  ! diffential elastic MFPs calculated with DSF
+   logical, intent(inout) :: read_well  ! did we read the file well?
+   type(Flag), intent(inout) :: NumPar
+   type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
+   character(*), intent(in) :: marker
+   !------------------------
+   integer :: Nsiz, N1, i
+   character(100) :: error_part
+
+#ifdef MPI_USED
+   error_part = 'ERROR in broadcast_DSF_cross_sections ('//trim(adjustl(marker))//')'
+
+   call mpi_bcast(read_well, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {DSF_DEMFP:read_well}') ! module "MPI_subroutines"
+
+   call mpi_bcast(NumPar%kind_of_EMFP, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {DSF_DEMFP:kind_of_EMFP}') ! module "MPI_subroutines"
+
+   if (MPI_param%process_rank == 0) then
+      Nsiz = size(DSF_DEMFP)
+   else
+      Nsiz = 0
+   endif
+   call mpi_bcast(Nsiz, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {DSF_DEMFP:Nsiz}') ! module "MPI_subroutines"
+
+   if (MPI_param%process_rank == 0) then
+      N1 = size(DSF_DEMFP(1)%dE)
+   else
+      N1 = 0
+   endif
+   call mpi_bcast(N1, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {DSF_DEMFP:N1}') ! module "MPI_subroutines"
+
+   if (MPI_param%process_rank /= 0) then
+      if (.not.allocated(DSF_DEMFP)) allocate(DSF_DEMFP(Nsiz))
+      do i = 1, Nsiz
+         if (.not.allocated(DSF_DEMFP(i)%dE)) allocate(DSF_DEMFP(i)%dE(N1))
+         if (.not.allocated(DSF_DEMFP(i)%dL)) allocate(DSF_DEMFP(i)%dL(N1))
+         if (.not.allocated(DSF_DEMFP(i)%dL_absorb)) allocate(DSF_DEMFP(i)%dL_absorb(N1))
+         if (.not.allocated(DSF_DEMFP(i)%dL_emit)) allocate(DSF_DEMFP(i)%dL_emit(N1))
+      enddo
+   endif
+
+   do i = 1, Nsiz
+      call mpi_bcast(DSF_DEMFP(i)%E, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {DSF_DEMFP(i)%E}') ! module "MPI_subroutines"
+
+      call mpi_bcast(DSF_DEMFP(i)%dE, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {DSF_DEMFP(i)%dE}') ! module "MPI_subroutines"
+
+      call mpi_bcast(DSF_DEMFP(i)%dL, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {DSF_DEMFP(i)%dL}') ! module "MPI_subroutines"
+
+      call mpi_bcast(DSF_DEMFP(i)%dL_absorb, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {DSF_DEMFP(i)%dL_absorb}') ! module "MPI_subroutines"
+
+      call mpi_bcast(DSF_DEMFP(i)%dL_emit, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {DSF_DEMFP(i)%dL_emit}') ! module "MPI_subroutines"
+   enddo
+#endif
+end subroutine broadcast_DSF_cross_sections
+
+
+
+subroutine reading_DSF_cross_sections_OLD(DSF_file, DSF_DEMFP, NumPar, Error_message, read_well, MPI_param)    ! read material DOS
     character(100), intent(in) :: DSF_file  ! file with DSF crossections
     type(Differential_MFP), dimension(:), allocatable, intent(inout) :: DSF_DEMFP  ! diffential elastic MFPs calculated with DSF
     type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
     logical, intent(inout) :: read_well  ! did we read the file well?
     type(Flag), intent(inout) :: NumPar
-    
+    type(Used_MPI_parameters), intent(inout) :: MPI_param
+    !--------------------------
     real(8), dimension(:,:), allocatable :: Temp_EMFP, Temp_array
     
     type(Differential_MFP), dimension(:), allocatable :: Temp_DEMFP
@@ -1802,7 +2771,7 @@ subroutine reading_DSF_cross_sections_OLD(DSF_file, DSF_DEMFP, NumPar, Error_mes
        print*, 'File ', trim(adjustl(DSF_file)), ' is not found.'
        print*, 'The calculations proceed with Mott atomic cross-sections.'
        Error_descript = 'File '//trim(adjustl(DSF_file))//' is not found.'    ! description of an error
-       call Save_error_details(Error_message, 6, Error_descript) ! write it into the error-log file
+       call Save_error_details(Error_message, 6, Error_descript, MPI_param) ! write it into the error-log file
        read_well = .true.  ! no file found
        NumPar%kind_of_EMFP = 0
        goto 2017
@@ -1932,6 +2901,287 @@ subroutine read_SHI_MFP(FN, FN2, Nat, Target_atoms, SHI_MFP, read_well)
    enddo
 2019 continue
 end subroutine read_SHI_MFP
+
+
+subroutine broadcast_SHI_MFP(SHI_MFP, MPI_param)
+   type(All_MFP), dimension(:),allocatable, intent(inout) :: SHI_MFP    ! SHI mean free paths and dEdx to read from file
+   type(Used_MPI_parameters), intent(inout) :: MPI_param
+   !------------------------------------------
+   integer :: Nsiz, Nshl, i, j, k, N1, N2
+   character(100) :: error_part
+   logical :: do_broadcast
+#ifdef MPI_USED
+   ! initialize:
+   do_broadcast = .false.
+   error_part = 'ERROR in broadcast_SHI_MFP'
+
+   if (MPI_param%process_rank == 0) then
+      Nsiz = size(SHI_MFP)   ! define number of atoms in the compound
+   else
+      Nsiz = 0  ! unknown yet, get from the master process
+   endif
+   call mpi_bcast(Nsiz, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Nsiz}') ! module "MPI_subroutines"
+
+   if (MPI_param%process_rank /= 0) then
+      if (.not. allocated(SHI_MFP)) allocate(SHI_MFP(Nsiz)) ! number of atoms
+   endif
+
+   do j = 1, Nsiz
+      if (MPI_param%process_rank == 0) then
+         Nshl = size(SHI_MFP(j)%ELMFP)    ! how mamy shells
+      else
+         Nshl = 0  ! unknown yet, get from the master process
+      endif
+      call mpi_bcast(Nshl, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Nshl}') ! module "MPI_subroutines"
+      !------------------------------------------------------
+      ! Synchronize MPI processes to make sure the directory is created before going further
+      call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+      !------------------------------------------------------
+      if (MPI_param%process_rank /= 0) then
+         if (.not. allocated(SHI_MFP(j)%ELMFP)) allocate(SHI_MFP(j)%ELMFP(Nshl))
+      endif
+
+      do k = 1, Nshl
+         if (MPI_param%process_rank == 0) then
+            N1 = size(SHI_MFP(j)%ELMFP(k)%E)    ! how mamy grid points
+         else
+            N1 = 0  ! unknown yet, get from the master process
+         endif
+
+         call mpi_bcast(N1, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+         call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{N1}') ! module "MPI_subroutines"
+         !------------------------------------------------------
+         ! Synchronize MPI processes to make sure the directory is created before going further
+         call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+         !------------------------------------------------------
+         if (MPI_param%process_rank /= 0) then
+            if (.not. allocated(SHI_MFP(j)%ELMFP(k)%E)) allocate(SHI_MFP(j)%ELMFP(k)%E(N1))
+            if (.not. allocated(SHI_MFP(j)%ELMFP(k)%L)) allocate(SHI_MFP(j)%ELMFP(k)%L(N1))
+            if (.not. allocated(SHI_MFP(j)%ELMFP(k)%dEdx)) allocate(SHI_MFP(j)%ELMFP(k)%dEdx(N1))
+         endif
+
+         call mpi_bcast(SHI_MFP(j)%ELMFP(k)%E, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+         call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{SHI_MFP(j)%ELMFP(k)%E}') ! module "MPI_subroutines"
+
+         call mpi_bcast(SHI_MFP(j)%ELMFP(k)%L, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+         call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{SHI_MFP(j)%ELMFP(k)%L}') ! module "MPI_subroutines"
+
+         call mpi_bcast(SHI_MFP(j)%ELMFP(k)%dEdx, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+         call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{SHI_MFP(j)%ELMFP(k)%dEdx}') ! module "MPI_subroutines"
+      enddo ! k
+   enddo ! j
+
+#endif
+end subroutine broadcast_SHI_MFP
+
+
+subroutine broadcast_el_MFPs(temp_MFP, do_range, Total_el_MFPs, MPI_param)
+   real(8), dimension(:,:), intent(inout) :: Temp_MFP
+   logical, intent(inout) :: do_range
+   type(All_MFP), dimension(:), intent(inout) :: Total_el_MFPs   ! electron mean free paths for all shells
+   type(Used_MPI_parameters), intent(inout) :: MPI_param
+   !------------------------------------------
+   integer :: Nat, Nshl, i, j, k, N1, N2
+   character(100) :: error_part
+
+#ifdef MPI_USED
+   ! initialize:
+   error_part = 'ERROR in broadcast_el_MFPs'
+
+   call mpi_bcast(do_range, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{do_range}') ! module "MPI_subroutines"
+
+   N1 = size(Temp_MFP,1)
+   N2 = size(Temp_MFP,2)
+   call mpi_bcast(Temp_MFP, N1*N2, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Temp_MFP}') ! module "MPI_subroutines"
+
+   Nat = size(Total_el_MFPs)  ! how many atoms
+   do j = 1, Nat   ! for all atoms
+      Nshl = size(Total_el_MFPs(j)%ELMFP)    ! how mamy shells
+      do k = 1, Nshl
+         N1 = size(Total_el_MFPs(j)%ELMFP(k)%E)
+
+         call mpi_bcast(Total_el_MFPs(j)%ELMFP(k)%E, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+         call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Total_el_MFPs(j)%ELMFP(k)%E}') ! module "MPI_subroutines"
+
+         call mpi_bcast(Total_el_MFPs(j)%ELMFP(k)%L, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+         call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Total_el_MFPs(j)%ELMFP(k)%L}') ! module "MPI_subroutines"
+
+         call mpi_bcast(Total_el_MFPs(j)%ELMFP(k)%dEdx, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+         call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Total_el_MFPs(j)%ELMFP(k)%dEdx}') ! module "MPI_subroutines"
+      enddo ! k
+   enddo ! j
+
+#endif
+end subroutine broadcast_el_MFPs
+
+
+subroutine broadcast_el_aidCS_electrons(aidCS, MPI_param)
+   type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
+   type(Used_MPI_parameters), intent(inout) :: MPI_param
+   !------------------------------------------
+   integer :: Nat, Nshl, i, j, k, N1, N2, N_diff_siz
+   character(100) :: error_part
+
+#ifdef MPI_USED
+   ! initialize:
+   error_part = 'ERROR in broadcast_el_aidCS_electrons'
+
+   Nat = size(aidCS%EIdCS)
+
+   do j = 1, Nat   ! for all types of atoms
+      Nshl = size(aidCS%EIdCS(j)%Int_diff_CS)    ! how mamy shells
+      do k = 1, Nshl  ! for all orbitals
+
+         N1 = size(aidCS%EIdCS(j)%Int_diff_CS(k)%E)
+
+         call mpi_bcast(aidCS%EIdCS(j)%Int_diff_CS(k)%E, N1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+         call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{aidCS%EIdCS(j)%Int_diff_CS(k)%E}') ! module "MPI_subroutines"
+
+         do i = 1, N1 ! for all energy grid points
+            if (MPI_param%process_rank == 0) then
+               N_diff_siz = size(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw)
+            else
+               N_diff_siz = 0
+            endif
+            call mpi_bcast(N_diff_siz, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{N_diff_siz}') ! module "MPI_subroutines"
+            !------------------------------------------------------
+            ! Synchronize MPI processes to make sure the directory is created before going further
+            call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+            !------------------------------------------------------
+
+            if (MPI_param%process_rank /= 0) then
+               if (.not.allocated(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw)) then
+                  allocate(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(N_diff_siz))
+               endif
+               if (.not.allocated(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw)) then
+                  allocate(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw(N_diff_siz))
+               endif
+            endif
+
+            call mpi_bcast(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw, N_diff_siz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw}') ! module "MPI_subroutines"
+
+            call mpi_bcast(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw, N_diff_siz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw}') ! module "MPI_subroutines"
+         enddo ! i
+         !print*, '[MPI process #',MPI_param%process_rank, '] aidCS=', j, k, aidCS%EIdCS(j)%Int_diff_CS(k)%E
+      enddo ! k
+   enddo ! j
+#endif
+end subroutine broadcast_el_aidCS_electrons
+
+
+subroutine broadcast_el_aidCS_holes(aidCS, MPI_param)
+   type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
+   type(Used_MPI_parameters), intent(inout) :: MPI_param
+   !------------------------------------------
+   integer :: Nsiz, Nshl, i, j, k, N1, N2, N_diff_siz
+   character(100) :: error_part
+
+#ifdef MPI_USED
+   ! initialize:
+   error_part = 'ERROR in broadcast_el_aidCS_holes'
+
+   Nsiz = size(aidCS%HIdCS%E)
+
+   call mpi_bcast(aidCS%HIdCS%E, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{aidCS%HIdCS%E}') ! module "MPI_subroutines"
+
+
+   do i = 1, Nsiz   ! for all types of atoms
+      if (MPI_param%process_rank == 0) then
+         N_diff_siz = size(aidCS%HIdCS%diffCS(i)%hw)
+      else
+         N_diff_siz = 0
+      endif
+      call mpi_bcast(N_diff_siz, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{N_diff_siz}') ! module "MPI_subroutines"
+      !------------------------------------------------------
+      ! Synchronize MPI processes to make sure the directory is created before going further
+      call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+      !------------------------------------------------------
+      if (MPI_param%process_rank /= 0) then
+         if (.not.allocated(aidCS%HIdCS%diffCS(i)%hw)) then
+            allocate(aidCS%HIdCS%diffCS(i)%hw(N_diff_siz))
+         endif
+         if (.not.allocated(aidCS%HIdCS%diffCS(i)%dsdhw)) then
+            allocate(aidCS%HIdCS%diffCS(i)%dsdhw(N_diff_siz))
+         endif
+      endif
+      call mpi_bcast(aidCS%HIdCS%diffCS(i)%hw, N_diff_siz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{aidCS%HIdCS%diffCS(i)%hw}') ! module "MPI_subroutines"
+
+      call mpi_bcast(aidCS%HIdCS%diffCS(i)%dsdhw, N_diff_siz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{aidCS%HIdCS%diffCS(i)%dsdhw}') ! module "MPI_subroutines"
+
+   enddo ! i
+
+#endif
+end subroutine broadcast_el_aidCS_holes
+
+
+
+
+subroutine broadcast_Elastic_MFP(Elastic_MFP, MPI_param)
+   type(MFP_elastic), intent(inout) :: Elastic_MFP         ! elastic mean free path of an electron
+   type(Used_MPI_parameters), intent(inout) :: MPI_param
+   !------------------------------------------
+   integer :: Nsiz, Nshl, i, j, k, N1, N2, N_diff_siz
+   character(100) :: error_part
+
+#ifdef MPI_USED
+   ! initialize:
+   error_part = 'ERROR in broadcast_Elastic_MFP'
+
+   Nsiz = size(Elastic_MFP%Total%E)
+
+   call mpi_bcast(Elastic_MFP%Total%E, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Elastic_MFP%Total%E}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Elastic_MFP%Total%L, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Elastic_MFP%Total%L}') ! module "MPI_subroutines"
+
+   call mpi_bcast(Elastic_MFP%Total%dEdx, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Elastic_MFP%Total%dEdx}') ! module "MPI_subroutines"
+
+   if (allocated(Elastic_MFP%Emit%E)) then
+      call mpi_bcast(Elastic_MFP%Emit%E, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Elastic_MFP%Emit%E}') ! module "MPI_subroutines"
+   endif
+
+   if (allocated(Elastic_MFP%Emit%L)) then
+      call mpi_bcast(Elastic_MFP%Emit%L, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Elastic_MFP%Emit%L}') ! module "MPI_subroutines"
+   endif
+
+   if (allocated(Elastic_MFP%Emit%dEdx)) then
+      call mpi_bcast(Elastic_MFP%Emit%dEdx, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Elastic_MFP%Emit%dEdx}') ! module "MPI_subroutines"
+   endif
+
+   if (allocated(Elastic_MFP%Absorb%E)) then
+      call mpi_bcast(Elastic_MFP%Absorb%E, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Elastic_MFP%Absorb%E}') ! module "MPI_subroutines"
+   endif
+
+   if (allocated(Elastic_MFP%Absorb%E)) then
+      call mpi_bcast(Elastic_MFP%Absorb%L, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Elastic_MFP%Absorb%L}') ! module "MPI_subroutines"
+   endif
+
+   if (allocated(Elastic_MFP%Absorb%dEdx)) then
+      call mpi_bcast(Elastic_MFP%Absorb%dEdx, Nsiz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+      call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//'{Elastic_MFP%Absorb%dEdx}') ! module "MPI_subroutines"
+   endif
+#endif
+end subroutine broadcast_Elastic_MFP
+
+
 
 
 subroutine get_num_shells(Target_atoms, Nshtot)
@@ -2142,7 +3392,7 @@ subroutine Find_in_monoton_array_decreasing(Array, Value0, Number)
    temp_val = Array(i_cur)
 
    if (isnan(Value0)) then
-       print*, 'The subroutine Find_in_monotonous_1D_array'
+       print*, 'The subroutine Find_in_monoton_array_decreasing'
        print*, 'cannot proceed, the value of Value0 is', Value0
        write(*, '(f,f,f,f)') Value0, Array(i_cur), Array(i_1), Array(i_2)
        pause 'STOPPED WORKING...'
@@ -2180,12 +3430,21 @@ end subroutine Find_in_monoton_array_decreasing
 
 
 
-subroutine Find_in_monotonous_1D_array(Array, Value0, Number)
+subroutine Find_in_monotonous_1D_array(Array, Value0, Number, text_to_print)
    REAL(8), dimension(:), INTENT(in) :: Array ! in which we are looking for the Value
    REAL(8), INTENT(in) :: Value0   ! to be found in the array as near as possible
-   integer, INTENT(out) :: Number ! number of the element which we are looking for 
+   integer, INTENT(out) :: Number ! number of the element which we are looking for
+   character(*), intent(in), optional :: text_to_print
+   !-----------------------------
    integer i, N, i_cur, i_1, i_2, coun
    real(8) temp_val, val_1, val_2
+   character(200) :: error_text
+
+   if (present(text_to_print)) then
+      error_text = text_to_print
+   else
+      error_text = ''
+   endif
    
    N = size(Array)
    i_1 = 1
@@ -2195,10 +3454,11 @@ subroutine Find_in_monotonous_1D_array(Array, Value0, Number)
    i_cur = FLOOR((i_1+i_2)/2.0)
    temp_val = Array(i_cur)
    if (isnan(Value0)) then
-        print*, 'The subroutine Find_in_monotonous_1D_array'
-        print*, 'cannot proceed, the value of Value0 is', Value0
+        print*, 'The subroutine Find_in_monotonous_1D_array cannot proceed, the value of Value0 is', Value0
+        if (LEN(trim(adjustl(error_text))) > 0) print*, trim(adjustl(error_text))
         write(*, '(f,f,f,f)') Value0, Array(i_cur), Array(i_1), Array(i_2)
-        pause 'STOPPED WORKING...'
+        !pause 'STOPPED WORKING...'
+        stop
    else
        if (Value0 .LT. Array(1)) then ! it's the first value, no need to search
            i_cur = 0
@@ -2233,14 +3493,23 @@ subroutine Find_in_monotonous_1D_array(Array, Value0, Number)
    Number = i_cur+1
 end subroutine Find_in_monotonous_1D_array
 
-subroutine Find_in_monotonous_2D_array(Array, Value0, Indx, Number)
+subroutine Find_in_monotonous_2D_array(Array, Value0, Indx, Number, text_to_print)
    REAL(8), dimension(:,:), INTENT(in) :: Array ! in which we are looking for the Value
    REAL(8), INTENT(in) :: Value0   ! to be found in the array as near as possible
    integer, INTENT(in) :: Indx    ! index of the array, showing in which colonm we search
    integer, INTENT(out) :: Number ! number of the element which we are looking for 
+   character(*), intent(in), optional :: text_to_print
+   !-----------------------------
    integer i, N, i_cur, i_1, i_2, coun
    real(8) temp_val, val_1, val_2
+   character(200) :: error_text
    
+   if (present(text_to_print)) then
+      error_text = text_to_print
+   else
+      error_text = ''
+   endif
+
    N = size(Array,2)
    i_1 = 1
    val_1 = Array(Indx,i_1)
@@ -2250,10 +3519,11 @@ subroutine Find_in_monotonous_2D_array(Array, Value0, Indx, Number)
    temp_val = Array(Indx,i_cur)
    
    if (isnan(Value0)) then
-        print*, 'The subroutine Find_in_monotonous_2D_array'
-        print*, 'cannot proceed, the value of Value0 is', Value0
+        write(*, '(a,e)') 'The subroutine Find_in_monotonous_2D_array got Value0 =', Value0
+        if (LEN(trim(adjustl(error_text))) > 0) write(*, '(a)') trim(adjustl(error_text))
         write(*, '(f,f,f,f)') Value0, Array(Indx,i_cur), Array(Indx,i_1), Array(Indx,i_2)
-        pause 'STOPPED WORKING...'
+        !pause 'STOPPED WORKING...'
+        stop
    else
        if (Value0 .LT. Array(Indx,1)) then ! it's the first value, no need to search
            i_cur = 0
@@ -2288,7 +3558,7 @@ subroutine Find_in_monotonous_2D_array(Array, Value0, Indx, Number)
    Number = i_cur+1
 end subroutine Find_in_monotonous_2D_array
 
-subroutine Integrate_function_one(Int_type, x, f, x0, xn, res, Error_message)
+subroutine Integrate_function_one(Int_type, x, f, x0, xn, res, Error_message, MPI_param)
     integer, intent(in) :: Int_type ! type of integration to be used: 0=trapeziod, 1=Simpson-3/8, 2=...
     real(8), dimension(:), intent(in) :: x  ! grid points
     real(8), dimension(:), intent(in) :: f  ! function
@@ -2296,6 +3566,8 @@ subroutine Integrate_function_one(Int_type, x, f, x0, xn, res, Error_message)
     real(8), intent(in) :: xn   ! ending point of integration
     real(8), intent(out) :: res ! result of integration
     type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
+    type(Used_MPI_parameters), intent(inout) :: MPI_param
+    !------------------------------------------
     real(8) temp_x0, temp_xn
     integer i, N, Nx, Nf, i_0, i_n
     character(100) Err_data
@@ -2305,13 +3577,13 @@ subroutine Integrate_function_one(Int_type, x, f, x0, xn, res, Error_message)
     temp_xn = xn
     if (Nx .NE. Nf) then
         Err_data = 'Trapeziod integration failed, size of x is not equal to size of f' ! no input data found
-        call Save_error_details(Error_message, 3, Err_data)
+        call Save_error_details(Error_message, 3, Err_data, MPI_param)
     else if (temp_x0 .GT. x(Nx)) then
         Err_data = 'Trapeziod integration failed, starting point is larger than x(size(x))' ! no input data found
-        call Save_error_details(Error_message, 4, Err_data)
+        call Save_error_details(Error_message, 4, Err_data, MPI_param)
     else if (temp_xn .GT. x(Nx)) then
         Err_data = 'Trapeziod integration failed, ending point is larger than x(size(x))' ! no input data found
-        call Save_error_details(Error_message, 5, Err_data)
+        call Save_error_details(Error_message, 5, Err_data, MPI_param)
     else if (x0 .EQ. xn) then
         res = 0.0d0
     else    ! everything seems to be fine...
@@ -2365,7 +3637,7 @@ end subroutine
 
 
 
-subroutine Integrate_function_save(Int_type, x, f, x0, xn, res, Error_message)
+subroutine Integrate_function_save(Int_type, x, f, x0, xn, res, Error_message, MPI_param)
     integer, intent(in) :: Int_type ! type of integration to be used: 0=trapeziod, 1=Simpson-3/8, 2=...
     real(8), dimension(:), intent(in) :: x  ! grid points
     real(8), dimension(:), intent(in) :: f  ! function
@@ -2373,6 +3645,8 @@ subroutine Integrate_function_save(Int_type, x, f, x0, xn, res, Error_message)
     real(8), intent(in) :: xn   ! ending point of integration
     real(8), dimension(:), intent(out) :: res ! result of integration saved for each grid-point
     type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
+    type(Used_MPI_parameters), intent(inout) :: MPI_param
+    !----------------------------------
     real(8) temp_x0, temp_xn
     integer i, N, Nx, Nf, i_0, i_n
     character(100) Err_data
@@ -2382,13 +3656,13 @@ subroutine Integrate_function_save(Int_type, x, f, x0, xn, res, Error_message)
     temp_xn = xn
     if (Nx .NE. Nf) then
         Err_data = 'Trapeziod integration failed, size of x is not equal to size of f' ! no input data found
-        call Save_error_details(Error_message, 3, Err_data)
+        call Save_error_details(Error_message, 3, Err_data, MPI_param)
     else if (temp_x0 .GT. x(Nx)) then
         Err_data = 'Trapeziod integration failed, starting point is larger than x(size(x))' ! no input data found
-        call Save_error_details(Error_message, 4, Err_data)
+        call Save_error_details(Error_message, 4, Err_data, MPI_param)
     else if (temp_xn .LT. temp_x0) then
         Err_data = 'Trapeziod integration failed, ending point is the starting one' ! no input data found
-        call Save_error_details(Error_message, 5, Err_data)
+        call Save_error_details(Error_message, 5, Err_data, MPI_param)
     else if (x0 .EQ. xn) then
         res = 0.0d0
     else    ! everything seems to be fine...
