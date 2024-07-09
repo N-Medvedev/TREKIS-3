@@ -14,8 +14,10 @@ default:
 
 # mpifort -O5 -fpp -cpp -ipo -real-size 64 -D MPI_USED -standard-semantics -assume nofpe_summary Universal_MC_for_SHI_MAIN.f90 -o TREKIS_MPI.x
 
+# mpifort -O5 -fpp -cpp -ipo -real-size 64 -D MPI_USED -standard-semantics -assume nofpe_summary -ffree-line-length-0 -fdec-format-defaults -cpp -fdefault-real-8 -fdefault-double-8 Universal_MC_for_SHI_MAIN.f90 -o TREKIS_MPI.x
+
 ifeq ($(mpi),y)
-	mpifort -O5 -fpp -cpp -ipo -real-size 64 -D MPI_USED -standard-semantics -assume nofpe_summary -ffree-line-length-0 -fdec-format-defaults -cpp -fdefault-real-8 -fdefault-double-8 Universal_MC_for_SHI_MAIN.f90 -o TREKIS_MPI.x
+	mpiifort -O5 -fpp -cpp -ipo -real-size 64 -D MPI_USED -standard-semantics -assume nofpe_summary Universal_MC_for_SHI_MAIN.f90 -o TREKIS_MPI.x
 	@echo "----------------------------------------------"
 	@echo "With MPI: Executable: TREKIS_MPI.x"
 	@echo "Run the code as mpiexec -np [n] ./TREKIS_MPI.x"
