@@ -7,11 +7,20 @@ module Analytical_IMFPs
   use Universal_Constants   ! let it use universal constants
   use Objects   ! since it uses derived types, it must know about them from module 'Objects'
   use Reading_files_and_parameters, only : get_file_stat, Find_in_array_monoton, read_file_here, Linear_approx, read_SHI_MFP, &
-                                           print_time_step
+                                           print_time_step, broadcast_SHI_MFP, broadcast_el_MFPs, broadcast_el_aidCS_electrons, &
+                                           broadcast_el_aidCS_holes, broadcast_Elastic_MFP
+
   use Cross_sections, only : Elastic_cross_section, TotIMFP, Tot_Phot_IMFP, SHI_Total_IMFP, construct_CDF, Total_copmlex_CDF, &
                              allocate_diff_CS_tables, Interpolate, allocate_diff_CS_elastic_tables
   use Dealing_with_EADL, only : Count_lines_in_file
+  use MPI_subroutines, only : MPI_barrier_wrapper, MPI_error_wrapper
+#ifdef MPI_USED
+  use mpi
+#endif
+
+
 implicit none
+
 PRIVATE
 
 ! Interface to automatically chose from the bubble array-sorting subroutines
@@ -47,12 +56,11 @@ subroutine printout_optical_CDF(Output_path, Target_atoms, Matter, NumPar, Mat_D
    integer :: i, N, FN
    character(250) :: Output_file, temp_char1, KCS
 
-
-    ! Make energy grid for printing out optical CDF:
-    call get_grid_4CS(N, Temp_grid, Target_atoms, 0.001d0, 100.0d0-0.1d0, rescale_dE=0.1d0)  ! below
-
     ! if user requested, construct and printout optical CDF from the Ritchie-Howie fitted loss function:
     if (NumPar%print_CDF_optical) then
+        ! Make energy grid for printing out optical CDF:
+        call get_grid_4CS(N, Temp_grid, Target_atoms, 0.001d0, 100.0d0-0.1d0, rescale_dE=0.1d0)  ! below
+
         KCS = ''
         select case (NumPar%kind_of_CDF)
         case (0)    ! Ritchie-Howie
@@ -90,7 +98,7 @@ end subroutine printout_optical_CDF
 !EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
 ! Calculates electron mean free paths with parallelization via openmp:
 subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CDF_Phonon, Matter, Total_el_MFPs, &
-                        Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, aidCS, kind_of_particle, File_names)
+                        Elastic_MFP, Error_message, read_well, DSF_DEMFP, Mat_DOS, NumPar, aidCS, kind_of_particle, File_names, MPI_param)
     character(100), intent(in) :: Output_path   ! path to the folder where the file is/will be stored
     character(100), intent(in) :: Material_name ! name of the material
     type(Atom), dimension(:), intent(inout), target :: Target_atoms  ! all data for target atoms
@@ -106,6 +114,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
     character(8), intent(in) :: kind_of_particle
     type(All_names), intent(inout) :: File_names    ! file names to use later for gnuplot printing
+    type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
     !--------------------------
     integer :: FN, FN1, FN2, FN3, FN4, FN_diff     ! file numbers where to save the output
     integer :: N, Nelast, Nsiz, N_diff_siz
@@ -116,7 +125,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     integer Num_th, my_id, OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS, IMFP_last_modified
     integer i, j, k, Nat, Nshl, Reason, Va, Ord, Mnum, MFPnum, i_diff_CS
     character(200) Input_files, Input_elastic_file, File_el_range, File_hole_range, command
-    character(200) temp_char, temp_char1, temp_ch, File_name, temp_char2, folder_diff_CS, diff_CS_file, full_CS_file
+    character(300) temp_char, temp_char1, temp_ch, File_name, temp_char2, folder_diff_CS, diff_CS_file, full_CS_file
     character(200) :: full_CS_file_h, full_CS_file_ee, full_CS_file_he, diff_CS_file_h, diff_CS_file_ee, diff_CS_file_he
     !character(3) KCS
     character(10) KCS
@@ -159,7 +168,8 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             endif
             if (.not. allocated(Total_el_MFPs(j)%ELMFP(k)%L)) then
                 allocate(Total_el_MFPs(j)%ELMFP(k)%L(N))
-                Total_el_MFPs(j)%ELMFP(k)%L = 1.0d24
+                !Total_el_MFPs(j)%ELMFP(k)%L = 1.0d24
+                Total_el_MFPs(j)%ELMFP(k)%L = 0.0d0
             endif
             if (.not. allocated(Total_el_MFPs(j)%ELMFP(k)%dEdx)) then
                 allocate(Total_el_MFPs(j)%ELMFP(k)%dEdx(N))
@@ -201,7 +211,8 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
 
         if (.not. allocated(Elastic_MFP%Total%L)) then
             allocate(Elastic_MFP%Total%L(Nelast))  ! [A] MFP itself
-            Elastic_MFP%Total%L = 1.0d24
+            !Elastic_MFP%Total%L = 1.0d24
+            Elastic_MFP%Total%L = 0.0d0
         endif
         if (.not. allocated(Elastic_MFP%Total%dEdx)) then
             allocate(Elastic_MFP%Total%dEdx(Nelast))  ! [eV/A] mean energy loss
@@ -260,29 +271,19 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
 
         if (KCS .EQ. 'BEB') then ! BEB vs CDF cross section:
           temp_char1 = 'OUTPUT_Electron_IMFPs_'//trim(adjustl(KCS))//'.dat'
-          !Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_'//trim(adjustl(KCS))//'.dat'
-          !if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_'//trim(adjustl(KCS))//'.dat' ! save for later use
           File_el_range = trim(adjustl(Output_path))//'/OUTPUT_Electron_range_'//trim(adjustl(KCS))//'.dat'
         else ! CDF:
           if (NumPar%kind_of_DR .EQ. 4) then    ! Delta-CDF
             temp_char1 = 'OUTPUT_Electron_IMFPs_Delta_'//trim(adjustl(temp_char))//'.dat'
-            !Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_Delta_'//trim(adjustl(temp_char))//'.dat'
-            !if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_Delta_'//trim(adjustl(temp_char))//'.dat' ! save for later use
             File_el_range = trim(adjustl(Output_path))//'/OUTPUT_Electron_Delta_range_'//trim(adjustl(temp_char))//'.dat'
           else if (NumPar%kind_of_DR .EQ. 3) then
             temp_char1 = 'OUTPUT_Electron_IMFPs_Ritchie_'//trim(adjustl(temp_char))//'.dat'
-            !Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_Ritchie_'//trim(adjustl(temp_char))//'.dat'
-            !if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_Ritchie_'//trim(adjustl(temp_char))//'.dat' ! save for later use
             File_el_range = trim(adjustl(Output_path))//'/OUTPUT_Electron_Ritchie_range_'//trim(adjustl(temp_char))//'.dat'
           else if (NumPar%kind_of_DR .EQ. 2) then
             temp_char1 = 'OUTPUT_Electron_IMFPs_Plasmon_pole_'//trim(adjustl(temp_char))//'.dat'
-            !Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_Plasmon_pole_'//trim(adjustl(temp_char))//'.dat'
-            !if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_Plasmon_pole_'//trim(adjustl(temp_char))//'.dat' ! save for later use
             File_el_range = trim(adjustl(Output_path))//'/OUTPUT_Electron_Plasmon_pole_range_'//trim(adjustl(temp_char))//'.dat'
           else
             temp_char1 = 'OUTPUT_Electron_IMFPs_Free_'//trim(adjustl(temp_char))//'.dat'
-            !Input_files = trim(adjustl(Output_path))//'/OUTPUT_Electron_IMFPs_Free_'//trim(adjustl(temp_char))//'.dat'
-            !if (allocated(File_names%F)) File_names%F(2) = '/OUTPUT_Electron_IMFPs_Free_'//trim(adjustl(temp_char))//'.dat' ! save for later use
             File_el_range = trim(adjustl(Output_path))//'/OUTPUT_Electron_range_Free_'//trim(adjustl(temp_char))//'.dat'
           endif
         endif ! which name
@@ -291,26 +292,38 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
 
         ! IMFP files for electron:
         FN = 201
-        inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
+        if (MPI_param%process_rank == 0) then   ! only MPI master process
+            inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
+        endif
+        !------------------------------------------------------
+        ! Synchronize MPI processes to make sure the all know if file exists
+#ifdef MPI_USED
+        call mpi_bcast(file_exist, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+        call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:file_exist{1}') ! module "MPI_subroutines"
+#endif
+        call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+        !------------------------------------------------------
 
         ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
         if (file_exist) then
-            call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
-            !print*, 'IMFP file last modified on:', IMFP_last_modified
-            if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
-                NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
-                print*, 'File with CDF was modified more recently than the electron MFP => recalculating MFP'
-            endif
+            if (MPI_param%process_rank == 0) then   ! only MPI master process
+                call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
+                !print*, 'IMFP file last modified on:', IMFP_last_modified
+                if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                    NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
+                    print*, 'File with CDF was modified more recently than the electron MFP => recalculating MFP'
+                endif
 
-            ! Check if the file is consistent with the grid set:
-            open(FN, file=trim(adjustl(Input_files)), action='read')
-            call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
+                ! Check if the file is consistent with the grid set:
+                open(FN, file=trim(adjustl(Input_files)), action='read')
+                call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
 
-            if (Nsiz /= N) then
-                NumPar%redo_IMFP = .true. ! Grid mismatch, recalculate IMFPs
-                print*, 'Energy grid mismatch in electron MFP file => recalculating MFP'
-            endif
-            close(FN)
+                if (Nsiz /= N) then
+                    NumPar%redo_IMFP = .true. ! Grid mismatch, recalculate IMFPs
+                    print*, 'Energy grid mismatch in electron MFP file => recalculating MFP'
+                endif
+                close(FN)
+            endif ! (MPI_param%process_rank == 0)
         endif
 
         ! Check if precalculated diff.CS is required:
@@ -328,27 +341,44 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             inquire(FILE=trim(adjustl(folder_diff_CS)),exist=diff_CS_file_exists)    ! check if folder excists
 #endif
             if (.not.diff_CS_file_exists) then
-                print*, 'Files with diff.CS for electrons are required => recalculating MFP'
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    print*, 'Files with diff.CS for electrons are required => recalculating MFP'
+                endif
                 NumPar%redo_IMFP = .true.   ! diff.CS need to be calculated
-                command='mkdir '//trim(adjustl(folder_diff_CS)) ! to create a folder use this command
-                CALL system(command)  ! create the folder
-                write(*,'(a)') ' Folder '//trim(adjustl(folder_diff_CS))//' created for diff.CS files'
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    command='mkdir '//trim(adjustl(folder_diff_CS)) ! to create a folder use this command
+                    CALL system(command)  ! create the folder
+                    write(*,'(a)') ' Folder '//trim(adjustl(folder_diff_CS))//' created for diff.CS files'
+                endif
             endif
         case default  ! no files, calculate on the fly
             ! Nothing to do
         end select
+        !------------------------------------------------------
+        ! MPI master process must tell all worker-processes if there was a problem with SHI MFP file:
+#ifdef MPI_USED
+        call mpi_bcast(NumPar%redo_IMFP, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+        call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:redo_IMFP#1') ! module "MPI_subroutines"
+#endif
+        !------------------------------------------------------
+
 
         if (file_exist .and. .not.NumPar%redo_IMFP) then    ! read from the file:
-            write(*,'(a,a,a)') 'IMFPs of an electron in ', trim(adjustl(Material_name)), ' are already in the file:'
-            write(*, '(a)') trim(adjustl(Input_files))
-            write(*, '(a)') ' '
-            open(FN, file=trim(adjustl(Input_files)), action='read')
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                write(*,'(a,a,a)') 'IMFPs of an electron in ', trim(adjustl(Material_name)), ' are already in the file:'
+                write(*, '(a)') trim(adjustl(Input_files))
+                write(*, '(a)') ' '
+
+                open(FN, file=trim(adjustl(Input_files)), action='read')
+            endif
         else    ! create and write to the file:
-            call All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, aidCS, kind_of_particle) ! calculate all IMFPs
-            open(FN, file=trim(adjustl(Input_files)))
-            write(*,'(a,a,a)') 'Calculated inelastic mean free paths of an electron in ', trim(adjustl(Material_name)), ' are stored in the file'
-            write(*, '(a)') trim(adjustl(Input_files))
-            write(*, '(a)') ' '
+            call All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, aidCS, kind_of_particle, MPI_param) ! calculate all IMFPs
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                open(FN, file=trim(adjustl(Input_files)))
+                write(*,'(a,a,a)') 'Calculated inelastic mean free paths of an electron in ', trim(adjustl(Material_name)), ' are stored in the file'
+                write(*, '(a)') trim(adjustl(Input_files))
+                write(*, '(a)') ' '
+            endif
         endif
 
     !==============================> VB holes
@@ -377,25 +407,37 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         Input_files = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char1))
         if (allocated(File_names%F)) File_names%F(3) = trim(adjustl(temp_char1)) ! save for later use
 
-        !file_exist = .false.                !This file must be overwriten before each calculation.
-        inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
+        if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+            inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
+        endif
+        !------------------------------------------------------
+        ! Synchronize MPI processes to make sure the all know if file exists
+#ifdef MPI_USED
+        call mpi_bcast(file_exist, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+        call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:file_exist{2}') ! module "MPI_subroutines"
+#endif
+        call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+        !------------------------------------------------------
+
         ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
         if (file_exist) then
-            call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
-            !print*, 'IMFP file last modified on:', IMFP_last_modified
-            if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
-                NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
-                print*, 'File with CDF was modified more recently than the hole MFP => recalculating MFP'
-            endif
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
+                !print*, 'IMFP file last modified on:', IMFP_last_modified
+                if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                    NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
+                    print*, 'File with CDF was modified more recently than the hole MFP => recalculating MFP'
+                endif
 
-            ! Check if the file is consistent with the grid set:
-            open(FN, file=trim(adjustl(Input_files)), action='read')
-            call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
-            if (Nsiz /= N) then
-                NumPar%redo_IMFP = .true. ! Grid mismatch, recalculate IMFPs
-                print*, 'Energy grid mismatch in hole MFP file => recalculating MFP'
-            endif
-            close(FN)
+                ! Check if the file is consistent with the grid set:
+                open(FN, file=trim(adjustl(Input_files)), action='read')
+                call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
+                if (Nsiz /= N) then
+                    NumPar%redo_IMFP = .true. ! Grid mismatch, recalculate IMFPs
+                    print*, 'Energy grid mismatch in hole MFP file => recalculating MFP'
+                endif
+                close(FN)
+            endif ! (MPI_param%process_rank == 0)
         endif
 
         ! Check if precalculated diff.CS is required:
@@ -422,24 +464,40 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             ! Full name of the file with diff.CS for this energy grid point, element and shell:
             diff_CS_file_h = trim(adjustl(folder_diff_CS))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char))
 
-            inquire(file=trim(adjustl(diff_CS_file_h)),exist=diff_CS_file_exists)     ! check if input file excists
-            if (.not.diff_CS_file_exists) then
-                print*, 'Files with diff.CS for hole are required => recalculating MFP'
-                NumPar%redo_IMFP = .true.   ! diff.CS need to be calculated
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                inquire(file=trim(adjustl(diff_CS_file_h)),exist=diff_CS_file_exists)     ! check if input file excists
+                if (.not.diff_CS_file_exists) then
+                    print*, 'Files with diff.CS for hole are required => recalculating MFP'
+                    NumPar%redo_IMFP = .true.   ! diff.CS need to be calculated
+                endif
             endif
         end select
 
+        !------------------------------------------------------
+        ! MPI master process must tell all worker-processes if there was a problem with SHI MFP file:
+#ifdef MPI_USED
+        call mpi_bcast(NumPar%redo_IMFP, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+        call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:redo_IMFP#2') ! module "MPI_subroutines"
+#endif
+        !------------------------------------------------------
+
+
         if (file_exist .and. .not.NumPar%redo_IMFP) then    ! read from the file:
-            write(*,'(a,a,a)') 'IMFPs of an electron in ', trim(adjustl(Material_name)), ' are already in the file:'
-            write(*, '(a)') trim(adjustl(Input_files))
-            write(*, '(a)') ' '
-            open(FN, file=trim(adjustl(Input_files)), action='read')
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                write(*,'(a,a,a)') 'IMFPs of a holes in ', trim(adjustl(Material_name)), ' are already in the file:'
+                write(*, '(a)') trim(adjustl(Input_files))
+                write(*, '(a)') ' '
+
+                open(FN, file=trim(adjustl(Input_files)), action='read')
+            endif
         else    ! create and write to the file:
-            call All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, aidCS, kind_of_particle) ! calculate all IMFPs
-            open(FN, file=trim(adjustl(Input_files)))
-            write(*,'(a,a,a)') 'Calculated inelastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file'
-            write(*, '(a)') trim(adjustl(Input_files))
-            write(*, '(a)') ' '
+            call All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, aidCS, kind_of_particle, MPI_param) ! calculate all IMFPs
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                open(FN, file=trim(adjustl(Input_files)), action='write')
+                write(*,'(a,a,a)') 'Calculated inelastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file'
+                write(*, '(a)') trim(adjustl(Input_files))
+                write(*, '(a)') ' '
+            endif
         endif
 
     !==============================> Photons
@@ -467,55 +525,82 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         Input_files = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char1))
         if (allocated(File_names%F)) File_names%F(7) = trim(adjustl(temp_char1)) ! save for later use
 
-        inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
+        if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+            inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
+        endif
+        !------------------------------------------------------
+        ! Synchronize MPI processes to make sure the all know if file exists
+#ifdef MPI_USED
+        call mpi_bcast(file_exist, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+        call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:file_exist{3}') ! module "MPI_subroutines"
+#endif
+        call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+        !------------------------------------------------------
 
         ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
         if (file_exist) then
-            call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
-            !print*, 'IMFP file last modified on:', IMFP_last_modified
-            if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
-                NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
-                print*, 'File with CDF was modified more recently than the photon MFP => recalculating MFP'
-            endif
-            ! Check if the file is consistent with the grid set:
-            open(newunit=FN, file=trim(adjustl(Input_files)), ACTION='READ')
-            call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
-            if (Nsiz /= N) then
-                NumPar%redo_IMFP = .true. ! Grid mismatch, recalculate IMFPs
-                print*, 'Energy grid mismatch in photon MFP file => recalculating MFP'
-            endif
-            close(FN)
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
+                !print*, 'IMFP file last modified on:', IMFP_last_modified
+                if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                    NumPar%redo_IMFP = .true. ! Material parameters changed, recalculate IMFPs
+                    print*, 'File with CDF was modified more recently than the photon MFP => recalculating MFP'
+                endif
+                ! Check if the file is consistent with the grid set:
+                open(newunit=FN, file=trim(adjustl(Input_files)), ACTION='READ')
+                call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
+                if (Nsiz /= N) then
+                    NumPar%redo_IMFP = .true. ! Grid mismatch, recalculate IMFPs
+                    print*, 'Energy grid mismatch in photon MFP file => recalculating MFP'
+                endif
+                close(FN)
+            endif ! (MPI_param%process_rank == 0)
         endif
 
 
+        !------------------------------------------------------
+        ! MPI master process must tell all worker-processes if there was a problem with SHI MFP file:
+#ifdef MPI_USED
+        call mpi_bcast(NumPar%redo_IMFP, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+        call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:redo_IMFP#3') ! module "MPI_subroutines"
+#endif
+        !------------------------------------------------------
+
+
         if (file_exist .and. .not.NumPar%redo_IMFP) then    ! read from the file:
-            write(*,'(a,a,a)') 'IMFPs of a photon in ', trim(adjustl(Material_name)), ' are already in the file:'
-            write(*, '(a)') trim(adjustl(Input_files))
-            write(*, '(a)') ' '
-            open(newunit=FN, file=trim(adjustl(Input_files)), ACTION='READ')
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                write(*,'(a,a,a)') 'IMFPs of a photon in ', trim(adjustl(Material_name)), ' are already in the file:'
+                write(*, '(a)') trim(adjustl(Input_files))
+                write(*, '(a)') ' '
+
+                open(newunit=FN, file=trim(adjustl(Input_files)), ACTION='READ')
+            endif
         else    ! create and write to the file:
-            call All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar, Mat_DOS) ! calculate all IMFPs
-            open(newunit=FN, file=trim(adjustl(Input_files)))
-            write(*,'(a,a,a)') 'Calculated attenuation lengths (IMFPs) of a photon in ', trim(adjustl(Material_name)), ' are stored in the file'
-            write(*, '(a)') trim(adjustl(Input_files))
-            write(*, '(a)') ' '
+            call All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar, Mat_DOS, MPI_param) ! calculate all IMFPs
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                open(newunit=FN, file=trim(adjustl(Input_files)), action = 'write')
+                write(*,'(a,a,a)') 'Calculated attenuation lengths (IMFPs) of a photon in ', trim(adjustl(Material_name)), ' are stored in the file'
+                write(*, '(a)') trim(adjustl(Input_files))
+                write(*, '(a)') ' '
+            endif
         endif
     endif kind_of_particle1
 
 
    !===================================
-   !Now write the output into the file:
+   !Now write the output into the file, or read from it if possible:
    e_range = 0.0d0 ! start with the range calculations
    dEdx1 = 0.0d0
    dEdx0 = 1.0d30
-   do i = 1, N
+   if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+    do i = 1, N
       if (.not. file_exist .or. NumPar%redo_IMFP) then  ! if file didn't exist and we just created it:
         write(FN,'(f)', advance='no') Total_el_MFPs(1)%ELMFP(1)%E(i)
         IMFP_calc = 0.0d0 ! to sum up for a total IMFP
       else
         read(FN,'(f)', advance='no', IOSTAT=Reason) Total_el_MFPs(1)%ELMFP(1)%E(i)
         call read_file_here(Reason, i, read_well)
-        if (.not. read_well) goto 2015
+        if (.not. read_well) goto 2017  ! go out of the cycle
       endif
       do j = 1, Nat
          Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
@@ -526,11 +611,13 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             else
                 read(FN,'(e)', advance='no') Total_el_MFPs(j)%ELMFP(k)%L(i)    ! write IMFP for all shells
                 call read_file_here(Reason, i, read_well)
-                if (.not. read_well) goto 2015
+                if (.not. read_well) goto 2017  ! go out of the cycle
                 if ((j .NE. 1) .OR. (k .NE. 1)) then
                     Total_el_MFPs(j)%ELMFP(k)%E(i) = Total_el_MFPs(1)%ELMFP(1)%E(i) ! save it for all elements and shells
                 endif
             endif
+            ! Test of reading by multiple processes (works):
+            !print*, 'MPI# ', MPI_param%process_rank, 'CS:', i, j, k, Total_el_MFPs(j)%ELMFP(k)%E(i), Total_el_MFPs(j)%ELMFP(k)%L(i)
          enddo
       enddo
       temp_MFP(1,i) = Total_el_MFPs(1)%ELMFP(1)%E(i)
@@ -542,70 +629,98 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
         read(FN,'(e)') IMFP_calc    ! read total IMFP
         temp_MFP(2,i) = IMFP_calc
         call read_file_here(Reason, i, read_well)
-        if (.not. read_well) goto 2015
+        if (.not. read_well) goto 2017  ! go out of the cycle
       endif
-   enddo
-   flush(FN)
+    enddo
+   endif ! (MPI_param%process_rank == 0)
 
+2017 continue
+    !------------------------------------------------------
+    ! Synchronize MPI processes to make sure the file read well
+#ifdef MPI_USED
+    call mpi_bcast(read_well, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:read_well{1}') ! module "MPI_subroutines"
+#endif
+    call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+    !------------------------------------------------------
+    if (.not. read_well) goto 2015
+    !------------------------------------------------------
+    !if (.not. file_exist .or. NumPar%redo_IMFP) then  ! if file didn't exist and we just created it:
+    if (file_exist .and. .not.NumPar%redo_IMFP) then  ! broadcast IMFP read from file
+        call broadcast_el_MFPs(temp_MFP, do_range, Total_el_MFPs, MPI_param)    ! module "Reading_files_and_parameters"
+        !print*, '[MPI process #', MPI_param%process_rank , '] done broadcast_el_MFPs'
+    endif
+    call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+    !------------------------------------------------------
 
    !------------------------------
    ! Diff.CS tables, if required:
    if (kind_of_particle .EQ. 'Electron') then
     select case (NumPar%CS_method)
     case (1)    ! save files are required
-        if (NumPar%verbose) call print_time_step('Starting dealing with electron diff. CS tables and files:', msec=.true.)
+        if (NumPar%verbose) call print_time_step('Starting dealing with electron diff. CS tables and files:', MPI_param, msec=.true.)
 
-        FN_diff = 333   ! file number to be reused
+        if (MPI_param%process_rank == 0) then   ! only MPI master process does it
 
-        do j = 1, Nat   ! for all types of atoms
-            Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
-            do k = 1, Nshl  ! for all orbitals
-                do i = 1, N ! for all energy grid points
-                    ! Construct the file name:
-                    aidCS%EIdCS(j)%Int_diff_CS(k)%E(i) = Total_el_MFPs(j)%ELMFP(k)%E(i)
+            FN_diff = 333   ! file number to be reused
 
-                    ! Name of the atom and shell:
-                    temp_char = trim(adjustl(full_CS_file( 8 : LEN(trim(adjustl(full_CS_file)))-4 ))) //'_'// &
+            do j = 1, Nat   ! for all types of atoms
+                Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
+                do k = 1, Nshl  ! for all orbitals
+                    do i = 1, N ! for all energy grid points
+                        ! Construct the file name:
+                        aidCS%EIdCS(j)%Int_diff_CS(k)%E(i) = Total_el_MFPs(j)%ELMFP(k)%E(i)
+
+                        ! Name of the atom and shell:
+                        temp_char = trim(adjustl(full_CS_file( 8 : LEN(trim(adjustl(full_CS_file)))-4 ))) //'_'// &
                                 trim(adjustl(Target_atoms(j)%Name))//'_'//trim(adjustl(Target_atoms(j)%Shell_name(k)))
-                    ! Add energy grid point:
-                    write(temp_char1,'(f14.3)') aidCS%EIdCS(j)%Int_diff_CS(k)%E(i)
-                    ! Combine the info into file name:
-                    temp_char = trim(adjustl(temp_char))//'_'//trim(adjustl(temp_char1))//'.dat'
-                    ! Full name of the file with diff.CS for this energy grid point, element and shell:
-                    diff_CS_file = trim(adjustl(folder_diff_CS))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char))
+                        ! Add energy grid point:
+                        write(temp_char1,'(f14.3)') aidCS%EIdCS(j)%Int_diff_CS(k)%E(i)
+                        ! Combine the info into file name:
+                        temp_char = trim(adjustl(temp_char))//'_'//trim(adjustl(temp_char1))//'.dat'
+                        ! Full name of the file with diff.CS for this energy grid point, element and shell:
+                        diff_CS_file = trim(adjustl(folder_diff_CS))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char))
 
-                    if ((.not. file_exist) .or. (.not.diff_CS_file_exists) .or. NumPar%redo_IMFP) then  ! if file doesn't exist
-                        open(FN_diff, file=trim(adjustl(diff_CS_file)))   ! create it
-                        ! Write the data into this file:
-                        N_diff_siz = size(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw)
-                        do i_diff_CS = 1, N_diff_siz
-                            write(FN_diff, '(es,es)') aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw(i_diff_CS), &
-                                                      aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(i_diff_CS)
-                        enddo ! i_diff_CS
-                    else    ! if file exist, read from it:
-                        open(FN_diff, file=trim(adjustl(diff_CS_file)), action='read')
-                        ! Read the data from this file:
-                        call Count_lines_in_file(FN_diff, N_diff_siz) ! count how many line the file contains
-                        ! Allocate the diff.CS tables:
-                        if (.not.allocated(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw)) then
-                            allocate(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(N_diff_siz))
-                        endif
-                        if (.not.allocated(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw)) then
-                            allocate(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw(N_diff_siz))
-                        endif
+                        if ((.not. file_exist) .or. (.not.diff_CS_file_exists) .or. NumPar%redo_IMFP) then  ! if file doesn't exist
+                            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                                open(FN_diff, file=trim(adjustl(diff_CS_file)), action = 'write')   ! create it
+                                ! Write the data into this file:
+                                N_diff_siz = size(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw)
+                                do i_diff_CS = 1, N_diff_siz
+                                    write(FN_diff, '(es,es)') aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw(i_diff_CS), &
+                                                        aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(i_diff_CS)
+                                enddo ! i_diff_CS
+                                close (FN_diff)
+                            endif ! (MPI_param%process_rank == 0)
+                        else    ! if file exist, read from it:
+                            open(FN_diff, file=trim(adjustl(diff_CS_file)), action='read')
+                            ! Read the data from this file:
+                            call Count_lines_in_file(FN_diff, N_diff_siz) ! count how many line the file contains
+                            ! Allocate the diff.CS tables:
+                            if (.not.allocated(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw)) then
+                                allocate(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(N_diff_siz))
+                            endif
+                            if (.not.allocated(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw)) then
+                                allocate(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw(N_diff_siz))
+                            endif
 
-                        do i_diff_CS = 1, N_diff_siz
-                            read(FN_diff,*) aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw(i_diff_CS), &
+                            do i_diff_CS = 1, N_diff_siz
+                                read(FN_diff,*) aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw(i_diff_CS), &
                                             aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw(i_diff_CS)
-                        enddo ! i_diff_CS
-                    endif
-                    !print*, j,k, i, aidCS%EIdCS(j)%Int_diff_CS(k)%E(i), trim(adjustl(diff_CS_file))
-                    close (FN_diff)
+                            enddo ! i_diff_CS
+                            close (FN_diff)
+                        endif
+                        !print*, j,k, i, aidCS%EIdCS(j)%Int_diff_CS(k)%E(i), trim(adjustl(diff_CS_file))
+                    enddo ! k
                 enddo ! k
-            enddo ! k
-        enddo ! j
+            enddo ! j
+        endif ! (MPI_param%process_rank == 0)
+        !------------------------------------------------------
+        ! MPI master process shares diff.CS with other processes:
+        call broadcast_el_aidCS_electrons(aidCS, MPI_param)    ! module "Reading_files_and_parameters"
+        !------------------------------------------------------
 
-        if (NumPar%verbose) call print_time_step('Done with electron diff. CS tables and files:', msec=.true.)
+        if (NumPar%verbose) call print_time_step('Done with electron diff. CS tables and files:', MPI_param, msec=.true.)
     case default  ! no files, calculate on the fly
         ! Nothing to do
     end select
@@ -615,60 +730,66 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
    if (kind_of_particle .EQ. 'Hole') then
     select case (NumPar%CS_method)
     case (1)    ! save files are required
-        if (NumPar%verbose) call print_time_step('Starting dealing with holes diff. CS tables and files:', msec=.true.)
+        if (NumPar%verbose) call print_time_step('Starting dealing with holes diff. CS tables and files:', MPI_param, msec=.true.)
 
-        FN_diff = 333   ! file number to be reused
+        if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+            FN_diff = 333   ! file number to be reused
 
-        ! For holes, it is only VB:
-        j = 1
-        Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
-        k = Nshl  ! for VB
-        N = size(Total_el_MFPs(j)%ELMFP(k)%E)
-        do i = 1, N ! for all energy grid points
-            ! Construct the file name:
-            aidCS%HIdCS%E(i) = Total_el_MFPs(j)%ELMFP(k)%E(i)
+            ! For holes, it is only VB:
+            j = 1
+            Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
+            k = Nshl  ! for VB
+            N = size(Total_el_MFPs(j)%ELMFP(k)%E)
+            do i = 1, N ! for all energy grid points
+                ! Construct the file name:
+                aidCS%HIdCS%E(i) = Total_el_MFPs(j)%ELMFP(k)%E(i)
 
-            ! Name of the atom and shell:
-            temp_char = trim(adjustl(full_CS_file_h( 8 : LEN(trim(adjustl(full_CS_file_h)))-4 ))) //'_'// &
+                ! Name of the atom and shell:
+                temp_char = trim(adjustl(full_CS_file_h( 8 : LEN(trim(adjustl(full_CS_file_h)))-4 ))) //'_'// &
                         trim(adjustl(Target_atoms(j)%Name))//'_'//trim(adjustl(Target_atoms(j)%Shell_name(k)))
-            ! Add energy grid point:
+                ! Add energy grid point:
 
-            write(temp_char1,'(f14.3)') aidCS%HIdCS%E(i)    ! energy grid point
-            ! Combine the info into file name:
-            temp_char = trim(adjustl(temp_char))//'_'//trim(adjustl(temp_char1))//'.dat'
-            ! Full name of the file with diff.CS for this energy grid point, element and shell:
-            diff_CS_file_h = trim(adjustl(folder_diff_CS))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char))
+                write(temp_char1,'(f14.3)') aidCS%HIdCS%E(i)    ! energy grid point
+                ! Combine the info into file name:
+                temp_char = trim(adjustl(temp_char))//'_'//trim(adjustl(temp_char1))//'.dat'
+                ! Full name of the file with diff.CS for this energy grid point, element and shell:
+                diff_CS_file_h = trim(adjustl(folder_diff_CS))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char))
 
 
-            if ((.not. file_exist) .or. (.not.diff_CS_file_exists) .or. NumPar%redo_IMFP) then  ! if file doesn't exist
-                open(FN_diff, file=trim(adjustl(diff_CS_file_h)))   ! create it
-                ! Write the data into this file:
-                N_diff_siz = size(aidCS%HIdCS%diffCS(i)%dsdhw)
-                do i_diff_CS = 1, N_diff_siz
-                    write(FN_diff, '(es,es)') aidCS%HIdCS%diffCS(i)%hw(i_diff_CS), &
+                if ((.not. file_exist) .or. (.not.diff_CS_file_exists) .or. NumPar%redo_IMFP) then  ! if file doesn't exist, craete it
+                    open(FN_diff, file=trim(adjustl(diff_CS_file_h)), action = 'write')   ! create it
+                    ! Write the data into this file:
+                    N_diff_siz = size(aidCS%HIdCS%diffCS(i)%dsdhw)
+                    do i_diff_CS = 1, N_diff_siz
+                            write(FN_diff, '(es,es)') aidCS%HIdCS%diffCS(i)%hw(i_diff_CS), &
                                               aidCS%HIdCS%diffCS(i)%dsdhw(i_diff_CS)
-                enddo ! i_diff_CS
-            else    ! if file exist, read from it:
-                open(FN_diff, file=trim(adjustl(diff_CS_file_h)), action='read')
-                ! Read the data from this file:
-                call Count_lines_in_file(FN_diff, N_diff_siz) ! count how many line the file contains
-                ! Allocate the diff.CS tables:
-                if (.not.allocated(aidCS%HIdCS%diffCS(i)%dsdhw)) then
-                    allocate(aidCS%HIdCS%diffCS(i)%dsdhw(N_diff_siz))
-                endif
-                if (.not.allocated(aidCS%HIdCS%diffCS(i)%hw)) then
-                    allocate(aidCS%HIdCS%diffCS(i)%hw(N_diff_siz))
-                endif
-                do i_diff_CS = 1, N_diff_siz
-                    read(FN_diff,*) aidCS%HIdCS%diffCS(i)%hw(i_diff_CS), &
+                    enddo ! i_diff_CS
+                    close (FN_diff)
+                else    ! if file exist, read from it:
+                    open(FN_diff, file=trim(adjustl(diff_CS_file_h)), action='read')
+                    ! Read the data from this file:
+                    call Count_lines_in_file(FN_diff, N_diff_siz) ! count how many line the file contains
+                    ! Allocate the diff.CS tables:
+                    if (.not.allocated(aidCS%HIdCS%diffCS(i)%dsdhw)) then
+                        allocate(aidCS%HIdCS%diffCS(i)%dsdhw(N_diff_siz))
+                    endif
+                    if (.not.allocated(aidCS%HIdCS%diffCS(i)%hw)) then
+                        allocate(aidCS%HIdCS%diffCS(i)%hw(N_diff_siz))
+                    endif
+                    do i_diff_CS = 1, N_diff_siz
+                        read(FN_diff,*) aidCS%HIdCS%diffCS(i)%hw(i_diff_CS), &
                                     aidCS%HIdCS%diffCS(i)%dsdhw(i_diff_CS)
-                enddo ! i_diff_CS
-            endif
-            !print*, i, aidCS%HIdCS%E(i), aidCS%HIdCS%diffCS(i)%dsdhw(N_diff_siz)
-            close (FN_diff)
-        enddo ! k
-
-        if (NumPar%verbose) call print_time_step('Done with holes diff. CS tables and files:', msec=.true.)
+                    enddo ! i_diff_CS
+                    close (FN_diff)
+                endif
+                !print*, i, aidCS%HIdCS%E(i), aidCS%HIdCS%diffCS(i)%dsdhw(N_diff_siz)
+            enddo ! k
+        endif ! (MPI_param%process_rank == 0)
+        !------------------------------------------------------
+        ! MPI master process shares diff.CS with other processes:
+        call broadcast_el_aidCS_holes(aidCS, MPI_param)    ! module "Reading_files_and_parameters"
+        !------------------------------------------------------
+        if (NumPar%verbose) call print_time_step('Done with holes diff. CS tables and files:', MPI_param, msec=.true.)
     case default  ! no files, calculate on the fly
         ! Nothing to do
     end select
@@ -677,7 +798,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
    NumPar%redo_IMFP = redo_MFP_default ! defualt it for the next kind of particle
 
 
-
+   !=============================================================================================
    !######################### Now do the same for elastic mean free path of an electron and hole:
 
    redo_MFP_default = NumPar%redo_EMFP ! save what the user defined
@@ -692,24 +813,51 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
             if (allocated(File_names%F)) File_names%F(4) = trim(adjustl(temp_char2)) ! save for later
             FN2 = 2032
-            inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
+            endif
 
             ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
             if (file_exist) then
-                call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
-                !print*, 'IMFP file last modified on:', IMFP_last_modified
-                if (IMFP_last_modified < NumPar%Last_mod_time_DSF) then
-                    NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
-                    print*, 'File with DSF was modified more recently than the MFP => recalculating MFP'
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
+                    !print*, 'IMFP file last modified on:', IMFP_last_modified
+                    if (IMFP_last_modified < NumPar%Last_mod_time_DSF) then
+                        NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                        print*, 'File with DSF was modified more recently than the MFP => recalculating MFP'
+                    endif
                 endif
             endif
+
+
+            !------------------------------------------------------
+            ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+#ifdef MPI_USED
+            call mpi_bcast(file_exist, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:file_exist#1') ! module "MPI_subroutines"
+            call mpi_bcast(NumPar%redo_EMFP, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:redo_EMFP#1') ! module "MPI_subroutines"
+#endif
+            !------------------------------------------------------
             
             if (file_exist .and. .not.NumPar%redo_EMFP) then    ! read from the file:
-                write(*,'(a,a,a)') 'DSF EMFPs of an electron in ', trim(adjustl(Material_name)), ' are in the file:'
-                write(*, '(a)') trim(adjustl(Input_elastic_file))
-                write(*, '(a)') ' '
-                open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
-                call count_lines_in_file(FN2, Nelast)
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    write(*,'(a,a,a)') 'DSF EMFPs of an electron in ', trim(adjustl(Material_name)), ' are in the file:'
+                    write(*, '(a)') trim(adjustl(Input_elastic_file))
+                    write(*, '(a)') ' '
+                    open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                    call count_lines_in_file(FN2, Nelast)
+                endif
+                !------------------------------------------------------
+                ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+#ifdef MPI_USED
+                call mpi_bcast(Nelast, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+                call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:Nelast') ! module "MPI_subroutines"
+#endif
+                ! Synchronize MPI processes
+                call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+                !------------------------------------------------------
+
                 deallocate(Elastic_MFP%Total%E)
                 deallocate(Elastic_MFP%Total%L)
                 deallocate(Elastic_MFP%Total%dEdx)
@@ -730,10 +878,12 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 allocate(Elastic_MFP%Absorb%L(Nelast), source = 0.0d0)
                 allocate(Elastic_MFP%Absorb%dEdx(Nelast), source = 0.0d0)
             else    ! create and write to the file:
-                write(*,'(a,a,a)') 'Calculated elastic mean free paths of an electron in ', trim(adjustl(Material_name)), ' are stored in the file:'
-                write(*, '(a)') trim(adjustl(Input_elastic_file))
-                write(*, '(a)') ' '
-                open(FN2, file=trim(adjustl(Input_elastic_file)))
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    write(*,'(a,a,a)') 'Calculated elastic mean free paths of an electron in ', trim(adjustl(Material_name)), ' are stored in the file:'
+                    write(*, '(a)') trim(adjustl(Input_elastic_file))
+                    write(*, '(a)') ' '
+                    open(FN2, file=trim(adjustl(Input_elastic_file)), action = 'write')
+                endif
                 deallocate(Elastic_MFP%Total%E)
                 deallocate(Elastic_MFP%Total%L)
                 deallocate(Elastic_MFP%Total%dEdx)
@@ -801,25 +951,46 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                     File_names%F(4) = trim(adjustl(temp_char2)) ! save for later use
                 endif
                 FN2 = 203
-                inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
+                endif
+
+                !------------------------------------------------------
+                ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+#ifdef MPI_USED
+                call mpi_bcast(file_exist, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+                call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:file_exist#2') ! module "MPI_subroutines"
+#endif
+                !------------------------------------------------------
 
                 ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
                 if (file_exist) then
-                    call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
-                    !print*, 'IMFP file last modified on:', IMFP_last_modified
-                    if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
-                        NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
-                        print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+                    if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                        call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
+                        !print*, 'IMFP file last modified on:', IMFP_last_modified
+                        if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                            NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                            print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+                        endif
+                        ! Check if the file is consistent with the grid set:
+                        open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                        call count_lines_in_file(FN2, Nsiz) ! module "Dealing_with_EADL"
+                        if (Nsiz /= Nelast) then
+                            NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
+                            print*, 'Energy grid mismatch in elastic electron MFP file => recalculating MFP'
+                        endif
+                        close(FN2)
                     endif
-                    ! Check if the file is consistent with the grid set:
-                    open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
-                    call count_lines_in_file(FN2, Nsiz) ! module "Dealing_with_EADL"
-                    if (Nsiz /= Nelast) then
-                        NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
-                        print*, 'Energy grid mismatch in elastic electron MFP file => recalculating MFP'
-                    endif
-                    close(FN2)
                 endif
+
+
+                !------------------------------------------------------
+                ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+#ifdef MPI_USED
+                call mpi_bcast(NumPar%redo_EMFP, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+                call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:redo_EMFP#2') ! module "MPI_subroutines"
+#endif
+                !------------------------------------------------------
 
 
                 ! Check if precalculated diff.CS is required:
@@ -844,33 +1015,51 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                     ! Full name of the file with diff.CS for this energy grid point, element and shell:
                     diff_CS_file_ee = trim(adjustl(folder_diff_CS))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char))
 
-                    inquire(file=trim(adjustl(diff_CS_file_ee)),exist=diff_CS_file_exists)     ! check if input file excists
-                    if (.not.diff_CS_file_exists) then
-                        print*, 'Files with elastic diff.CS for electrons are required => recalculating MFP'
-                        NumPar%redo_EMFP = .true.   ! diff.CS need to be calculated
+                    if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                        inquire(file=trim(adjustl(diff_CS_file_ee)),exist=diff_CS_file_exists)     ! check if input file excists
+                        if (.not.diff_CS_file_exists) then
+                            print*, 'Files with elastic diff.CS for electrons are required => recalculating MFP'
+                            NumPar%redo_EMFP = .true.   ! diff.CS need to be calculated
+                        endif
                     endif
+                    !------------------------------------------------------
+                    ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+#ifdef MPI_USED
+                    call mpi_bcast(diff_CS_file_exists, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+                    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:diff_CS_file_exists') ! module "MPI_subroutines"
+                    call mpi_bcast(NumPar%redo_EMFP, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+                    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:redo_EMFP#3') ! module "MPI_subroutines"
+#endif
+                !------------------------------------------------------
                 end select
 
+                !print*, '[MPI process #', MPI_param%process_rank, '] Elast:', file_exist, diff_CS_file_exists, NumPar%redo_EMFP
 
                 if (file_exist .and. .not.NumPar%redo_EMFP) then    ! read from the file:
-                    write(*,'(a,a,a)') 'Calculated with '//trim(adjustl(KCS(2:)))//' EMFPs of an electron in ', &
-                        trim(adjustl(Material_name)), ' are already in the file:'
-                    write(*, '(a)') trim(adjustl(Input_elastic_file))
-                    write(*, '(a)') ' '
-                    open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                    if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                        write(*,'(a,a,a)') 'Calculated with '//trim(adjustl(KCS(2:)))//' EMFPs of an electron in ', &
+                            trim(adjustl(Material_name)), ' are already in the file:'
+                        write(*, '(a)') trim(adjustl(Input_elastic_file))
+                        write(*, '(a)') ' '
+                        open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                    endif
                 else    ! create and write to the file:
                     call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, &
-                                                NumPar, Mat_DOS, aidCS, kind_of_particle)
-                    open(FN2, file=trim(adjustl(Input_elastic_file)))
-                    write(*,'(a,a,a)') 'Elastic mean free paths of an electron calculated with '//trim(adjustl(KCS(2:)))// &
-                        ' phonon peaks in ', trim(adjustl(Material_name)), ' are stored in the file'
-                    write(*, '(a)') trim(adjustl(Input_elastic_file))
-                    write(*, '(a)') ' '
+                                                NumPar, Mat_DOS, aidCS, kind_of_particle, MPI_param)
+                    if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                        open(FN2, file=trim(adjustl(Input_elastic_file)), action='write')
+                        write(*,'(a,a,a)') 'Elastic mean free paths of an electron calculated with '//trim(adjustl(KCS(2:)))// &
+                            ' phonon peaks in ', trim(adjustl(Material_name)), ' are stored in the file'
+                        write(*, '(a)') trim(adjustl(Input_elastic_file))
+                        write(*, '(a)') ' '
+                    endif
                 endif
             else
-                write(*,'(a,a,a)') 'Coefficients of CDF phonon peaks for', trim(adjustl(Material_name)), 'is not specified.'
-                write(*, '(a)') 'Calculation will proceed with Mott atomic cross-sections.'
-                write(*, '(a)') ' '
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    write(*,'(a,a,a)') 'Coefficients of CDF phonon peaks for', trim(adjustl(Material_name)), 'is not specified.'
+                    write(*, '(a)') 'Calculation will proceed with Mott atomic cross-sections.'
+                    write(*, '(a)') ' '
+                endif
                 NumPar%kind_of_EMFP = 0
                 go to 0001
             endif
@@ -886,35 +1075,51 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
 
             ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
             if (file_exist) then
-                call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
-                !print*, 'IMFP file last modified on:', IMFP_last_modified
-                if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
-                    NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
-                    print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
-                endif
-                ! Check if the file is consistent with the grid set:
-                open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
-                call count_lines_in_file(FN2, Nsiz) ! module "Dealing_with_EADL"
-                !print*, 'Nelast', Nelast, Nsiz
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
+                    !print*, 'IMFP file last modified on:', IMFP_last_modified
+                    if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                        NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                        print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+                    endif
+                    ! Check if the file is consistent with the grid set:
+                    open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                    call count_lines_in_file(FN2, Nsiz) ! module "Dealing_with_EADL"
+                    !print*, 'Nelast', Nelast, Nsiz
 
-                if (Nsiz /= Nelast) then
-                    NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
-                    print*, 'Energy grid mismatch in MFP file => recalculating MFP'
+                    if (Nsiz /= Nelast) then
+                        NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
+                        print*, 'Energy grid mismatch in MFP file => recalculating MFP'
+                    endif
+                    close(FN2)
                 endif
-                close(FN2)
             endif
 
+
+            !------------------------------------------------------
+            ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+#ifdef MPI_USED
+            call mpi_bcast(NumPar%redo_EMFP, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:redo_EMFP#3') ! module "MPI_subroutines"
+#endif
+            !------------------------------------------------------
+
+
             if (file_exist .and. .not.NumPar%redo_EMFP) then    ! read from the file:
-                write(*,'(a,a,a)') 'Mott EMFPs of an electron in ', trim(adjustl(Material_name)), ' are already in the file:'
-                write(*, '(a)') trim(adjustl(Input_elastic_file))
-                write(*, '(a)') ' '
-                open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    write(*,'(a,a,a)') 'Mott EMFPs of an electron in ', trim(adjustl(Material_name)), ' are already in the file:'
+                    write(*, '(a)') trim(adjustl(Input_elastic_file))
+                    write(*, '(a)') ' '
+                    open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                endif
             else    ! create and write to the file:
-                call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, aidCS, kind_of_particle)
-                open(FN2, file=trim(adjustl(Input_elastic_file)))
-                write(*,'(a,a,a)') 'Elastic mean free paths of an electron calculated using Mott formula in ', trim(adjustl(Material_name)), ' are stored in the file'
-                write(*, '(a)') trim(adjustl(Input_elastic_file))
-                write(*, '(a)') ' '
+                call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, aidCS, kind_of_particle, MPI_param)
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    open(FN2, file=trim(adjustl(Input_elastic_file)))
+                    write(*,'(a,a,a)') 'Elastic mean free paths of an electron calculated using Mott formula in ', trim(adjustl(Material_name)), ' are stored in the file'
+                    write(*, '(a)') trim(adjustl(Input_elastic_file))
+                    write(*, '(a)') ' '
+                endif
             endif
          case default ! el_elastic_CS             ! Elastic scattering is disabled
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
@@ -922,24 +1127,17 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
             if (allocated(File_names%F)) File_names%F(4) = trim(adjustl(temp_char2))    ! save for later use
             FN2 = 2031
-            open(FN2, file=trim(adjustl(Input_elastic_file)))
-            write(*,'(a)') 'Electron kinetics will be traces without elastic scatterings on target atoms'
-            file_exist = .false.
-            call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, aidCS, kind_of_particle)
-            Elastic_MFP%Total%L(:) = 1.0d30
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                open(FN2, file=trim(adjustl(Input_elastic_file)))
+                write(*,'(a)') 'Electron kinetics will be traces without elastic scatterings on target atoms'
+                file_exist = .false.
+            endif
+            call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, aidCS, kind_of_particle, MPI_param)
+                Elastic_MFP%Total%L(:) = 1.0d30
          endselect ! el_elastic_CS
 
     !==============================
     else if (kind_of_particle .EQ. 'Hole') then
-!         write(temp_char, '(f7.2, a)') Matter%temp, '_K'
-!         Input_elastic_file = trim(adjustl(Output_path))//'/OUTPUT_Hole_EMFPs_'//trim(adjustl(temp_char))//'.dat'
-!         if (allocated(File_names%F)) File_names%F(5) = 'OUTPUT_Hole_EMFPs_'//trim(adjustl(temp_char))//'.dat' ! save for later use
-!         FN2 = 204
-!         file_exist = .false.
-!         call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, kind_of_particle)
-!         open(FN2, file=trim(adjustl(Input_elastic_file)))
-!         write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file'
-!         write(*, '(a)') trim(adjustl(Input_elastic_file))
         select case (NumPar%kind_of_EMFP)
         case (2)    ! Read DSF elastic MFP
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
@@ -951,10 +1149,13 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             FN2 = 2032
 
             file_exist = .false.
-            write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file:'
-            write(*, '(a)') trim(adjustl(Input_elastic_file))
-            write(*, '(a)') ' '
-            open(FN2, file=trim(adjustl(Input_elastic_file)))
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file:'
+                write(*, '(a)') trim(adjustl(Input_elastic_file))
+                write(*, '(a)') ' '
+                open(FN2, file=trim(adjustl(Input_elastic_file)), action='write')
+            endif
+
             deallocate(Elastic_MFP%Total%E)
             deallocate(Elastic_MFP%Total%L)
             deallocate(Elastic_MFP%Total%dEdx)
@@ -1005,27 +1206,46 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             endif
             FN2 = 204
             !file_exist = .false.
-            inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
+            endif
+            !------------------------------------------------------
+            ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+#ifdef MPI_USED
+            call mpi_bcast(file_exist, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:file_exist#3') ! module "MPI_subroutines"
+#endif
+            !------------------------------------------------------
 
             ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
             if (file_exist) then
-                call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
-                !print*, 'IMFP file last modified on:', IMFP_last_modified
-                if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
-                    NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
-                    print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
-                endif
-                ! Check if the file is consistent with the grid set:
-                open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
-                call count_lines_in_file(FN2, Nsiz) ! module "Dealing_with_EADL"
-                !print*, 'Nelast', Nelast, Nsiz
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
+                    !print*, 'IMFP file last modified on:', IMFP_last_modified
+                    if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                        NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                        print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+                    endif
+                    ! Check if the file is consistent with the grid set:
+                    open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                    call count_lines_in_file(FN2, Nsiz) ! module "Dealing_with_EADL"
+                    !print*, 'Nelast', Nelast, Nsiz
 
-                if (Nsiz /= Nelast) then
-                    NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
-                    print*, 'Energy grid mismatch in hole elastic MFP file => recalculating MFP'
+                    if (Nsiz /= Nelast) then
+                        NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
+                        print*, 'Energy grid mismatch in hole elastic MFP file => recalculating MFP'
+                    endif
+                    close(FN2)
                 endif
-                close(FN2)
             endif
+
+            !------------------------------------------------------
+            ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+#ifdef MPI_USED
+            call mpi_bcast(NumPar%redo_EMFP, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:redo_EMFP#4') ! module "MPI_subroutines"
+#endif
+            !------------------------------------------------------
 
 
             ! Check if precalculated diff.CS is required:
@@ -1049,25 +1269,39 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 ! Full name of the file with diff.CS for this energy grid point, element and shell:
                 diff_CS_file_he = trim(adjustl(folder_diff_CS))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char))
 
-                inquire(file=trim(adjustl(diff_CS_file_he)),exist=diff_CS_file_exists)     ! check if input file excists
-                if (.not.diff_CS_file_exists) then
-                    print*, 'Files with elastic diff.CS for holes are required => recalculating MFP'
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    inquire(file=trim(adjustl(diff_CS_file_he)),exist=diff_CS_file_exists)     ! check if input file excists
+                    if (.not.diff_CS_file_exists) then
+                        print*, 'Files with elastic diff.CS for holes are required => recalculating MFP'
+                    endif
                     NumPar%redo_EMFP = .true.   ! diff.CS need to be calculated
                 endif
+                !------------------------------------------------------
+                ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+#ifdef MPI_USED
+                call mpi_bcast(NumPar%redo_EMFP, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+                call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:redo_EMFP#5') ! module "MPI_subroutines"
+#endif
+                !------------------------------------------------------
+
             end select
 
             if (file_exist .and. .not.NumPar%redo_EMFP) then    ! read from the file:
-                write(*,'(a,a,a)') 'Calculated with '//trim(adjustl(KCS(2:)))//' EMFPs of a hole in ', &
-                    trim(adjustl(Material_name)), ' are already in the file:'
-                write(*, '(a)') trim(adjustl(Input_elastic_file))
-                write(*, '(a)') ' '
-                open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    write(*,'(a,a,a)') 'Calculated with '//trim(adjustl(KCS(2:)))//' EMFPs of a hole in ', &
+                        trim(adjustl(Material_name)), ' are already in the file:'
+                    write(*, '(a)') trim(adjustl(Input_elastic_file))
+                    write(*, '(a)') ' '
+                    open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                endif
             else    ! create and write to the file:
-                call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, aidCS, kind_of_particle)
-                open(FN2, file=trim(adjustl(Input_elastic_file)))
-                write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file'
-                write(*, '(a)') trim(adjustl(Input_elastic_file))
-                write(*, '(a)') ' '
+                call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, aidCS, kind_of_particle, MPI_param)
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    open(FN2, file=trim(adjustl(Input_elastic_file)), action='write')
+                    write(*,'(a,a,a)') 'Calculated elastic mean free paths of a hole in ', trim(adjustl(Material_name)), ' are stored in the file'
+                    write(*, '(a)') trim(adjustl(Input_elastic_file))
+                    write(*, '(a)') ' '
+                endif
             endif
 
          case (0) ! Mott cross-sections
@@ -1078,38 +1312,62 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
             if (allocated(File_names%F)) File_names%F(5) = trim(adjustl(temp_char2)) ! save for later use
             FN2 = 2043
-            inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                inquire(file=trim(adjustl(Input_elastic_file)),exist=file_exist)    ! check if input file excists
+            endif
+            !------------------------------------------------------
+            ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+#ifdef MPI_USED
+            call mpi_bcast(file_exist, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:file_exist#4') ! module "MPI_subroutines"
+#endif
+            !------------------------------------------------------
+
 
             ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
             if (file_exist) then
-                call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
-                !print*, 'IMFP file last modified on:', IMFP_last_modified
-                if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
-                    NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
-                    print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    call get_file_stat(trim(adjustl(Input_elastic_file)), Last_modification_time=IMFP_last_modified) ! above
+                    !print*, 'IMFP file last modified on:', IMFP_last_modified
+                    if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                        NumPar%redo_EMFP = .true. ! Material parameters changed, recalculate EMFPs
+                        print*, 'File with CDF was modified more recently than the MFP => recalculating MFP'
+                    endif
+                    ! Check if the file is consistent with the grid set:
+                    open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                    call count_lines_in_file(FN2, Nsiz) ! module "Dealing_with_EADL"
+                    if (Nsiz /= Nelast) then
+                        NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
+                        print*, 'Energy grid mismatch hole elastic  MFP file => recalculating MFP'
+                    endif
+                    close(FN2)
                 endif
-                ! Check if the file is consistent with the grid set:
-                open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
-                call count_lines_in_file(FN2, Nsiz) ! module "Dealing_with_EADL"
-                if (Nsiz /= Nelast) then
-                    NumPar%redo_EMFP = .true. ! Grid mismatch, recalculate IMFPs
-                    print*, 'Energy grid mismatch hole elastic  MFP file => recalculating MFP'
-                endif
-                close(FN2)
             endif
+
+            !------------------------------------------------------
+            ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+#ifdef MPI_USED
+            call mpi_bcast(NumPar%redo_EMFP, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:redo_EMFP#5') ! module "MPI_subroutines"
+#endif
+            !------------------------------------------------------
 
 
             if (file_exist .and. .not.NumPar%redo_EMFP) then    ! read from the file:
-                write(*,'(a,a,a)') 'Mott EMFPs of a hole in ', trim(adjustl(Material_name)), ' are already in the file:'
-                write(*, '(a)') trim(adjustl(Input_elastic_file))
-                write(*, '(a)') ' '
-                open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    write(*,'(a,a,a)') 'Mott EMFPs of a hole in ', trim(adjustl(Material_name)), ' are already in the file:'
+                    write(*, '(a)') trim(adjustl(Input_elastic_file))
+                    write(*, '(a)') ' '
+                    open(FN2, file=trim(adjustl(Input_elastic_file)), ACTION='READ')
+                endif
             else    ! create and write to the file:
-                call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, aidCS, kind_of_particle)
-                open(FN2, file=trim(adjustl(Input_elastic_file)))
-                write(*,'(a,a,a)') 'Elastic mean free paths of an hole calculated using Mott formulae is in ', trim(adjustl(Material_name)), ' are stored in the file'
-                write(*, '(a)') trim(adjustl(Input_elastic_file))
-                write(*, '(a)') ' '
+                call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, aidCS, kind_of_particle, MPI_param)
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    open(FN2, file=trim(adjustl(Input_elastic_file)), action='write')
+                    write(*,'(a,a,a)') 'Elastic mean free paths of an hole calculated using Mott formulae is in ', trim(adjustl(Material_name)), ' are stored in the file'
+                    write(*, '(a)') trim(adjustl(Input_elastic_file))
+                    write(*, '(a)') ' '
+                endif
             endif
          case default ! disabled
             write(temp_char1, '(f7.2, a)') Matter%temp, '_K'
@@ -1119,10 +1377,12 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             Input_elastic_file = trim(adjustl(Output_path))//trim(adjustl(NumPar%path_sep))//trim(adjustl(temp_char2))
             if (allocated(File_names%F)) File_names%F(4) = trim(adjustl(temp_char2)) ! save for later use
             FN2 = 2031
-            open(FN2, file=trim(adjustl(Input_elastic_file)))
-            write(*,'(a)') 'Valence hole kinetics will be traces without elastic scatterings on target atoms'
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                open(FN2, file=trim(adjustl(Input_elastic_file)), action='write')
+                write(*,'(a)') 'Valence hole kinetics will be traces without elastic scatterings on target atoms'
+            endif
             file_exist = .false.
-            call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, aidCS, kind_of_particle)
+            call All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP%Total, NumPar, Mat_DOS, aidCS, kind_of_particle, MPI_param)
             Elastic_MFP%Total%L(:) = 1.0d30
          endselect
     endif kind_of_part2
@@ -1130,9 +1390,8 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
 
     ! Now write the elastic output into (or read from) the file:
     if (kind_of_particle .NE. 'Photon') then
-
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
         select case (NumPar%kind_of_EMFP)
-
         case (2)    ! DSF: resolved emission vs absorption
          do i = 1, Nelast
            if (.not. file_exist .or. NumPar%redo_EMFP) then  ! if file didn't exist and we just created it:
@@ -1141,7 +1400,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
              read(FN2,*, IOSTAT=Reason) Elastic_MFP%Total%E(i), Elastic_MFP%Total%L(i), Elastic_MFP%Emit%L(i), Elastic_MFP%Absorb%L(i)
              call read_file_here(Reason, i, read_well)
              if (.not. read_well) print*, trim(adjustl(Input_elastic_file))
-             if (.not. read_well) goto 2016
+             if (.not. read_well) goto 2018
            endif
          enddo
 
@@ -1153,11 +1412,26 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
              read(FN2,*, IOSTAT=Reason) Elastic_MFP%Total%E(i), Elastic_MFP%Total%L(i)
              call read_file_here(Reason, i, read_well)
              if (.not. read_well) print*, trim(adjustl(Input_elastic_file))
-             if (.not. read_well) goto 2016
+             if (.not. read_well) goto 2018
            endif
          enddo
         end select
+      endif ! (MPI_param%process_rank == 0)
     endif
+2018 continue
+    !------------------------------------------------------
+    ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+#ifdef MPI_USED
+    call mpi_bcast(read_well, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:read_well#5') ! module "MPI_subroutines"
+#endif
+    !------------------------------------------------------
+    if (.not.read_well) goto 2016
+    !------------------------------------------------------
+    ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+    call broadcast_Elastic_MFP(Elastic_MFP, MPI_param)  ! module "Reading_files_and_parameters"
+    !------------------------------------------------------
+
 
    !-----------------------------
    ! Diff.CS tables, if required:
@@ -1167,7 +1441,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
 
       select case (NumPar%CS_method)
       case (1)    ! save files are required
-        if (NumPar%verbose) call print_time_step('Starting dealing with electron elastic diff. CS tables and files:', msec=.true.)
+        if (NumPar%verbose) call print_time_step('Starting dealing with electron elastic diff. CS tables and files:', MPI_param, msec=.true.)
 
         FN_diff = 333   ! file number to be reused
 
@@ -1190,17 +1464,30 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             !print*, i, aidCS%EEdCS%E(i), trim(adjustl(diff_CS_file_ee))
 
             if ((.not. file_exist) .or. (.not.diff_CS_file_exists) .or. NumPar%redo_EMFP) then  ! if file doesn't exist
-                open(FN_diff, file=trim(adjustl(diff_CS_file_ee)))   ! create it
-                ! Write the data into this file:
-                N_diff_siz = size(aidCS%EEdCS%diffCS(i)%dsdhw)
-                do i_diff_CS = 1, N_diff_siz
-                    write(FN_diff, '(es,es)') aidCS%EEdCS%diffCS(i)%hw(i_diff_CS), &
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    open(FN_diff, file=trim(adjustl(diff_CS_file_ee)), action='write')   ! create it
+                    ! Write the data into this file:
+                    N_diff_siz = size(aidCS%EEdCS%diffCS(i)%dsdhw)
+                    do i_diff_CS = 1, N_diff_siz
+                        write(FN_diff, '(es,es)') aidCS%EEdCS%diffCS(i)%hw(i_diff_CS), &
                                                 aidCS%EEdCS%diffCS(i)%dsdhw(i_diff_CS)
-                enddo ! i_diff_CS
+                    enddo ! i_diff_CS
+                    close (FN_diff)
+                endif
             else    ! if file exist, read from it:
-                open(FN_diff, file=trim(adjustl(diff_CS_file_ee)), action='read')
-                ! Read the data from this file:
-                call Count_lines_in_file(FN_diff, N_diff_siz) ! count how many line the file contains
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    open(FN_diff, file=trim(adjustl(diff_CS_file_ee)), action='read')
+                    ! Read the data from this file:
+                    call Count_lines_in_file(FN_diff, N_diff_siz) ! count how many line the file contains
+                endif
+                !------------------------------------------------------
+                ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+#ifdef MPI_USED
+                call mpi_bcast(N_diff_siz, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+                call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:N_diff_siz') ! module "MPI_subroutines"
+#endif
+                !------------------------------------------------------
+
                 ! Allocate the diff.CS tables:
                 if (.not.allocated(aidCS%EEdCS%diffCS(i)%dsdhw)) then
                     allocate(aidCS%EEdCS%diffCS(i)%dsdhw(N_diff_siz))
@@ -1208,16 +1495,28 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 if (.not.allocated(aidCS%EEdCS%diffCS(i)%hw)) then
                     allocate(aidCS%EEdCS%diffCS(i)%hw(N_diff_siz))
                 endif
-                do i_diff_CS = 1, N_diff_siz
-                    read(FN_diff,*) aidCS%EEdCS%diffCS(i)%hw(i_diff_CS), &
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    do i_diff_CS = 1, N_diff_siz
+                        read(FN_diff,*) aidCS%EEdCS%diffCS(i)%hw(i_diff_CS), &
                                     aidCS%EEdCS%diffCS(i)%dsdhw(i_diff_CS)
-                enddo ! i_diff_CS
+                    enddo ! i_diff_CS
+                    close (FN_diff)
+                endif
+                !------------------------------------------------------
+                ! MPI master process shares info with all processes:
+#ifdef MPI_USED
+                call mpi_bcast(aidCS%EEdCS%diffCS(i)%hw, N_diff_siz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+                call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:aidCS%EEdCS%diffCS(i)%hw') ! module "MPI_subroutines"
+                call mpi_bcast(aidCS%EEdCS%diffCS(i)%dsdhw, N_diff_siz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+                call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:aidCS%EEdCS%diffCS(i)%dsdhw') ! module "MPI_subroutines"
+#endif
+                !------------------------------------------------------
+
             endif
             !print*, i, aidCS%EEdCS%E(i), aidCS%EEdCS%diffCS(i)%dsdhw(N_diff_siz)
-            close (FN_diff)
         enddo ! k
 
-        if (NumPar%verbose) call print_time_step('Done with electron elastic diff. CS tables and files:', msec=.true.)
+        if (NumPar%verbose) call print_time_step('Done with electron elastic diff. CS tables and files:', MPI_param, msec=.true.)
       case default  ! no files, calculate on the fly
         ! Nothing to do
       end select ! case (NumPar%CS_method)
@@ -1229,7 +1528,7 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
      case (1)    ! CDF-CS only
       select case (NumPar%CS_method)
       case (1)    ! save files are required
-        if (NumPar%verbose) call print_time_step('Starting dealing with hole elastic diff. CS tables and files:', msec=.true.)
+        if (NumPar%verbose) call print_time_step('Starting dealing with hole elastic diff. CS tables and files:', MPI_param, msec=.true.)
 
         FN_diff = 333   ! file number to be reused
 
@@ -1252,17 +1551,30 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
 
 
             if ((.not. file_exist) .or. (.not.diff_CS_file_exists) .or. NumPar%redo_EMFP) then  ! if file doesn't exist
-                open(FN_diff, file=trim(adjustl(diff_CS_file_he)))   ! create it
-                ! Write the data into this file:
-                N_diff_siz = size(aidCS%HEdCS%diffCS(i)%dsdhw)
-                do i_diff_CS = 1, N_diff_siz
-                    write(FN_diff, '(es,es)') aidCS%HEdCS%diffCS(i)%hw(i_diff_CS), &
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    open(FN_diff, file=trim(adjustl(diff_CS_file_he)), action='write')   ! create it
+                    ! Write the data into this file:
+                    N_diff_siz = size(aidCS%HEdCS%diffCS(i)%dsdhw)
+                    do i_diff_CS = 1, N_diff_siz
+                        write(FN_diff, '(es,es)') aidCS%HEdCS%diffCS(i)%hw(i_diff_CS), &
                                               aidCS%HEdCS%diffCS(i)%dsdhw(i_diff_CS)
-                enddo ! i_diff_CS
+                    enddo ! i_diff_CS
+                    close (FN_diff)
+                endif
             else    ! if file exist, read from it:
-                open(FN_diff, file=trim(adjustl(diff_CS_file_he)), action='read')
-                ! Read the data from this file:
-                call Count_lines_in_file(FN_diff, N_diff_siz) ! count how many line the file contains
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    open(FN_diff, file=trim(adjustl(diff_CS_file_he)), action='read')
+                    ! Read the data from this file:
+                    call Count_lines_in_file(FN_diff, N_diff_siz) ! count how many line the file contains
+                endif
+                !------------------------------------------------------
+                ! MPI master process must tell all worker-processes if there was a problem with MFP file:
+#ifdef MPI_USED
+                call mpi_bcast(N_diff_siz, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+                call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:N_diff_siz#2') ! module "MPI_subroutines"
+#endif
+                !------------------------------------------------------
+
                 ! Allocate the diff.CS tables:
                 if (.not.allocated(aidCS%HEdCS%diffCS(i)%dsdhw)) then
                     allocate(aidCS%HEdCS%diffCS(i)%dsdhw(N_diff_siz))
@@ -1270,16 +1582,30 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
                 if (.not.allocated(aidCS%HEdCS%diffCS(i)%hw)) then
                     allocate(aidCS%HEdCS%diffCS(i)%hw(N_diff_siz))
                 endif
-                do i_diff_CS = 1, N_diff_siz
-                    read(FN_diff,*) aidCS%HEdCS%diffCS(i)%hw(i_diff_CS), &
+
+                if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                    do i_diff_CS = 1, N_diff_siz
+                        read(FN_diff,*) aidCS%HEdCS%diffCS(i)%hw(i_diff_CS), &
                                     aidCS%HEdCS%diffCS(i)%dsdhw(i_diff_CS)
-                enddo ! i_diff_CS
+                    enddo ! i_diff_CS
+                    close (FN_diff)
+                endif
+
+                !------------------------------------------------------
+                ! MPI master process shares info with all processes:
+#ifdef MPI_USED
+                call mpi_bcast(aidCS%HEdCS%diffCS(i)%hw, N_diff_siz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+                call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:aidCS%HEdCS%diffCS(i)%hw') ! module "MPI_subroutines"
+                call mpi_bcast(aidCS%HEdCS%diffCS(i)%dsdhw, N_diff_siz, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+                call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_electron_dEdx:aidCS%HEdCS%diffCS(i)%dsdhw') ! module "MPI_subroutines"
+#endif
+                !------------------------------------------------------
+
             endif
             !print*, i, aidCS%HEdCS%E(i), aidCS%HEdCS%diffCS(i)%dsdhw(N_diff_siz)
-            close (FN_diff)
         enddo ! k
 
-        if (NumPar%verbose) call print_time_step('Done with hole elastic diff. CS tables and files:', msec=.true.)
+        if (NumPar%verbose) call print_time_step('Done with hole elastic diff. CS tables and files:', MPI_param, msec=.true.)
       case default  ! no files, calculate on the fly
         ! Nothing to do
       end select ! case (NumPar%CS_method)
@@ -1294,7 +1620,8 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
     !rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
     ! The electron (or hole) range:
     if (do_range) then  ! if required
-       if ((kind_of_particle .EQ. 'Electron') .OR. (kind_of_particle .EQ. 'Hole')) then
+     if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+        if ((kind_of_particle .EQ. 'Electron') .OR. (kind_of_particle .EQ. 'Hole')) then
          select case (trim(adjustl(kind_of_particle)))
          case ('Electron', 'electron', 'ELECTRON')
             FN3 = 303 ! electron range
@@ -1350,13 +1677,15 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
 !          if (file_opened2) close(FN3) ! electron range
 !          inquire(unit=FN4,opened=file_opened2)    ! check if this file is opened
 !          if (file_opened2) close(FN4) ! hole range
-       endif
-    endif
+        endif
+     endif ! (.not. file_exist .or. NumPar%redo_EMFP)
+    endif ! do_range
     !rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
     
 
     ! Calculating hole diffusion coefficients:
     if ((kind_of_particle .EQ. 'Hole') .AND. (Matter%Hole_mass .LT. 1.0d5)) then
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
         open(333, File = trim(adjustl(Output_path))//'/Hole_selfdiffusion_coeff_in_'//trim(adjustl(Material_name))//'.dat')
         write(333, '(A)') 'E[eV]   Eff_Mass[me]   DOS   Selfdiffusion_coeff[cm^2/s]   L_tot[A]'
 
@@ -1390,11 +1719,13 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
             write(333, '(e,e,e,e,e)') Mat_DOS%E(i), Mass, Mat_DOS%DOS(i), 1.0d0/3.0d0*L_tot*vel/1.0d16, L_tot
         enddo
         close(333)
+      endif ! (MPI_param%process_rank == 0)
     endif
 
 
     ! Printout CDF file if requested or for sp-approximation:
-    if ((kind_of_particle .EQ. 'Electron') .and. &
+    if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+      if ((kind_of_particle .EQ. 'Electron') .and. &
         ( (NumPar%kind_of_CDF == 1) .or. (NumPar%print_CDF) ) ) then
         FN1 = 3121
         if (NumPar%kind_of_CDF == 1) then
@@ -1412,11 +1743,17 @@ subroutine Analytical_electron_dEdx(Output_path, Material_name, Target_atoms, CD
 
         inquire(unit=FN1,opened=file_opened)    ! check if this file is opened
         if (file_opened) close(FN1)             ! and if it is, close it
-    endif
+      endif
+    endif ! (MPI_param%process_rank == 0)
 
     
 2015    continue
-   if (.not. read_well) print*, trim(adjustl(Input_files))
+   if (.not. read_well) then
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, trim(adjustl(Input_files))
+      endif
+   endif
+
 2016   inquire(unit=FN,opened=file_opened)    ! check if this file is opened
    if (file_opened) close(FN)     
    if (kind_of_particle .NE. 'Photon') then
@@ -1490,7 +1827,7 @@ end subroutine write_CDF_file
 
 
 
-subroutine All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP, NumPar, Mat_DOS, aidCS, kind_of_particle, dont_do)
+subroutine All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elastic_MFP, NumPar, Mat_DOS, aidCS, kind_of_particle, MPI_param, dont_do)
     integer, intent(in) :: Nelast   ! number of grid points
     type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
     type(CDF), intent(in), target :: CDF_Phonon ! CDF parameters of a phonon peak if excist
@@ -1500,17 +1837,31 @@ subroutine All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elas
     type(Density_of_states), intent(in) :: Mat_DOS
     type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
     character(8), intent(in) :: kind_of_particle
+    type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
     logical, intent(in), optional :: dont_do
     !-------------------------------
     integer i, Va, Ord
     real(8) Ele, EMFP, dEdx, Emin, dE(Nelast)
+    logical :: it_is_electron, it_is_hole, it_is_photon
+    integer :: N_incr, Nstart, Nend, N, Nsiz
+    character(200) :: ch_temp
+    !-----------------------
 
+    ! Markers to reuse below:
+    it_is_electron = .false.  ! to start with
+    it_is_hole = .false.      ! to start with
+    it_is_photon = .false.    ! to start with
 
     if (.not.present(dont_do)) then ! only do it when we have the CDF
+
+        ! Mark the type of particle:
+        if (trim(adjustl(kind_of_particle)) .EQ. 'Electron') it_is_electron = .true.
+        if (trim(adjustl(kind_of_particle)) .EQ. 'Hole') it_is_hole = .true.
+
         ! If diff.CS tables are required, they need to be allocated:
         select case (NumPar%CS_method)
         case (1)
-            if (trim(adjustl(kind_of_particle)) .EQ. 'Electron') then
+            if (it_is_electron) then
                 do i = 1, Nelast
                     Ele = Elastic_MFP%E(i)
                     ! Save energy point for diff.CS tables:
@@ -1519,7 +1870,7 @@ subroutine All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elas
                 enddo ! i
             endif ! 'Electron'
 
-            if (trim(adjustl(kind_of_particle)) .EQ. 'Hole') then
+            if (it_is_hole) then
                 do i = 1, Nelast
                     Ele = Elastic_MFP%E(i)
                     ! Save energy point for diff.CS tables:
@@ -1529,6 +1880,78 @@ subroutine All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elas
             endif ! 'Hole'
         endselect
 
+
+!---------------------------------------------
+! 1) MPI version
+#ifdef MPI_USED
+        ! 1) Define starting and ending points of the cycle depending on the process rank:
+        ! Chunking in "dynamic"-mimicking blocks:
+        N = Nelast
+        N_incr = MPI_param%size_of_cluster    ! increment in the loop
+        Nstart = 1 + MPI_param%process_rank
+        Nend = N
+        !print*, '[MPI process #', MPI_param%process_rank, ']: ', Nstart, Nend, N
+
+        ! 2) Do the cycle (parallel) calculations:
+        do i = Nstart, Nend, N_incr  ! each process does its own part
+            Ele = Elastic_MFP%E(i)
+            call Elastic_cross_section(Ele, i, CDF_Phonon, Target_atoms, Matter, EMFP, dEdx, NumPar, Mat_DOS, aidCS, kind_of_particle) ! from module   Cross_sections
+            Elastic_MFP%L(i) = EMFP     ! [A] elastic mean free path
+            Elastic_MFP%dEdx(i) = dEdx  ! [eV/A] energy loss
+
+            if (NumPar%verbose) then
+                ch_temp = '' ! reinitialize
+                write(ch_temp, '(a,i0,a)') '[MPI process #', MPI_param%process_rank, ']'
+                write(ch_temp(24:), '(a)') 'progress of calculation:'
+                call progress(trim(adjustl(ch_temp)), i, N, FN=0)   ! below
+            endif
+
+            !print*, '[MPI process #', MPI_param%process_rank, ']: ', i, Elastic_MFP%E(i), Elastic_MFP%L(i)
+
+        enddo ! i
+
+        ! 3) Collect the data from all processes, and send the the collected data to back to all of them:
+        ! https://rookiehpc.org/mpi/docs/mpi_allreduce/index.html
+        ! a) MFPs:
+        call MPI_Allreduce(MPI_IN_PLACE, Elastic_MFP%L, N, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+        call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from All_elastic_scattering (MFPs)')  ! module "MPI_subroutines"
+        ! b) dEdx:
+        call MPI_Allreduce(MPI_IN_PLACE, Elastic_MFP%dEdx, N, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+        call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from All_elastic_scattering (dEdx)')  ! module "MPI_subroutines"
+
+        ! c) diff.CSs:
+        if (it_is_electron) then ! collect data for electron diff.CSs:
+            do i = 1, N
+                Nsiz = size(aidCS%EEdCS%diffCS(i)%hw)
+
+                call MPI_Allreduce(MPI_IN_PLACE, aidCS%EEdCS%diffCS(i)%hw, Nsiz, MPI_DOUBLE_PRECISION, &
+                            MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+                call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from All_elastic_scattering (diffCS(i)%hw)')  ! module "MPI_subroutines"
+
+                !print*, 'rank#', MPI_param%process_rank, allocated(aidCS%EEdCS%diffCS(i)%dsdhw), size(aidCS%EEdCS%diffCS(i)%hw), Nsiz
+
+                call MPI_Allreduce(MPI_IN_PLACE, aidCS%EEdCS%diffCS(i)%dsdhw, Nsiz, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+                call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from All_elastic_scattering (diffCS(i)%dsdhw)')  ! module "MPI_subroutines"
+            enddo ! i
+        endif ! it_is_electron
+        ! d) holes diff.CSs:
+        if (it_is_hole) then ! collect data for electron diff.CSs:
+            do i = 1, N
+                Nsiz = size(aidCS%HEdCS%diffCS(i)%hw)
+
+                call MPI_Allreduce(MPI_IN_PLACE, aidCS%HEdCS%diffCS(i)%hw, Nsiz, MPI_DOUBLE_PRECISION, &
+                            MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+                call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from All_elastic_scattering (hole diffCS(i)%hw)')  ! module "MPI_subroutines"
+
+                call MPI_Allreduce(MPI_IN_PLACE, aidCS%HEdCS%diffCS(i)%dsdhw, Nsiz, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+                call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from All_elastic_scattering (hole diffCS(i)%dsdhw)')  ! module "MPI_subroutines"
+            enddo ! i
+        endif ! it_is_hole
+
+
+#else
+!---------------------------------------------
+! 2) OpenMP version
 !$omp parallel &
 !$omp private (i, Ele, EMFP, dEdx)
 !$omp do schedule(dynamic)
@@ -1544,13 +1967,13 @@ subroutine All_elastic_scattering(Nelast, Target_atoms, CDF_Phonon, Matter, Elas
         enddo
 !$omp end do
 !$omp end parallel
-
+#endif
     endif
 end subroutine All_elastic_scattering
 
 
 ! Forms all IMFPs for all shells of all atoms, parallelized with openmp
-subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, aidCS, kind_of_particle)
+subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matter, NumPar, aidCS, kind_of_particle, MPI_param)
     integer, intent(in) :: N  ! number of energy points
     type(Atom), dimension(:), intent(inout), target :: Target_atoms  ! all data for target atoms
     type(All_MFP), dimension(:), allocatable, intent(inout) :: Total_el_MFPs   ! electron mean free paths for all shells
@@ -1559,19 +1982,32 @@ subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matt
     type(Flag), intent(in) :: NumPar
     type(All_diff_CS), intent(inout) :: aidCS    ! all integrated differential cross sections
     character(8), intent(in) :: kind_of_particle
+    type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
     !-----------------------
     real(8) IMFP_calc, dEdx, Ele, dE(N), Emin
     integer i, j, k, Nshl, Nat, Va, Ord
     integer Num_th, my_id, OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
+    integer :: Nstart, Nend, N_incr, Nsiz
     !complex(8) :: complex_CDF ! constructed CDF
-    
+    character(200) :: ch_temp
+    logical :: it_is_electron, it_is_hole, it_is_photon
+    !-----------------------
+
+    ! Markers to reuse below:
+    it_is_electron = .false.  ! to start with
+    it_is_hole = .false.      ! to start with
+    it_is_photon = .false.    ! to start with
+
+    ! Mark the type of particle:
+    if (trim(adjustl(kind_of_particle)) .EQ. 'Electron') it_is_electron = .true.
+    if (trim(adjustl(kind_of_particle)) .EQ. 'Hole') it_is_hole = .true.
+
     Nat = size(Target_atoms)    ! number of atoms
-    
+
     ! If diff.CS tables are required, they need to be allocated:
     select case (NumPar%CS_method)
     case (1)
-      if (trim(adjustl(kind_of_particle)) .EQ. 'Electron') then
-
+      if (it_is_electron) then
         do i = 1, N
             Ele = Total_el_MFPs(1)%ELMFP(1)%E(i)
             do j = 1, Nat  ! for all atoms:
@@ -1583,11 +2019,11 @@ subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matt
 
                     call allocate_diff_CS_tables(Ele, i, Target_atoms, j, k, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle) ! module "Cross_sections"
                 enddo ! k
-            enddo ! k = 1, size(Target_atoms(j)%Ip)  ! for all shells of each atom:
-        enddo ! j = 1,size(Target_atoms)  ! for all atoms:
+            enddo ! k = 1, size(Target_atoms(j)%Ip)
+        enddo ! j = 1,size(Target_atoms)
       endif ! 'Electron'
 
-      if (trim(adjustl(kind_of_particle)) .EQ. 'Hole') then
+      if (it_is_hole) then
          j = 1  ! VB only for holes
          Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
          k = Nshl  ! for VB
@@ -1602,6 +2038,83 @@ subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matt
     endselect
 
 
+   !if (MPI_param%process_rank == 0) print*, ''    ! empty line in printout
+
+!---------------------------------------------
+! 1) MPI version
+#ifdef MPI_USED
+    ! 1) Define starting and ending points of the cycle depending on the process rank:
+    ! Chunking in "dynamic"-mimicking blocks:
+    N_incr = MPI_param%size_of_cluster    ! increment in the loop
+    Nstart = 1 + MPI_param%process_rank
+    Nend = N
+    !print*, '[MPI process #', MPI_param%process_rank, ']: ', Nstart, Nend, N
+
+    ! 2) Do the cycle (parallel) calculations:
+    do i = Nstart, Nend, N_incr  ! each process does its own part
+        Ele = Total_el_MFPs(1)%ELMFP(1)%E(i)
+        do j = 1, Nat  ! for all atoms:
+          Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
+          do k = 1, Nshl  ! for all shells of each atom:
+
+             call TotIMFP(Ele, i, Target_atoms, j, k, IMFP_calc, dEdx, Matter, Mat_DOS, NumPar, aidCS, kind_of_particle) ! from module "Cross_sections"
+             !Total_el_MFPs(j)%ELMFP(k)%E(i) = Ele
+             Total_el_MFPs(j)%ELMFP(k)%L(i) = IMFP_calc
+             Total_el_MFPs(j)%ELMFP(k)%dEdx(i) = dEdx
+
+          enddo ! k = 1, size(Target_atoms(j)%Ip)
+        enddo ! j = 1,size(Target_atoms)
+
+        if (NumPar%verbose) then
+          ch_temp = '' ! reinitialize
+          write(ch_temp, '(a,i0,a)') '[MPI process #', MPI_param%process_rank, ']'
+          write(ch_temp(24:), '(a)') 'progress of calculation:'
+          call progress(trim(adjustl(ch_temp)), i, N, FN=0)   ! below
+       endif
+    enddo
+
+    ! 3) Collect the data from all processes, and send the the collected data to back to all of them:
+    ! https://rookiehpc.org/mpi/docs/mpi_allreduce/index.html
+    do j = 1, Nat  ! for all atoms
+        Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
+        do k = 1, Nshl  ! for all shells of each atom
+            ! a) MFPs:
+            call MPI_Allreduce(MPI_IN_PLACE, Total_el_MFPs(j)%ELMFP(k)%L, N, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from All_shells_Electron_MFP (MFPs)')  ! module "MPI_subroutines"
+            ! b) dEdx:
+            call MPI_Allreduce(MPI_IN_PLACE, Total_el_MFPs(j)%ELMFP(k)%dEdx, N, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from All_shells_Electron_MFP (dEdx)')  ! module "MPI_subroutines"
+            ! c) diff.CSs:
+            do i = 1, N
+                if (it_is_electron) then ! collect data for electron diff.CSs:
+                    Nsiz = size(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw)
+
+                    call MPI_Allreduce(MPI_IN_PLACE, aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%hw, Nsiz, MPI_DOUBLE_PRECISION, &
+                                    MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+                    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from All_shells_Electron_MFP (diffCS(i)%hw)')  ! module "MPI_subroutines"
+
+                    call MPI_Allreduce(MPI_IN_PLACE, aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw, Nsiz, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+                    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from All_shells_Electron_MFP (diffCS(i)%dsdhw)')  ! module "MPI_subroutines"
+                endif ! it_is_electron
+            enddo ! i
+        enddo ! k
+    enddo ! j
+    ! d) holes diff.CSs:
+    if (it_is_hole) then ! collect data for electron diff.CSs:
+        do i = 1, N
+            Nsiz = size(aidCS%HIdCS%diffCS(i)%hw)
+            call MPI_Allreduce(MPI_IN_PLACE, aidCS%HIdCS%diffCS(i)%hw, Nsiz, MPI_DOUBLE_PRECISION, &
+                            MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from All_shells_Electron_MFP (hole diffCS(i)%hw)')  ! module "MPI_subroutines"
+
+            call MPI_Allreduce(MPI_IN_PLACE, aidCS%HIdCS%diffCS(i)%dsdhw, Nsiz, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from All_shells_Electron_MFP (hole diffCS(i)%dsdhw)')  ! module "MPI_subroutines"
+        enddo ! i
+    endif ! it_is_hole
+
+#else
+!---------------------------------------------
+! 2) OpenMP version
 !$omp parallel &
 !$omp private (i, j, k, Ele, IMFP_calc, dEdx)
 !$omp do schedule(dynamic)
@@ -1620,44 +2133,81 @@ subroutine All_shells_Electron_MFP(N, Target_atoms, Total_el_MFPs, Mat_DOS, Matt
              Total_el_MFPs(j)%ELMFP(k)%dEdx(i) = dEdx
 
              !print*, j, k, i, Ele, Total_el_MFPs(j)%ELMFP(k)%L(i), aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw( size(aidCS%EIdCS(j)%Int_diff_CS(k)%diffCS(i)%dsdhw) )
-          enddo ! k = 1, size(Target_atoms(j)%Ip)  ! for all shells of each atom:
-        enddo ! j = 1,size(Target_atoms)  ! for all atoms:
+          enddo ! k = 1, size(Target_atoms(j)%Ip)
+        enddo ! j = 1,size(Target_atoms)
         if (NumPar%verbose) call progress(' Progress of calculation: ', i, N)
     enddo
 !$omp end do
 !$omp end parallel
+#endif
 end subroutine All_shells_Electron_MFP
 
 
-subroutine All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar, Mat_DOS) ! calculate all IMFPs
+subroutine All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar, Mat_DOS, MPI_param) ! calculate all IMFPs
     integer, intent(in) :: N  ! number of energy points
     type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
     type(All_MFP), dimension(:), allocatable, intent(inout) :: Total_el_MFPs   ! electron mean free paths for all shells
     type(Solid), intent(in) :: Matter ! properties of material
     type(Flag), intent(in) :: NumPar
     type(Density_of_states), intent(in) :: Mat_DOS ! unused here, but needs to be passed to further subroutines
+    type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
     !----------------------
     real(8) IMFP_calc, dEdx, Ele, dE(N), Emin
     integer i, j, k, Nshl, Nat, Va, Ord
     integer Num_th, my_id, OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
     complex(8) :: complex_CDF ! constructed CDF
+    integer :: Nstart, Nend, N_incr
     
     Nat = size(Target_atoms)    ! number of atoms
     
-!     Emin = 1.0d0    ! [eV] we start with this minimum
-!     Ord = 0 ! start with 1
-!     Va = int(Emin)
-!     dE(1) = Emin
-!     do i = 1, N-1
-!         if (Va .GE. 100) then
-!             Va = Va - 90
-!             Ord = Ord + 1
-!         endif
-!         dE(i+1) = dE(i) + 10.0d0**Ord
-!         Va = Va + 1
-!     enddo
+   !if (MPI_param%process_rank == 0) print*, ''    ! empty line in printout
 
+!---------------------------------------------
+! 1) MPI version
+#ifdef MPI_USED
+    ! 1) Define starting and ending points of the cycle depending on the process rank:
+    ! Chunking in "dynamic"-mimicking blocks:
+    N_incr = MPI_param%size_of_cluster    ! increment in the loop
+    Nstart = 1 + MPI_param%process_rank
+    Nend = N
+    !print*, '[MPI process #', MPI_param%process_rank, ']: ', Nstart, Nend, N
 
+    ! 2) Do the cycle (parallel) calculations:
+    !do i = 1, N
+    do i = Nstart, Nend, N_incr  ! each process does its own part
+        Ele = Total_el_MFPs(1)%ELMFP(1)%E(i)
+        do j = 1, Nat  ! for all atoms:
+          Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
+          do k = 1, Nshl  ! for all shells of each atom:
+             call Tot_Phot_IMFP(Ele, Target_atoms, j, k, IMFP_calc, dEdx, Matter, NumPar, Mat_DOS) ! from module "Cross_sections"
+             Total_el_MFPs(j)%ELMFP(k)%L(i) = IMFP_calc
+             Total_el_MFPs(j)%ELMFP(k)%dEdx(i) = dEdx
+
+!              if ((j == 1) .and. (k==Nshl)) then ! VB
+!                 call construct_CDF(complex_CDF, Target_atoms, j, k, Mat_DOS, Matter, NumPar, Ele, 0.0d0, photon=.true.) ! module "Cross_sections"
+!              endif
+
+          enddo ! k = 1, size(Target_atoms(j)%Ip)
+        enddo ! j = 1,size(Target_atoms)
+        !call progress(' Progress of calculation: ', i, N)
+    enddo
+
+    ! 3) Collect the data from all processes, and send the the collected data to back to all of them:
+    ! https://rookiehpc.org/mpi/docs/mpi_allreduce/index.html
+    do j = 1, Nat  ! for all atoms
+        Nshl = size(Target_atoms(j)%Ip)    ! how mamy shells
+        do k = 1, Nshl  ! for all shells of each atom
+            ! a) MFPs:
+            call MPI_Allreduce(MPI_IN_PLACE, Total_el_MFPs(j)%ELMFP(k)%L, N, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from All_shells_Photon_MFP (MFPs)')  ! module "MPI_subroutines"
+            ! b) dEdx:
+            call MPI_Allreduce(MPI_IN_PLACE, Total_el_MFPs(j)%ELMFP(k)%dEdx, N, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+            call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from All_shells_Photon_MFP (dEdx)')  ! module "MPI_subroutines"
+        enddo ! k
+    enddo ! j
+#else
+!---------------------------------------------
+! 2) OpenMP version
 !$omp parallel &
 !$omp private (i, j, k, Ele, IMFP_calc, dEdx, complex_CDF)
 !$omp do schedule(dynamic)
@@ -1685,10 +2235,11 @@ subroutine All_shells_Photon_MFP(N, Target_atoms, Total_el_MFPs, Matter, NumPar,
     enddo
 !$omp end do
 !$omp end parallel
+#endif
 end subroutine All_shells_Photon_MFP
 
 
-subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI, SHI_MFP, Error_message, read_well, NumPar, Matter, Mat_DOS, File_names)
+subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI, SHI_MFP, Error_message, read_well, NumPar, Matter, Mat_DOS, File_names, MPI_param)
     character(100), intent(in) :: Output_path_SHI   ! path to the folder where the file is/will be stored
     character(100), intent(in) :: Material_name ! name of the material
     type(Atom), dimension(:), intent(in), target :: Target_atoms  ! all data for target atoms
@@ -1700,6 +2251,7 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
     type(Solid), intent(in) :: Matter
     type(Density_of_states), intent(in) :: Mat_DOS
     type(Flag), intent(inout) :: NumPar
+    type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
     !------------------------------
     real(8), dimension(:), allocatable :: dEdx_tot, Temp_grid
     real(8) SHI_E, Emin, Emax, dE
@@ -1709,28 +2261,15 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
     logical file_exist, file_exist2, file_exist3, file_exist4, all_files_exist
     !------------------------------
 
+    !print*, '[MPI process #', MPI_param%process_rank, ']: test 1'
+
     read_well = .true.  ! so far so good
     Nat = size(Target_atoms)    ! how many atoms
     if (.not. allocated(SHI_MFP)) allocate(SHI_MFP(size(Target_atoms))) ! that's how many atoms
     ! How many energy points will be here:
-    Emin = real(CEILING(((SHI%Mass*g_Mp + g_me)*(SHI%Mass*g_Mp + g_me)/(SHI%Mass*g_Mp*g_me)*Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))/4.0d0)))  ! [eV]
+    Emin = dble(CEILING(((SHI%Mass*g_Mp + g_me)*(SHI%Mass*g_Mp + g_me)/(SHI%Mass*g_Mp*g_me)*Target_atoms(1)%Ip(size(Target_atoms(1)%Ip))/4.0d0)))  ! [eV]
     Emax = 175.6d6/2.0d0*SHI%Mass ! [eV]  maximal energy that still has no relativism
-!     dE = Emin
-!     call Find_order_of_magn(Emin, i, j)    ! order of magnitude
-!     dE = j*10**i  ! start with this value
-!     Va = j
-!     Ord = i
-!     N = 0
-!     do while (dE .LT. Emax)
-!         N = N + 1
-!         if (Va .GE. 10) then
-!             Va = Va - 9
-!             Ord = Ord + 1
-!         endif
-!         dE = dE + 10.0d0**Ord
-!         Va = Va + 1
-!     enddo   ! while (dE .LT. Emax)
-!     N = N + 2
+
     call get_grid_4CS(N, Temp_grid, Target_atoms, Emin, Emax)  ! below
     
     do j = 1, Nat   ! declair variables if they are not yet
@@ -1754,20 +2293,25 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
     
     Path_name = trim(adjustl(Output_path_SHI))  ! here it should be
 
+    if (MPI_param%process_rank == 0) then   ! only MPI master process does it
 #ifndef __GFORTRAN__
-   ! for intel fortran compiler:
-   inquire(DIRECTORY=trim(adjustl(Path_name)),exist=file_exist)    ! check if input file excists
+        ! for intel fortran compiler:
+        inquire(DIRECTORY=trim(adjustl(Path_name)),exist=file_exist)    ! check if input file excists
 #else
-   ! for gfortran compiler:
-   inquire(FILE=trim(adjustl(Path_name)),exist=file_exist)    ! check if input file excists
+        ! for gfortran compiler:
+        inquire(FILE=trim(adjustl(Path_name)),exist=file_exist)    ! check if input file excists
 #endif
-
-
-    if (.not. file_exist) then  ! create the directory
-        command='mkdir '//trim(adjustl(Path_name)) ! to create a folder use this command
-        CALL system(command)  ! create the folder
+        if (.not. file_exist) then  ! create the directory
+            command='mkdir '//trim(adjustl(Path_name)) ! to create a folder use this command
+            CALL system(command)  ! create the folder
+        endif
     endif
-    
+
+    !------------------------------------------------------
+    ! Synchronize MPI processes to make sure the directory is created before going further
+    call MPI_barrier_wrapper(MPI_param)  ! module "MPI_subroutines"
+    !------------------------------------------------------
+
     CS_name = ''
     select case (NumPar%kind_of_CDF)
     case (0)    ! Ritchie-Howie
@@ -1809,70 +2353,107 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
         trim(adjustl(charge_name))//trim(adjustl(charge_kind))
     endif
 
-    inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
-    inquire(file=trim(adjustl(Input_files2)),exist=file_exist2)    ! check if input file excists
-    inquire(file=trim(adjustl(Input_files11)),exist=file_exist3)    ! check if input file excists
-    inquire(file=trim(adjustl(Input_files3)),exist=file_exist4)    ! check if input file excists
-    if (file_exist .and. file_exist2 .and. file_exist3 .and. file_exist4) then ! all needed files exist
-        all_files_exist = .true.
-    else ! not all needed files exist
-        all_files_exist = .false.
+    if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+        inquire(file=trim(adjustl(Input_files)),exist=file_exist)    ! check if input file excists
+        inquire(file=trim(adjustl(Input_files2)),exist=file_exist2)    ! check if input file excists
+        inquire(file=trim(adjustl(Input_files11)),exist=file_exist3)    ! check if input file excists
+        inquire(file=trim(adjustl(Input_files3)),exist=file_exist4)    ! check if input file excists
+        if (file_exist .and. file_exist2 .and. file_exist3 .and. file_exist4) then ! all needed files exist
+            all_files_exist = .true.
+        else ! not all needed files exist
+            all_files_exist = .false.
+        endif
+        ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
+        if (file_exist) then
+            call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
+            if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
+                NumPar%redo_IMFP_SHI = .true. ! Material parameters changed, recalculate IMFPs
+                print*, 'File with CDF was modified more recently than the SHI MFP => recalculating MFP'
+            endif
+            ! Check if the file is consistent with the grid set:
+            FN = 200
+            open(FN, file=trim(adjustl(Input_files)))   ! just to check the energy grid inside
+            call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
+            if (Nsiz /= N) then
+                NumPar%redo_IMFP_SHI = .true. ! Grid mismatch, recalculate IMFPs
+                print*, 'Energy grid mismatch in SHI MFP file => recalculating MFP'
+            endif
+            close(FN)
+        endif ! (MPI_param%process_rank == 0)
     endif
 
-    ! Check, if file with MFP was created with paramters in actual CDF file, find out when this file was last modified:
-    if (file_exist) then
-        call get_file_stat(trim(adjustl(Input_files)), Last_modification_time=IMFP_last_modified) ! above
-        !print*, 'IMFP file last modified on:', IMFP_last_modified
-        if (IMFP_last_modified < NumPar%Last_mod_time_CDF) then
-            NumPar%redo_IMFP_SHI = .true. ! Material parameters changed, recalculate IMFPs
-            print*, 'File with CDF was modified more recently than the SHI MFP => recalculating MFP'
-        endif
-        ! Check if the file is consistent with the grid set:
-        FN = 200
-        open(FN, file=trim(adjustl(Input_files)))   ! just to check the energy grid inside
-        call count_lines_in_file(FN, Nsiz) ! module "Dealing_with_EADL"
-        if (Nsiz /= N) then
-            NumPar%redo_IMFP_SHI = .true. ! Grid mismatch, recalculate IMFPs
-            print*, 'Energy grid mismatch in SHI MFP file => recalculating MFP'
-        endif
-        close(FN)
-    endif
+    !------------------------------------------------------
+    ! MPI master process must tell all worker-processes if there was a problem with SHI MFP file:
+#ifdef MPI_USED
+    call mpi_bcast(NumPar%redo_IMFP_SHI, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_ion_dEdx:redo_IMFP_SHI') ! module "MPI_subroutines"
+    call mpi_bcast(all_files_exist, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_ion_dEdx:all_files_exist') ! module "MPI_subroutines"
+#endif
+    !------------------------------------------------------
 
-    if (all_files_exist .and. .not.NumPar%redo_IMFP_SHI) then
-        write(*,'(a,a,a,a,a)') 'IMFP and dEdx of ', trim(adjustl(SHI%Name)) ,' in ', trim(adjustl(Material_name)), ' are already in the files:'
-        write(*, '(a,a,a)') trim(adjustl(Input_files)), ' and ', trim(adjustl(Input_files2))
-        write(*, '(a)') ' ' 
-        FN = 200
-        open(FN, file=trim(adjustl(Input_files)), status='old', readonly)
-        FN2 = 201
-        open(FN2, file=trim(adjustl(Input_files2)), status='old', readonly)
-        !call read_SHI_MFP(FN, SHI_MFP, read_well)
-        call read_SHI_MFP(FN, FN2, Nat, Target_atoms, SHI_MFP, read_well)
-        close(FN)
-        close(FN2)
-        if (.not. read_well) then
-            print*, 'Something was wrong in the file, recalculating it...'
-            SHI_E = SHI%E   ! just save it for future
-            write(*,'(a,a,a,a,a)') 'IMFP and dEdx of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' will be stored in the files:'
+
+    if (all_files_exist .and. .not.NumPar%redo_IMFP_SHI) then   ! check if the file is correct
+        if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+            write(*,'(a,a,a,a,a)') 'IMFP and dEdx of ', trim(adjustl(SHI%Name)) ,' in ', trim(adjustl(Material_name)), ' are already in the files:'
             write(*, '(a,a,a)') trim(adjustl(Input_files)), ' and ', trim(adjustl(Input_files2))
-            write(*, '(a)') ' ' 
-            call Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin, Emax, SHI, SHI_MFP, Target_atoms, dEdx_tot, Matter, Mat_DOS, NumPar) ! from module Analytical_IMPS / openmp parallelization
-            SHI%E = SHI_E ! restore the original value
+            write(*, '(a)') ' '
+
+            FN = 200
+            open(FN, file=trim(adjustl(Input_files)), status='old', readonly)
+            FN2 = 201
+            open(FN2, file=trim(adjustl(Input_files2)), status='old', readonly)
+            call read_SHI_MFP(FN, FN2, Nat, Target_atoms, SHI_MFP, read_well)   ! module "Reading_files_and_parameters"
+            close(FN)
+            close(FN2)
+        endif
+        !------------------------------------------------------
+        ! MPI master process must tell all worker-processes if there was a problem with SHI MFP file
+#ifdef MPI_USED
+        call mpi_bcast(read_well, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
+        call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Analytical_ion_dEdx:read_well') ! module "MPI_subroutines"
+#endif
+        !------------------------------------------------------
+        if (.not. read_well) then
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+                print*, 'Something was wrong in the file, recalculating it...'
+            endif
+            NumPar%redo_IMFP_SHI = .true. ! recalculate IMFPs
+        else
+            !------------------------------------------------------
+            ! MPI master shares MPF with all processes:
+            call broadcast_SHI_MFP(SHI_MFP, MPI_param)  ! module "Reading_files_and_parameters"
+            !------------------------------------------------------
         endif
     else
+        NumPar%redo_IMFP_SHI = .true. ! recalculate IMFPs
+    endif
+    !print*, '[MPI process #', MPI_param%process_rank, '] SHI:', SHI_MFP(1)%ELMFP(2)%E
+
+    !-----------------------------------------------------
+    if (NumPar%redo_IMFP_SHI) then  ! calculate IMFPs
         SHI_E = SHI%E   ! just save it for future
-        write(*,'(a,a,a,a,a)') 'IMFP and dEdx of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' will be stored in the files:'
-        write(*, '(a,a,a)') trim(adjustl(Input_files)), ' and ', trim(adjustl(Input_files2))
-        write(*, '(a)') ' ' 
-        call Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin, Emax, SHI, SHI_MFP, Target_atoms, dEdx_tot, Matter, Mat_DOS, NumPar) ! from module Analytical_IMPS / openmp parallelization
+        if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+            write(*,'(a,a,a,a,a)') 'IMFP and dEdx of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' will be stored in the files:'
+            write(*, '(a,a,a)') trim(adjustl(Input_files)), ' and ', trim(adjustl(Input_files2))
+            write(*, '(a)') ' '
+        endif
+        call Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin, Emax, SHI, SHI_MFP, &
+                                    Target_atoms, dEdx_tot, Matter, Mat_DOS, NumPar, MPI_param) ! below
         SHI%E = SHI_E ! restore the original value
     endif
-    inquire(file=trim(adjustl(Input_files3)),exist=file_exist2)    ! check if file with Ranges excists
-    if (.not.file_exist2 .or. NumPar%redo_IMFP_SHI) then  ! if not, create it
-        write(*,'(a,a,a,a,a)') 'Ranges of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' will be stored in the file:'
-        write(*, '(a)') trim(adjustl(Input_files3))
-        write(*, '(a)') ' '
-        call Get_ion_range(Input_files3,N,SHI_MFP,Target_atoms,dEdx_tot) ! calculate ion range out of its energy-loss function
+
+
+    ! Ion range:
+    if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+        inquire(file=trim(adjustl(Input_files3)),exist=file_exist2)    ! check if file with Ranges excists
+        if (.not.file_exist2 .or. NumPar%redo_IMFP_SHI) then  ! if not, create it
+            write(*,'(a,a,a,a,a)') 'Ranges of ', SHI%Name ,' in ', trim(adjustl(Material_name)), ' will be stored in the file:'
+            write(*, '(a)') trim(adjustl(Input_files3))
+            write(*, '(a)') ' '
+            ! calculate ion range out of its energy-loss function:
+            call Get_ion_range(Input_files3,N,SHI_MFP,Target_atoms,dEdx_tot)    ! below
+        endif
     endif
     !NumPar%redo_IMFP = .false. ! default it for the next kind of particle
 end subroutine Analytical_ion_dEdx
@@ -1926,7 +2507,8 @@ end subroutine Get_ion_range
 
 
 ! This version is with parallelization via openmp:
-subroutine Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin, Emax, SHI, SHI_MFP, Target_atoms, dEdx_tot, Matter, Mat_DOS, NumPar)   ! calculates dEdx for range of SHI energies
+subroutine Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin, Emax, SHI, SHI_MFP, &
+                                Target_atoms, dEdx_tot, Matter, Mat_DOS, NumPar, MPI_param)   ! calculates dEdx for range of SHI energies
    character(100), intent(in) :: Input_files ! path to the folder where the file is/will be stored
    character(100), intent(in) :: Input_files2
    character(100), intent(in) :: Input_files11
@@ -1939,6 +2521,7 @@ subroutine Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin
    real(8), dimension(:), allocatable, optional, intent(out) :: dEdx_tot    ! total ion energy loss
    type(Density_of_states), intent(in) :: Mat_DOS
    type(Flag), intent(in) :: NumPar
+   type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
    !-------------------------------
    integer Nat, Nshl, j, i, k, Va, Ord, FN, FN2, FN3, N_grid
    integer Num_th, my_id, OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
@@ -1950,32 +2533,103 @@ subroutine Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin
    type(Ion) :: SHI_1
    real(8), dimension(N) :: dE  ! energy grid [eV]
    real(8), dimension(:), allocatable :: Temp_grid
+   integer :: Nstart, Nend, N_chunk, Nend_0, N_incr, N1, N2, N3, Nsiz
+   character(200) :: ch_temp
 
-   print*, '* Calculating mean free paths and energy loss, it may take few minutes *'
+   if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+      print*, '* Calculating mean free paths and energy loss, it may take few minutes *'
+   endif
 
    Nat = size(Target_atoms) ! how many atoms
    
-!    dE = 0.0d0
-!    call Find_order_of_magn(Emin, i, j)    ! order of magnitude
-!    dE(1) = j*10**i  ! start with this value
-!    Va = j
-!    Ord = i
-!    do k = 1, N-1
-!        if (Va .GE. 10) then
-!            Va = Va - 9
-!            Ord = Ord + 1
-!        endif
-!        dE(k+1) = dE(k) + 10.0d0**Ord
-!        Va = Va + 1
-!    enddo   ! while (dE .LT. Emax)
    call get_grid_4CS(N_grid, Temp_grid, Target_atoms, Emin, Emax)  ! below
-   if (size(dE) /= size(Temp_grid)) print*, 'Error: grid mismatch in Analytical_SHI_dEdx'
+   if (size(dE) /= size(Temp_grid)) then
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         print*, 'Error: grid mismatch in Analytical_SHI_dEdx'
+      endif
+   endif
    dE = Temp_grid
 
-   
-   SHI_dEdx = 0.0d0
-   E = 0.0d0
-   SHI_IMFP = 0.0d0
+   E = dE   ! copy
+   SHI_dEdx = 0.0d0 ! initialize
+   SHI_IMFP = 0.0d0 ! initialize
+   Zeff = 0.0d0 ! initialize
+
+   if (MPI_param%process_rank == 0) print*, ''    ! empty line in printout
+
+!---------------------------------------------
+! 1) MPI version
+#ifdef MPI_USED
+   ! a) Define starting and ending points of the cycle depending on the process rank:
+   if (MPI_param%size_of_cluster > N) then ! each process gets 1 point (and some are idle)
+      Nstart = 1 + MPI_param%process_rank
+      Nend = Nstart
+      if (Nstart > MPI_param%size_of_cluster) Nend = 0    ! to skip the calculations for idle process
+      N_incr = 1
+   else ! more points than processes, share multiple array-points for calculations
+        ! Chunking in "dynamic"-mimicking blocks:
+        N_incr = MPI_param%size_of_cluster    ! increment in the loop
+        Nstart = 1 + MPI_param%process_rank
+        Nend = N
+   endif
+   !print*, '[MPI process #', MPI_param%process_rank, ']: ', Nstart, Nend, N
+
+   ! 2) Do the cycle (parallel) calculations:
+   SHI_1 = SHI  ! this is a current value defined for each thread, multiple copy of SHI to use
+   do j = Nstart, Nend, N_incr  ! each process does its own part
+       SHI_1%E = dE(j)
+       call All_shells_SHI_dEdx(SHI_1, Target_atoms, IMFP, dEdx, Matter, Mat_DOS, NumPar)  ! get dEdx for all shells summed up
+       SHI_dEdx(j, :, :) = dEdx(:,:)   ! [eV/A]
+       ! calculated inverse MFP:
+       where (IMFP(:,:) > 1.0d-10)
+          SHI_IMFP(j, :, :) = 1.0d0/IMFP(:,:) ! [A]
+       elsewhere    ! infinity
+          SHI_IMFP(j, :, :) = 1.0d28     ! [A]
+       endwhere
+       Zeff(j) = SHI_1%Zeff   ! equilibrium charge
+
+       if (NumPar%verbose) then
+          ch_temp = '' ! reinitialize
+          write(ch_temp, '(a,i0,a)') '[MPI process #', MPI_param%process_rank, ']'
+          write(ch_temp(24:), '(a)') 'progress of calculation:'
+          call progress(trim(adjustl(ch_temp)), j, N, FN=0)   ! below
+       endif
+   enddo
+
+   ! 3) Collect information from all processes into the master process:
+   ! https://rookiehpc.org/mpi/docs/mpi_reduce/index.html
+   ! a) Effective charge vs. SHI energy:
+!    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+!       call MPI_Reduce(MPI_IN_PLACE, Zeff, N, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+!    else
+!       call MPI_Reduce(Zeff, Zeff, N, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+!    end if
+   ! Collect the data from all processes, and send the the collected data to back to all of them:
+   ! https://rookiehpc.org/mpi/docs/mpi_allreduce/index.html
+   call MPI_Allreduce(MPI_IN_PLACE, Zeff, N, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from Analytical_SHI_dEdx (Zeff)')  ! module "MPI_subroutines"
+   ! b) MFPs:
+   N1 = size(SHI_IMFP,1)
+   N2 = size(SHI_IMFP,2)
+   N3 = size(SHI_IMFP,3)
+!    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+!       call MPI_Reduce(MPI_IN_PLACE, SHI_IMFP, N1*N2*N3, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+!    else
+!       call MPI_Reduce(SHI_IMFP, SHI_IMFP, N1*N2*N3, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+!    endif
+   call MPI_Allreduce(MPI_IN_PLACE, SHI_IMFP, N1*N2*N3, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from Analytical_SHI_dEdx (SHI_IMFP)')  ! module "MPI_subroutines"
+   ! c) SHI_dEdx:
+!    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+!       call MPI_Reduce(MPI_IN_PLACE, SHI_dEdx, N1*N2*N3, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+!    else
+!       call MPI_Reduce(SHI_dEdx, SHI_dEdx, N1*N2*N3, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+!    endif
+   call MPI_Allreduce(MPI_IN_PLACE, SHI_dEdx, N1*N2*N3, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+   call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Allreduce called from Analytical_SHI_dEdx (SHI_dEdx)')  ! module "MPI_subroutines"
+#else ! without MPI
+!---------------------------------------------
+! 2) OpenMP version
 !$omp parallel &
 !$omp private (j, SHI_1, IMFP, dEdx)
    SHI_1 = SHI  ! this is a current value defined for each thread, multiple copy of SHI to use
@@ -1983,35 +2637,41 @@ subroutine Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin
    do j = 1,N
        !my_id = 1 + OMP_GET_THREAD_NUM() ! identify which thread it is
        SHI_1%E = dE(j)
-       E(j) =  SHI_1%E  ! save energy to write into file later
+       !E(j) =  SHI_1%E  ! save energy to write into file later
        call All_shells_SHI_dEdx(SHI_1, Target_atoms, IMFP, dEdx, Matter, Mat_DOS, NumPar)  ! get dEdx for all shells summed up
        SHI_dEdx(j, :, :) = dEdx(:,:)   ! [eV/A]
-       !SHI_IMFP(j, :, :) = 1.0d0/IMFP(:,:) ! [A]
-       where (IMFP(:,:) > 1.0d-10)  ! calculated inverse MFP
+       ! calculated inverse MFP:
+       where (IMFP(:,:) > 1.0d-10)
           SHI_IMFP(j, :, :) = 1.0d0/IMFP(:,:) ! [A]
        elsewhere    ! infinity
           SHI_IMFP(j, :, :) = 1.0d28     ! [A]
        endwhere
        Zeff(j) = SHI_1%Zeff   ! equilibrium charge
-       if (NumPar%verbose) call progress(' Progress of calculation: ', j, N)
+       if (NumPar%verbose) call progress(' Progress of calculation: ', j, N) ! below
    enddo
 !$omp end do
 !$omp end parallel
-   
-   FN = 200
-   open(FN, file=trim(adjustl(Input_files)))
-   FN2 = 201
-   open(FN2, file=trim(adjustl(Input_files2)))
-   FN3 = 202
-   open(FN3, file=trim(adjustl(Input_files11)))
+#endif
+!---------------------------------------------
+
+   if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+      FN = 200
+      open(FN, file=trim(adjustl(Input_files)))
+      FN2 = 201
+      open(FN2, file=trim(adjustl(Input_files2)))
+      FN3 = 202
+      open(FN3, file=trim(adjustl(Input_files11)))
+   endif
    
    if (present(dEdx_tot)) allocate(dEdx_tot(N)) ! array of total ion energy loss [eV/A]
    SHI_MFP(1)%ELMFP(1)%E(:) = E(:)
    ! Now write the output into the file:
    do i = 1, N
-      write(FN,'(e)', advance='no') SHI_MFP(1)%ELMFP(1)%E(i)/1.0d6                      ! MeV
-      write(FN2,'(e)', advance='no') SHI_MFP(1)%ELMFP(1)%E(i)/1.0d6
-      write(FN3,'(e,e)') SHI_MFP(1)%ELMFP(1)%E(i)/1.0d6, Zeff(i)                        ! Save effective charge
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         write(FN,'(e)', advance='no') SHI_MFP(1)%ELMFP(1)%E(i)/1.0d6                      ! MeV
+         write(FN2,'(e)', advance='no') SHI_MFP(1)%ELMFP(1)%E(i)/1.0d6
+         write(FN3,'(e,e)') SHI_MFP(1)%ELMFP(1)%E(i)/1.0d6, Zeff(i)                        ! Save effective charge
+      endif
       IMFP_calc = 0.0d0 ! to sum up for a total IMFP
       dEdx_calc = 0.0d0 ! to sum up for a total IMFP
       do j = 1, Nat
@@ -2021,19 +2681,30 @@ subroutine Analytical_SHI_dEdx(Input_files, Input_files2, Input_files11, N, Emin
             SHI_MFP(j)%ELMFP(k)%L(i) = SHI_IMFP(i,j,k)
             if (SHI_MFP(j)%ELMFP(k)%L(i) > 1d30) SHI_MFP(j)%ELMFP(k)%L(i) = 1d30 ! get rid of infunities
             SHI_MFP(j)%ELMFP(k)%dEdx(i) = SHI_dEdx(i,j,k)
-            write(FN,'(e)', advance='no') SHI_MFP(j)%ELMFP(k)%L(i)    ! write IMFP for all shells
-            write(FN2,'(e)', advance='no') SHI_MFP(j)%ELMFP(k)%dEdx(i)    ! write IMFP for all shells
-            IMFP_calc = IMFP_calc + 1.0d0/SHI_MFP(j)%ELMFP(k)%L(i)    ! sum them all up to get the total value
+            if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+               write(FN,'(e)', advance='no') SHI_MFP(j)%ELMFP(k)%L(i)    ! write IMFP for all shells
+               write(FN2,'(e)', advance='no') SHI_MFP(j)%ELMFP(k)%dEdx(i)    ! write IMFP for all shells
+            endif
+            if (SHI_MFP(j)%ELMFP(k)%L(i) > 1.0d-10) then
+                IMFP_calc = IMFP_calc + 1.0d0/SHI_MFP(j)%ELMFP(k)%L(i)    ! sum them all up to get the total value
+            else ! avoid deveide by zero, set infinity
+                IMFP_calc = 1.1d29
+            endif
             dEdx_calc = dEdx_calc + SHI_MFP(j)%ELMFP(k)%dEdx(i)    ! sum them all up to get the total value
          enddo
       enddo
-      write(FN,'(e)') 1.0d0/IMFP_calc   ! write total IMFP
-      write(FN2,'(e)') dEdx_calc        ! write total dEdx
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         write(FN,'(e)') 1.0d0/IMFP_calc   ! write total IMFP
+         write(FN2,'(e)') dEdx_calc        ! write total dEdx
+      endif
       if (present(dEdx_tot)) dEdx_tot(i) = dEdx_calc ! array of total ion energy loss [eV/A]
    enddo
-   close(FN)
-   close(FN2)
-   close(FN3)
+
+   if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+      close(FN)
+      close(FN2)
+      close(FN3)
+   endif
 end subroutine Analytical_SHI_dEdx
 
 
@@ -2080,7 +2751,38 @@ subroutine All_shells_SHI_dEdx(SHI, Target_atoms, SHI_IMFP, SHI_dEdx, Matter, Ma
 end subroutine All_shells_SHI_dEdx
 
 
-subroutine progress(string,ndone,ntotal)
+subroutine progress(string, ndone, ntotal, FN)
+    character(*), intent(in) :: string  ! text to print
+    integer, intent(in) :: ndone, ntotal    ! iteration number, and total
+    integer, intent(in), optional :: FN   ! file to print to
+    !---------------------
+    real(8) :: pers_done
+    integer :: i, z
+    character(200) :: temp
+
+    pers_done = dble(ndone)/dble(ntotal) * 100.0d0
+    write(temp, '(f10.2)') pers_done
+
+    if (present(FN)) then
+        if ((FN /= 6) .and. (FN /= 0)) backspace(FN)   ! overwrite the line in a file
+
+        if (pers_done >= 100.0d0) then
+            write(FN, '(a)') 'Calculations done '//trim(adjustl(temp))//'%                                           '//char(13)
+        else
+            write(FN,'(a,a,$)') trim(adjustl(string))//' ', trim(adjustl(temp))//'%   '//char(13)
+        endif
+    else
+        if (pers_done >= 100.0d0) then
+            write(*, '(a)') 'Calculations done '//trim(adjustl(temp))
+        else
+            write(*,'(a,a,$)') trim(adjustl(string))//' ', trim(adjustl(temp))//'%   '//char(13)
+        endif
+    endif
+end subroutine progress
+
+
+
+subroutine progress_old(string, ndone, ntotal)
     implicit none
     character*(*) string
     character*255 prog,oldprog
@@ -2104,7 +2806,7 @@ subroutine progress(string,ndone,ntotal)
         write(0,'(a,a,$)') prog(1:77),char(13)
         return
     endif
-end subroutine progress
+end subroutine progress_old
 
 
 

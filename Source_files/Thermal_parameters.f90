@@ -35,7 +35,7 @@ character(100), parameter :: m_thermal = 'OUTPUT_thermal'
 contains
 
 
-subroutine Get_thermal_parameters(Output_path, CDF_Phonon, Target_atoms, Matter, NumPar, Mat_DOS, File_names)
+subroutine Get_thermal_parameters(Output_path, CDF_Phonon, Target_atoms, Matter, NumPar, Mat_DOS, File_names, MPI_param)
    character(*), intent(in) :: Output_path
    type(CDF), intent(in) :: CDF_Phonon      ! phononic part of the CDF
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects
@@ -43,6 +43,7 @@ subroutine Get_thermal_parameters(Output_path, CDF_Phonon, Target_atoms, Matter,
    type(Flag), intent(in) :: NumPar         ! numerical parameters
    type(Density_of_states), intent(in) :: Mat_DOS       ! Density of states
    type(All_names), intent(inout) :: File_names    ! file names to use later for gnuplot printing
+   type(Used_MPI_parameters), intent(in) :: MPI_param ! MPI parameters
    !--------------------------
    type(diff_CS_single), dimension(:), allocatable :: ds_E
    real(8), dimension(:), allocatable :: Te_grid
@@ -53,10 +54,10 @@ subroutine Get_thermal_parameters(Output_path, CDF_Phonon, Target_atoms, Matter,
 
    ! Check if the user wants to calculate the thermal parameters:
    if (.not. NumPar%get_thermal) then
-        if (NumPar%verbose) call print_time_step('Thermal parameters calculation is skipped:', msec=.true.)
+        if (NumPar%verbose) call print_time_step('Thermal parameters calculation is skipped:', MPI_param, msec=.true.)
         return ! exit, if they don't
    endif
-   if (NumPar%verbose) call print_time_step('Thermal parameters calculation started:', msec=.true.)
+   if (NumPar%verbose) call print_time_step('Thermal parameters calculation started:', MPI_param, msec=.true.)
 
    ! make filename for output:
    call create_filename(Output_path, NumPar, Matter, File_name, File_short) ! below
@@ -112,7 +113,7 @@ subroutine Get_thermal_parameters(Output_path, CDF_Phonon, Target_atoms, Matter,
       enddo ! j = 1, size(ds_E(i)%dsdhw)
    enddo ! i = 1, Nsiz_ds
 
-   if (NumPar%verbose) call print_time_step('Thermal parameters CS precalculated:', msec=.true.)
+   if (NumPar%verbose) call print_time_step('Thermal parameters CS precalculated:', MPI_param, msec=.true.)
 
    ! atomic density:
    Dens = (Matter%At_Dens*1.0d6)    ! [1/m^3]
@@ -170,7 +171,7 @@ subroutine Get_thermal_parameters(Output_path, CDF_Phonon, Target_atoms, Matter,
    enddo ! i_T = 1, Nsiz
 
    if (NumPar%verbose) then
-      call print_time_step('Thermal parameters calculations finished :', msec=.true.)
+      call print_time_step('Thermal parameters calculations finished :', MPI_param, msec=.true.)
    endif
    write(*,'(a,a)') 'Thermal parameters are stored in the file ', trim(adjustl(File_name))
 

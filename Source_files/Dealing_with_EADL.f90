@@ -6,6 +6,8 @@
 MODULE Dealing_with_EADL
 use Universal_Constants   ! let it use universal constants
 use Objects   ! since it uses derived types, it must know about them from module 'Objects'
+use MPI_subroutines, only : Save_error_details
+
 
 implicit none
 PRIVATE  ! hides items not listed on public statement
@@ -307,14 +309,15 @@ end function number_of_columns
 
 
 
-subroutine check_atomic_parameters(NumPar, Target_atoms, N_at, cur_shl, shl, Error_message, read_well)
+subroutine check_atomic_parameters(NumPar, Target_atoms, N_at, cur_shl, shl, Error_message, read_well, MPI_param)
    type(Flag), intent(inout) :: NumPar ! numerical parameters
    type(Atom), dimension(:), allocatable, intent(inout) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
    integer, intent(in), optional :: N_at
    integer, intent(in), optional :: cur_shl, shl  ! current atoms, shell, and total number of shells
    type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
    logical, intent(inout) :: read_well  ! did we read the file well?
-   
+   type(Used_MPI_parameters), intent(inout) :: MPI_param
+   !-------------------------
    integer INFO, i, j, k, FN, FN1, Z, Shl_dsgtr, Nat
    character(100) :: File_name_EADL, Folder_name, Error_descript
    character(100) :: File_name_EPDL97, File_name, File_name2
@@ -393,14 +396,14 @@ subroutine check_atomic_parameters(NumPar, Target_atoms, N_at, cur_shl, shl, Err
          !File_name = trim(adjustl(Folder_name))//trim(adjustl(NumPar%path_sep))//'eadl.all'
          File_name = trim(adjustl(Folder_name))//trim(adjustl(NumPar%path_sep))//trim(adjustl(m_EADL_file))
          Error_descript = 'File '//trim(adjustl(File_name))//' is not found!'    ! description of an error
-         call Save_error_details(Error_message, 21, Error_descript) ! write it into the error-log file
+         call Save_error_details(Error_message, 21, Error_descript, MPI_param) ! write it into the error-log file
          print*, trim(adjustl(Error_descript)) ! print it also on the sreen
       endif
       if (INFO .EQ. 2) then
          !File_name2 = trim(adjustl(Folder_name))//trim(adjustl(NumPar%path_sep))//'epdl97.all'
          File_name2 = trim(adjustl(Folder_name))//trim(adjustl(NumPar%path_sep))//trim(adjustl(m_EPDL_file))
          Error_descript = 'File '//trim(adjustl(File_name2))//' is not found!'    ! description of an error
-         call Save_error_details(Error_message, 22, Error_descript) ! write it into the error-log file
+         call Save_error_details(Error_message, 22, Error_descript, MPI_param) ! write it into the error-log file
          print*, trim(adjustl(Error_descript)) ! print it also on the sreen
       endif
       read_well = .false.   ! it didn't read well the input file...

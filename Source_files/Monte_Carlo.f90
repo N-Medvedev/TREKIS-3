@@ -10,6 +10,12 @@ MODULE Monte_Carlo
                             SHI_NRG_transfer_BEB, Equilibrium_charge_SHI, NRG_transfer_elastic_DSF, NRG_transfer_elastic_atomic_OLD, &
                             Interpolate
   use Reading_files_and_parameters , only: Find_in_array_monoton, Find_in_array, print_time_step
+  use MPI_subroutines, only : MPI_error_wrapper, Save_error_details
+!   use Variables, only : MPI_param  ! for testing purposes
+
+#ifdef MPI_USED
+  use mpi
+#endif
 
 implicit none
 PRIVATE
@@ -24,9 +30,398 @@ interface Next_free_path
     module procedure Next_free_path_2d
 end interface Next_free_path
 
-public :: Monte_Carlo_modelling
+public :: do_Monte_Carlo
 
 contains    ! the MC code itself is all here:
+
+
+! Wrapper for MC calculation call:
+subroutine do_Monte_Carlo(NMC, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
+     Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, aidCS, &
+     Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, &
+     Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
+     Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
+     Error_message, DSF_DEMFP, DSF_DEMFP_H, Out_field_all, Out_E_field, Out_diff_coeff, MPI_param)
+    integer, intent(in) :: NMC      ! Number of MC iterations to be performed
+    type(Ion), intent(in) :: SHI    ! declare SHI as an object with atributes "Ion"
+    type(All_MFP), dimension(:), allocatable, intent(in) :: SHI_MFP         ! SHI mean free paths for all shells
+    type(All_MFP), dimension(:), allocatable, intent(in) :: diff_SHI_MFP    ! SHI differential mean free paths for all shells
+    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
+    integer, intent(in) :: Lowest_Ip_At, Lowest_Ip_Shl ! number of atom and of shell which correspond to the lowest ionization potential
+    type(CDF), intent(in) :: CDF_Phonon ! declare CDF for phonons
+    real(8), intent(in) :: Tim ! [fs] total time
+    real(8), intent(in) :: dt  ! [fs] timestep
+    type(All_MFP), dimension(:), intent(in), target :: Total_el_MFPs     ! electron mean free paths for all shells
+    type(MFP_elastic), intent(in), target :: Elastic_MFP                 ! elastic mean free path
+    type(All_MFP), dimension(:), intent(in), target :: Total_Hole_MFPs   ! hole mean free paths for all shells
+    type(MFP_elastic), intent(in), target :: Elastic_Hole_MFP            ! elastic mean free path
+    type(All_MFP), dimension(:), intent(in), target :: Total_Photon_MFPs ! photon MFPs for all shells
+    type(Solid), intent(in) :: Matter   ! all material parameters
+    type(Density_of_states), intent(in) :: Mat_DOS  ! material DOS
+    type(Flag), intent(inout) :: NumPar ! numerical parameters
+    real(8), dimension(:), intent(inout) :: Out_R   ! [A] radius for distributions
+    real(8), dimension(:,:), intent(inout) :: Out_ne  ! [1/cm^3] electron density
+    real(8), dimension(:,:), intent(inout) :: Out_Ee  ! [eV/A^3] electron energy density
+    real(8), dimension(:,:), intent(inout) :: Out_nphot ! [1/cm^3] photon density
+    real(8), dimension(:,:), intent(inout) :: Out_Ephot ! [eV/A^3] photon energy density
+    real(8), dimension(:,:), intent(inout) :: Out_Ee_vs_E, Out_Eh_vs_E ! [1/eV] electron spectrum in energy space vs time; VB holes
+    real(8), dimension(:,:), intent(inout) :: Out_Elat  ! [eV/A^3] lattuce energy density vs time vs R
+    real(8), dimension(:,:), intent(inout) :: Out_Eat_dens  ! [eV/A^3] atom's energy energy
+    real(8), dimension(:,:,:,:), intent(inout) :: Out_nh    ! [1/cm^3] holes densities
+    real(8), dimension(:,:,:,:), intent(inout) :: Out_Eh    ! [eV/A^3] holes enegies
+    real(8), dimension(:,:,:,:), intent(inout) :: Out_Ehkin    ! [eV/A^3] holes enegies
+    real(8), dimension(:), intent(inout) :: Out_V  ! inverse volume of cilinder layers [1/A^3]
+    real(8), dimension(:), intent(inout) :: Out_tot_Ne      ! total number of electrons
+    real(8), dimension(:), intent(inout) :: Out_tot_Nphot   ! total number of photons
+    real(8), dimension(:), intent(inout) :: Out_tot_E       ! total energy of the system
+    real(8), dimension(:), intent(inout) :: Out_E_e    ! total energy of electrons in time [eV] vs [fs]
+    real(8), dimension(:), intent(inout) :: Out_E_phot ! total energy of photons in time [eV] vs [fs]
+    real(8), dimension(:), intent(inout) :: Out_E_at   ! total energy of atoms in time [eV] vs [fs]
+    real(8), dimension(:,:,:), intent(inout) :: Out_E_h    ! total energy of holes in each shell in time [eV] vs [fs]
+    real(8), dimension(:,:), intent(inout) :: Out_theta, Out_theta_h    ! angular distribution of velosities (el and VB holes)
+    real(8), dimension(:), intent(inout) :: Out_theta1
+    real(8), dimension(:,:), intent(inout) :: Out_field_all ! [V/m] electrical fields vs time vs R
+    real(8), dimension(:,:), intent(inout) :: Out_Ee_vs_E_Em    ! [1/eV] emitted electrons distribution in energy space vs time
+    real(8), dimension(:), intent(inout) :: Out_Ne_Em           ! number of emitted electrons
+    real(8), dimension(:), intent(inout) :: Out_E_Em            ! total enegry of emitted electrons in time
+    real(8), dimension(:), intent(inout) :: Out_E_field         ! total enegry of field
+    type(Error_handling), intent(inout) :: Error_message	! error messages are dealed with as objects
+    type(Differential_MFP), dimension(:), intent(in) :: DSF_DEMFP, DSF_DEMFP_H
+    type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
+    real(8), dimension(:), intent(inout) :: Out_diff_coeff
+    type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
+    !------------------------------------------
+#ifdef _OPENMP
+    integer OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS ! OMP-related variables must be declared here
+#endif
+    integer :: c1(8)
+    integer :: Nit, MC_stat, my_id
+    integer :: N, Nstart, Nend, N_incr, N1, N2, N3, N4
+
+
+
+    ! The iteration in MC are largely independent, so they can be parallelized with openmp:
+    Nit = 0
+
+
+!---------------------------------------------------------------------
+! The MC itarations may be parralelized either via MPI, or via OpenMP.
+! Choose the method with help of precompiler.
+! Option #1: Use MPI, if compiled with MPI:
+#ifdef MPI_USED
+    ! 1) Define starting and ending points of the cycle depending on the process rank:
+    ! Chunking in "dynamic"-mimicking blocks:
+    N = NMC   ! number of MC iterations
+    N_incr = MPI_param%size_of_cluster    ! increment in the loop
+    Nstart = 1 + MPI_param%process_rank
+    Nend = N
+
+    ! 2) Do the cycle (parallel) calculations:
+    do MC_stat = Nstart, Nend, N_incr  ! each process does its own part
+        call Monte_Carlo_modelling(MPI_param%process_rank, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
+            Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, aidCS, &
+            Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, &
+            Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
+            Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
+            Error_message, DSF_DEMFP, DSF_DEMFP_H, Out_field_all, Out_E_field, Out_diff_coeff, MPI_param)  ! below
+        call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
+        write(*, 1008) 'Process #', MPI_param%process_rank, ' Iteration #', MC_stat, ' at ', c1(5), c1(6), c1(7)
+    enddo
+
+    ! 3) Collect information from all processes into the master process:
+    ! https://rookiehpc.org/mpi/docs/mpi_reduce/index.html
+    !-----------
+    ! Out_ne:
+    N1 = size(Out_ne,1)
+    N2 = size(Out_ne,2)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_ne, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_ne, Out_ne, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_ne)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_Ee:
+    N1 = size(Out_Ee,1)
+    N2 = size(Out_Ee,2)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_Ee, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_Ee, Out_Ee, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_Ee)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_nphot:
+    N1 = size(Out_nphot,1)
+    N2 = size(Out_nphot,2)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_nphot, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_nphot, Out_nphot, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_nphot)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_Ephot:
+    N1 = size(Out_Ephot,1)
+    N2 = size(Out_Ephot,2)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_Ephot, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_Ephot, Out_Ephot, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_Ephot)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_Ee_vs_E:
+    N1 = size(Out_Ee_vs_E,1)
+    N2 = size(Out_Ee_vs_E,2)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_Ee_vs_E, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_Ee_vs_E, Out_Ee_vs_E, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_Ee_vs_E)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_Eh_vs_E:
+    N1 = size(Out_Eh_vs_E,1)
+    N2 = size(Out_Eh_vs_E,2)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_Eh_vs_E, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_Eh_vs_E, Out_Eh_vs_E, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_Eh_vs_E)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_Elat:
+    N1 = size(Out_Elat,1)
+    N2 = size(Out_Elat,2)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_Elat, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_Elat, Out_Elat, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_Elat)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_Eat_dens:
+    N1 = size(Out_Eat_dens,1)
+    N2 = size(Out_Eat_dens,2)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_Eat_dens, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_Eat_dens, Out_Eat_dens, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_Eat_dens)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_nh:
+    N1 = size(Out_nh,1)
+    N2 = size(Out_nh,2)
+    N3 = size(Out_nh,3)
+    N4 = size(Out_nh,4)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_nh, N1*N2*N3*N4, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_nh, Out_nh, N1*N2*N3*N4, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_nh)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_Eh:
+    N1 = size(Out_Eh,1)
+    N2 = size(Out_Eh,2)
+    N3 = size(Out_Eh,3)
+    N4 = size(Out_Eh,4)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_Eh, N1*N2*N3*N4, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_Eh, Out_Eh, N1*N2*N3*N4, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_Eh)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_Ehkin:
+    N1 = size(Out_Ehkin,1)
+    N2 = size(Out_Ehkin,2)
+    N3 = size(Out_Ehkin,3)
+    N4 = size(Out_Ehkin,4)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_Ehkin, N1*N2*N3*N4, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_Ehkin, Out_Ehkin, N1*N2*N3*N4, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_Ehkin)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_tot_Ne:
+    N1 = size(Out_tot_Ne,1)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_tot_Ne, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_tot_Ne, Out_tot_Ne, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_tot_Ne)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_tot_Nphot:
+    N1 = size(Out_tot_Nphot,1)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_tot_Nphot, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_tot_Nphot, Out_tot_Nphot, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_tot_Nphot)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_tot_E:
+    N1 = size(Out_tot_E,1)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_tot_E, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_tot_E, Out_tot_E, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_tot_E)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_E_e:
+    N1 = size(Out_E_e,1)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_E_e, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_E_e, Out_E_e, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_E_e)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_E_phot:
+    N1 = size(Out_E_phot,1)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_E_phot, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_E_phot, Out_E_phot, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_E_phot)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_E_at:
+    N1 = size(Out_E_at,1)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_E_at, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_E_at, Out_E_at, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_E_at)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_E_h:
+    N1 = size(Out_E_h,1)
+    N2 = size(Out_E_h,2)
+    N3 = size(Out_E_h,3)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_E_h, N1*N2*N3, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_E_h, Out_E_h, N1*N2*N3, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_E_h)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_theta:
+    N1 = size(Out_theta,1)
+    N2 = size(Out_theta,2)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_theta, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_theta, Out_theta, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_theta)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_theta_h:
+    N1 = size(Out_theta_h,1)
+    N2 = size(Out_theta_h,2)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_theta_h, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_theta_h, Out_theta_h, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_theta_h)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_Ne_Em:
+    N1 = size(Out_Ne_Em,1)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_Ne_Em, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_Ne_Em, Out_Ne_Em, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_Ne_Em)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_E_Em:
+    N1 = size(Out_E_Em,1)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_E_Em, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_E_Em, Out_E_Em, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_E_Em)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_Ee_vs_E_Em:
+    N1 = size(Out_Ee_vs_E_Em,1)
+    N2 = size(Out_Ee_vs_E_Em,2)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_Ee_vs_E_Em, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_Ee_vs_E_Em, Out_Ee_vs_E_Em, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_Ee_vs_E_Em)')  ! module
+    !-----------
+    ! Out_field_all:
+    N1 = size(Out_field_all,1)
+    N2 = size(Out_field_all,2)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_field_all, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_field_all, Out_field_all, N1*N2, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_field_all)')  ! module
+    !-----------
+    ! Out_E_field:
+    N1 = size(Out_E_field,1)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_E_field, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_E_field, Out_E_field, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_E_field)')  ! module "MPI_subroutines"
+    !-----------
+    ! Out_diff_coeff:
+    N1 = size(Out_diff_coeff,1)
+    if (MPI_param%process_rank == 0) then   ! MPI master process gets the value from itself, hence MPI_IN_PLACE
+       call MPI_Reduce(MPI_IN_PLACE, Out_diff_coeff, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    else
+       call MPI_Reduce(Out_diff_coeff, Out_diff_coeff, N1, MPI_DOUBLE_PRECISION, MPI_SUM, 0, MPI_COMM_WORLD, MPI_param%ierror)   ! module "mpi"
+    endif
+    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, 'Error in MPI_Reduce called from do_Monte_Carlo (Out_diff_coeff)')  ! module "MPI_subroutines"
+    !-----------
+
+#else
+!---------------------------------------------------------------------
+! Option #2: Use OpenMP, if compiled without MPI:
+!$omp parallel &
+!$omp private (MC_stat, my_id, c1)
+!$omp do schedule(dynamic) reduction( + : Nit, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Out_field_all, Out_E_field, Out_diff_coeff)
+    do MC_stat = 1, NMC   ! MC iterations to be averaged
+#ifdef _OPENMP
+        my_id = 1 + OMP_GET_THREAD_NUM() ! identify which thread it is
+#else ! if you set to use OpenMP in compiling: 'make OMP=no'
+        my_id = 1   ! no OMP => no threads
+#endif
+        call Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
+            Total_el_MFPs, Elastic_MFP, Total_Hole_MFPs, Elastic_Hole_MFP, Total_Photon_MFPs, Mat_DOS, Tim, dt, Matter, NumPar, aidCS, &
+            Out_R, Out_V, Out_ne, Out_Ee, Out_nphot, Out_Ephot, Out_Ee_vs_E, Out_Eh_vs_E, Out_Elat, &
+            Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
+            Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_theta1, Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, &
+            Error_message, DSF_DEMFP, DSF_DEMFP_H, Out_field_all, Out_E_field, Out_diff_coeff, MPI_param)  ! below
+            Nit = Nit + 1   ! count the number of iteration to test parallelization
+        call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
+        write(*, 1008) 'Thread #', my_id, ' Iteration #', Nit, ' at ', c1(5), c1(6), c1(7)
+    enddo
+!$omp end do
+!$omp end parallel
+#endif
+
+1008 format (a, i4, a, i6, a, i2.2, ':', i2.2, ':', i2.2)
+end subroutine do_Monte_Carlo
+
+
+
+
+
 
 
 subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, CDF_Phonon, &
@@ -35,7 +430,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
             Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_tot_Ne, Out_tot_Nphot, Out_tot_E, &
             Out_E_e, Out_E_phot, Out_E_at, Out_E_h, Out_Eat_dens, Out_theta, Out_theta_h, Out_theta1, &
             Out_Ne_Em, Out_E_Em, Out_Ee_vs_E_Em, Error_message, DSF_DEMFP, DSF_DEMFP_H, Out_field_all, Out_E_field, &
-            Out_diff_coeff)
+            Out_diff_coeff, MPI_param)
     integer, intent(in) :: my_id    ! thread number for OMP
     type(Ion), intent(in) :: SHI   ! declare SHI as an object with atributes "Ion"
     type(All_MFP), dimension(:), allocatable, intent(in) :: SHI_MFP         ! SHI mean free paths for all shells
@@ -83,6 +478,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
     type(Differential_MFP), dimension(:), intent(in) :: DSF_DEMFP, DSF_DEMFP_H
     type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
     real(8), dimension(:), intent(inout) :: Out_diff_coeff
+    type(Used_MPI_parameters), intent(inout) :: MPI_param ! MPI parameters
     !------------------------------------------
     
     ! Internal subroutine's variables:
@@ -125,7 +521,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
     character(10) :: text_ch, text_ch2
 
     ! Textify the thread ID:
-    write(text_ch,'(i10)') my_id
+    write(text_ch,'(i0)') my_id
 !     print*, my_id, trim(adjustl(text_ch))
 
     ! Eckart-type surface barrier parameters
@@ -162,6 +558,8 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
     else
         field_time = tim
     endif
+
+    if (isnan(SHI_loc%E)) print*, SHI_loc%E, 'in Monte_Carlo_modelling'
     call Next_free_path(SHI_loc%E, SHI_path, SHI_IMFP) ! SHI MFP [A]
     call random_number(RN)
     SHI_IMFP = -SHI_IMFP*log(RN)    ! sample free path
@@ -175,7 +573,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
 
         if (NumPar%verbose) then
             text_line = 'Current time in MC in thread #'//trim(adjustl(text_ch))//':'
-            call print_time_step(trim(adjustl(text_line)), tim_glob, msec=.true.)
+            call print_time_step(trim(adjustl(text_line)), MPI_param, tim_glob, msec=.true.)
         endif
 
         i = i + 1
@@ -187,42 +585,42 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
             case (1)    ! SHI
                 if (NumPar%very_verbose) then
                     text_line = 'SHI      time in thread #'//trim(adjustl(text_ch))//' in MC:'
-                    call print_time_step(trim(adjustl(text_line)), t_cur, msec=.true.)
+                    call print_time_step(trim(adjustl(text_line)), MPI_param, t_cur, msec=.true.)
                 endif
                 call SHI_Monte_Carlo(SHI_MFP, SHI_path, SHI_loc, diff_SHI_MFP, Target_atoms, All_electrons, All_holes, Tot_Nel, &
                     Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, El_IMFP, El_EMFP, &
-                    Hole_IMFP, Hole_EMFP, Matter, NumPar)
+                    Hole_IMFP, Hole_EMFP, Matter, NumPar, MPI_param)    ! below
                 ! Now if SHI is out of the layer, we let it go...
                 if (SHI_loc%Z .GE. Matter%Layer) call Particle_event(SHI_loc, tn=1d16) ! SHI is out of the analyzed layer
             case (2)    ! electron
                 if (NumPar%very_verbose) then
                     text_line = 'Electron time in thread #'//trim(adjustl(text_ch))//' in MC:'
-                    call print_time_step(trim(adjustl(text_line)), t_cur, msec=.true.)
+                    call print_time_step(trim(adjustl(text_line)), MPI_param, t_cur, msec=.true.)
                 endif
                 call Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, &
                     CDF_Phonon, Matter, target_atoms, &
                     Total_el_MFPs, Elastic_MFP, Tot_Nel, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, &
                     Error_message, Em_electrons, &
-                    Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar, aidCS)
+                    Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar, aidCS, MPI_param)    ! below
             case (3)    ! hole
                 if (NumPar%very_verbose) then
                     text_line = 'Hole     time in thread #'//trim(adjustl(text_ch))//' in MC:'
-                    call print_time_step(trim(adjustl(text_line)), t_cur, msec=.true.)
+                    call print_time_step(trim(adjustl(text_line)), MPI_param, t_cur, msec=.true.)
                 endif
                 call Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, &
                     Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
                     Total_Hole_MFPs, Elastic_Hole_MFP, Tot_Nel, Tot_Nphot, NOP, &
                     Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
-                    At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar, aidCS)
+                    At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar, aidCS, MPI_param)    ! below
             case (4)    ! photon
                 if (NumPar%very_verbose) then
                     text_line = 'Photon   time in thread #'//trim(adjustl(text_ch))//' in MC:'
-                    call print_time_step(trim(adjustl(text_line)), t_cur, msec=.true.)
+                    call print_time_step(trim(adjustl(text_line)), MPI_param, t_cur, msec=.true.)
                 endif
                 call Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, &
                     Hole_IMFP, Hole_EMFP, Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
                     Total_Photon_MFPs, Tot_Nel, Tot_Nphot, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
-                    t_cur, NumPar)
+                    t_cur, NumPar, MPI_param)   ! below
             endselect
             ! finds what particle collides next:
             call Find_min_time_particle(SHI_loc, All_electrons, All_holes, All_photons, KOP, NOP, t_cur, NumPar) ! below
@@ -238,7 +636,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
         ! Save distributions for this time-step:
         if (NumPar%verbose) then
             text_line = 'Getting statistics in thread #'//trim(adjustl(text_ch))//':'
-            call print_time_step(trim(adjustl(text_line)), tim_glob, msec=.true.)
+            call print_time_step(trim(adjustl(text_line)), MPI_param, tim_glob, msec=.true.)
         endif
 
         call Calculated_statistics(Mat_DOS, Lowest_Ip_At, Lowest_Ip_Shl, i, tim_glob, Tot_Nel, Tot_Nphot,&
@@ -251,7 +649,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
         !dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
         if (NumPar%verbose) then
             text_line = 'Defining particle  in thread #'//trim(adjustl(text_ch))//':'
-            call print_time_step(trim(adjustl(text_line)), tim_glob, msec=.true.)
+            call print_time_step(trim(adjustl(text_line)), MPI_param, tim_glob, msec=.true.)
         endif
         call Find_min_time_particle(SHI_loc, All_electrons, All_holes, All_photons, KOP, NOP, t_cur, NumPar) ! finds what particle collides next
         
@@ -334,10 +732,12 @@ subroutine Hole_parameters(All_holes, Matter, Mat_DOS, target_atoms, Hole_IMFP, 
         call Assign_holes_mass(Matter, All_holes, Mat_DOS, Lowest_Ip_At, Lowest_Ip_Shl)
                
         if (All_holes%Mass .LT. 1.0d3) then
+            if (isnan(All_holes%Ehkin)) print*, All_holes%Ehkin, 'in Hole_parameters #1'
             call Next_free_path(All_holes%Ehkin, Hole_IMFP, HIMFP) ! => IMFP of hole [A]
             if (Etemp .EQ. (Eh - Target_atoms(1)%Ip(size(Target_atoms(1)%Ip)))) then
                 HEMFP = 1.0d30
             else
+                if (isnan(All_holes%Ehkin)) print*, All_holes%Ehkin, 'in Hole_parameters #2'
                 call Next_free_path(All_holes%Ehkin, Hole_EMFP, HEMFP) ! => EMFP of hole [A]
             endif
             
@@ -955,7 +1355,7 @@ end subroutine New_theta
 ! Dealing with Auger-electrons:
 
 subroutine Auger_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, &
-                       Sh1, KOA1, Sh2, KOA2, Ee, E_new1, E_new2, Error_message)
+                       Sh1, KOA1, Sh2, KOA2, Ee, E_new1, E_new2, Error_message, MPI_param)
    integer, intent(in) :: KOA, SHL ! atomic species and shell numbers
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects
    integer, intent(in) :: Lowest_Ip_At, Lowest_Ip_Shl ! number of atom and of shell which correspond to the lowest ionization potential
@@ -963,7 +1363,9 @@ subroutine Auger_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_
    integer, intent(out) :: KOA1, Sh1	! shell and atom to which deeper hole jumps up
    integer, intent(out) :: KOA2, Sh2	! shell and atom in which the hole is produced
    real(8), intent(out) :: Ee, E_new1, E_new2	! [eV] energies of 1) ejected electron, 2) decayed hole, 3) new hole
-   type(Error_handling), optional, intent(inout) :: Error_message ! deals with errors, if any
+   type(Error_handling), intent(inout) :: Error_message ! deals with errors, if any
+   type(Used_MPI_parameters), intent(inout) :: MPI_param
+   !-----------------------
    character(200) Writing_var
    real(8) RN, Energy_diff, dE_cur, coun, Shel
    integer i, j, N, M, iter, coun_sh, SHL1, SHL2
@@ -1027,14 +1429,14 @@ subroutine Auger_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_
      write(*,'(i,i,f)') KOA1, Sh1, Target_atoms(KOA1)%Ip(Sh1)
      write(*,'(i,i,f)') KOA2, Sh2, Target_atoms(KOA2)%Ip(Sh2)
      write(Writing_var,'(a,i,i,i,i,i,i)') 'Impossible Auger-decay ', KOA, SHL, KOA1, Sh1, KOA2, Sh2
-     call Save_error_details(Error_message, 25, Writing_var)
+     call Save_error_details(Error_message, 25, Writing_var, MPI_param)
   endif
 end subroutine Auger_decay
 
 
 
 subroutine Auger_decay_old(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, &
-                       Sh1, KOA1, Sh2, KOA2, Ee, E_new1, E_new2, Error_message)
+                       Sh1, KOA1, Sh2, KOA2, Ee, E_new1, E_new2, Error_message, MPI_param)
    integer, intent(in) :: KOA, SHL ! atomic species and shell numbers
    type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects
    integer, intent(in) :: Lowest_Ip_At, Lowest_Ip_Shl ! number of atom and of shell which correspond to the lowest ionization potential
@@ -1042,7 +1444,9 @@ subroutine Auger_decay_old(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, 
    integer, intent(out) :: KOA1, Sh1	! shell and atom to which deeper hole jumps up
    integer, intent(out) :: KOA2, Sh2	! shell and atom in which the hole is produced
    real(8), intent(out) :: Ee, E_new1, E_new2	! [eV] energies of 1) ejected electron, 2) decayed hole, 3) new hole
-   type(Error_handling), optional, intent(inout) :: Error_message ! deals with errors, if any
+   type(Error_handling), intent(inout) :: Error_message ! deals with errors, if any
+   type(Used_MPI_parameters), intent(inout) :: MPI_param
+   !-------------------------
    character(200) Writing_var
    real(8) RN, Energy_diff, dE_cur, coun, Shel
    integer i, j, N, M, iter, coun_sh, SHL1, SHL2
@@ -1099,7 +1503,7 @@ subroutine Auger_decay_old(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, 
          write(Writing_var,'(a,e,e,i,i,i,i,i,i)') 'Impossible Auger-decay ', Target_atoms(KOA1)%Ip(Sh1), &
             Target_atoms(KOA1)%Ip(Sh1), KOA, SHL, KOA1, Sh1, KOA2, Sh2
          write(*,'(a)') trim(adjustl(Writing_var))
-         call Save_error_details(Error_message, 25, Writing_var)
+         call Save_error_details(Error_message, 25, Writing_var, MPI_param)
       endif                
       if (iter .GE. 100) exit
    enddo ! while
@@ -1237,7 +1641,7 @@ end subroutine Choose_for_Auger_shell
 ! EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
 ! Dealing with energies:
 
-subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message)
+subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message, MPI_param)
 ! => dE [eV] transferred energy to electron
     real(8), intent(in) :: dE   ! given energy [eV]
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
@@ -1245,6 +1649,8 @@ subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At
     integer, intent(in) :: Nat_cur, Nshl_cur, Lowest_Ip_At, Lowest_Ip_Shl   ! # of atom, shell, and # of atom and shell for the VB
     real(8), intent(out) :: dE_cur  ! [eV] kinetic energy of an electron
     type(Error_handling), intent(inout) :: Error_message	! error messages are dealed with as objects
+    type(Used_MPI_parameters), intent(inout) :: MPI_param
+    !-------------------------------------
     real(8) RN, Tot_N, Sum_DOS, E, E_DOS
     integer N, N_temmp, M_temp
     character(100) Error_descript
@@ -1287,7 +1693,7 @@ subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At
     endif
     if (dE_cur .LT. 0.0d0) then
         Error_descript = 'Transferred energy to electron is negative!'    ! description of an error
-        call Save_error_details(Error_message, 10, Error_descript) ! write it into the error-log file
+        call Save_error_details(Error_message, 10, Error_descript, MPI_param) ! write it into the error-log file
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
         write(*,'(a,e,e,i3,i3)') 'dE, dE_cur:', dE, dE_cur, Nat_cur, Nshl_cur
         write(*,'(a,e)') 'Ionization potential ', Target_atoms(Nat_cur)%Ip(Nshl_cur)
@@ -1458,7 +1864,7 @@ subroutine Next_free_path_2d(E, MFP_array, MFP) ! temp = MFP [A] for this array,
     real(8), dimension(:,:), intent(in) :: MFP_array    ! [eV, A] array with mean free paths
     real(8), intent(out) :: MFP    ! [A] interpolated mean free path
     integer N_temmp, N_last ! number of element in the array closest to the one we are looking for
-    call Find_in_array_monoton(MFP_array, E, 1, N_temmp) ! find the closes value in the precalculated array of energy losses
+    call Find_in_array_monoton(MFP_array, E, 1, N_temmp, 'Subroutine: Next_free_path_2d') ! find the closes value in the precalculated array of energy losses
     if (N_temmp .EQ. 1) then
         !MFP = 1.5d21    ! [A] infinity
         N_last = N_temmp
@@ -1507,7 +1913,7 @@ subroutine How_many_electrons(Nat, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Phot_
     type(Flag), intent(in) :: NumPar ! numerical parameters
     
     real(8) dEdx, SHI_dEdx
-    integer N_temmp,i, j, Nshl
+    integer N_temmp,i, j, Nshl, k
     
     !sssssssssssssssssssssssssssssssssss
     ! SHIs arrays:
@@ -1531,8 +1937,10 @@ subroutine How_many_electrons(Nat, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Phot_
        SHI_path(2,:) = 1.0d0/SHI_path(2,:) ! total MFP [A]
     endwhere
 
-    call Find_in_array_monoton(SHI_loss, SHI%E, 1, N_temmp) ! find the closes value in the precalculated array of energy losses
+    call Find_in_array_monoton(SHI_loss, SHI%E, 1, N_temmp, 'Subroutine: How_many_electrons') ! find the closes value in the precalculated array of energy losses
     ! interpolate to find exact value:
+
+    !print*, 'How_many_electrons', size(SHI_loss,2), N_temmp, SHI_loss(1,N_temmp-1), SHI_loss(1,N_temmp), SHI_loss(2,N_temmp-1), SHI_loss(2,N_temmp), SHI%E, SHI_dEdx
     call Interpolate(5, SHI_loss(1,N_temmp-1), SHI_loss(1,N_temmp), SHI_loss(2,N_temmp-1), SHI_loss(2,N_temmp), SHI%E, SHI_dEdx)
     dEdx = SHI_dEdx*Matter%Layer ![eV] total energy loss by SHI within the given layer
     
@@ -1569,7 +1977,15 @@ subroutine How_many_electrons(Nat, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Phot_
     do i = 1, Nat
        Nshl = size(target_atoms(i)%Ip)  ! number of shells
        do j = 1, Nshl
-           El_IMFP(2,:) = El_IMFP(2,:) + 1.0d0/Total_el_MFPs(i)%ELMFP(j)%L(:) ! to use later we need an array of this shape
+           !print*, Total_el_MFPs(i)%ELMFP(j)%L(:)
+           where (Total_el_MFPs(i)%ELMFP(j)%L(:) > 1.0d-10)
+            El_IMFP(2,:) = El_IMFP(2,:) + 1.0d0/Total_el_MFPs(i)%ELMFP(j)%L(:) ! to use later we need an array of this shape
+           endwhere
+!            do k = 1, size(Total_el_MFPs(i)%ELMFP(j)%L)
+!             if (Total_el_MFPs(i)%ELMFP(j)%L(k) < 1.0d-10) then
+!                 print*, 'ERROR#', MPI_param%process_rank, '::', i, j, k, Total_el_MFPs(i)%ELMFP(j)%L(k)
+!             endif
+!            enddo
        enddo
     enddo
     !El_IMFP(2,:) = 1.0d0/El_IMFP(2,:)   ![A]
@@ -1721,7 +2137,7 @@ end subroutine set_time_grid
 ! Monte-Carlo of the SHI passage
 subroutine SHI_Monte_Carlo(SHI_MFP, SHI_path, SHI_loc, diff_SHI_MFP, Target_atoms, All_electrons, All_holes, Tot_Nel, &
                 Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, Matter, &
-                NumPar)
+                NumPar, MPI_param)
     type(All_MFP), dimension(:), intent(in) :: SHI_MFP         ! SHI mean free paths for all shells
     type(All_MFP), dimension(:), intent(in) :: diff_SHI_MFP    ! SHI differential mean free paths for all shells
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
@@ -1739,7 +2155,8 @@ subroutine SHI_Monte_Carlo(SHI_MFP, SHI_path, SHI_loc, diff_SHI_MFP, Target_atom
     type(Solid), intent(in) :: Matter   ! all material parameters
     integer, intent(inout) :: Tot_Nel
     type(Flag), intent(in) :: NumPar
-    
+    type(Used_MPI_parameters), intent(inout) :: MPI_param
+    !-------------------------------
     real(8) dE, X, Y, Z, L, dE_cur, mh
     real(8) phi, theta, hphi, htheta
     integer Nat_cur, Nshl_cur, i
@@ -1753,6 +2170,7 @@ subroutine SHI_Monte_Carlo(SHI_MFP, SHI_path, SHI_loc, diff_SHI_MFP, Target_atom
     call SHI_energy_transfer(SHI_loc, diff_SHI_MFP, Target_atoms, Matter, Mat_DOS, Nat_cur, Nshl_cur, NumPar, dE)   ! => dE [eV]
     
     ! Next SHI collision parameters:
+    if (isnan(SHI_loc%E)) print*, SHI_loc%E, 'in SHI_Monte_Carlo #0'
     call Next_free_path(SHI_loc%E, SHI_path, SHI_IMFP) ! => SHI_MFP [A]
     call random_number(RN)
     SHI_IMFP = -SHI_IMFP*log(RN)    ! sample next SHI free path
@@ -1768,13 +2186,14 @@ subroutine SHI_Monte_Carlo(SHI_MFP, SHI_path, SHI_loc, diff_SHI_MFP, Target_atom
     !eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
     
     ! How much energy an electron recieves ( ! => dE_cur [eV] kinetic energy of the electron):
-    call Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message)
+    call Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message, MPI_param)
     
     ! Find the correct angles of electron emmition/scattering:
     call Update_electron_angles(SHI_loc, dE, theta, phi)    ! => theta, phi
 
     
     ! Get electron mean free path:
+    if (isnan(dE_cur)) print*, dE_cur, 'in SHI_Monte_Carlo #1'
     call Next_free_path(dE_cur, El_IMFP, IMFP) ! => IMFP of electron [A]
     call Next_free_path(dE_cur, El_EMFP, EMFP) ! => EMFP of electron [A]
     call random_number(RN)
@@ -1793,7 +2212,7 @@ subroutine SHI_Monte_Carlo(SHI_MFP, SHI_path, SHI_loc, diff_SHI_MFP, Target_atom
     if ((All_electrons(Tot_Nel)%E .LT. -1.0d-9) .OR. isnan(All_electrons(Tot_Nel)%E)) then  ! Error, electron got negative energy!
         ! description of an error:
         write(Error_descript, '(a,i,a,e)') 'SHI electron #', Tot_Nel, ' got negative energy ', All_electrons(Tot_Nel)%E
-        call Save_error_details(Error_message, 20, Error_descript) ! write it into the error-log file
+        call Save_error_details(Error_message, 20, Error_descript, MPI_param) ! write it into the error-log file
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
     endif
     !hhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
@@ -1808,7 +2227,7 @@ subroutine SHI_Monte_Carlo(SHI_MFP, SHI_path, SHI_loc, diff_SHI_MFP, Target_atom
     if ((All_holes(Tot_Nel)%Ehkin .LT. -1.0d-9) .OR. isnan(All_holes(Tot_Nel)%Ehkin)) then  ! Error, hole got negative energy!
         ! description of an error:
         write(Error_descript, '(a,i,a,e)') 'SHI hole #', Tot_Nel, ' got negative energy ', All_holes(Tot_Nel)%Ehkin
-        call Save_error_details(Error_message, 20, Error_descript) ! write it into the error-log file
+        call Save_error_details(Error_message, 20, Error_descript, MPI_param) ! write it into the error-log file
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
     endif
 
@@ -1818,7 +2237,7 @@ end subroutine SHI_Monte_Carlo
 ! Monte-carlo of an electron
 subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, CDF_Phonon, Matter, target_atoms, &
             Total_el_MFPs, Elastic_MFP, Tot_Nel, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, Em_electrons, &
-            Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar, aidCS)
+            Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar, aidCS, MPI_param)
     integer, intent(in) :: Lowest_Ip_At, Lowest_Ip_Shl ! number of atom and of shell which correspond to the lowest ionization potential
     type(Atom), dimension(:), intent(in) :: Target_atoms  ! define target atoms as objects, we don't know yet how many they are
     type(CDF), intent(in) :: CDF_Phonon ! declare CDF for phonons
@@ -1845,6 +2264,7 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
     type(Differential_MFP), dimension(:), intent(in) :: DSF_DEMFP
     type(Flag), intent(inout) :: NumPar
     type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
+    type(Used_MPI_parameters), intent(inout) :: MPI_param
     !---------------------------
     real(8) Eel, RN, dE, dE_cur, mh, R, Em_Penetr, MFP_tot
     real(8) theta0, phi0, theta2, phi2, phi1, theta1, theta, phi, htheta, hphi
@@ -1852,11 +2272,14 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
     integer Nat_cur, Nshl_cur, j, ii
     character(200) :: Error_descript
     character(8) kind_of_particle
+    character(50) :: collision_type
     
+    collision_type = '' ! to start with
     kind_of_particle  = 'Electron'
     Eel = All_electrons(NOP)%E ! to use as shorter name; [eV] electron energy
     
     ! Find is it elastic or inelastic collision:
+    if (isnan(Eel)) print*, Eel, 'in Electron_Monte_Carlo #0'
     call Next_free_path(Eel, El_IMFP, IMFP) ! => IMFP of electron [A]
     call Next_free_path(Eel, El_EMFP, EMFP) ! => EMFP of electron [A]
     
@@ -1869,6 +2292,8 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
     Z = All_electrons(NOP)%Z + L*cos(theta0)             ! [A] new Z coordinate
     
     el_vs_inel:if (RN*(1.0d0/IMFP + 1.0d0/EMFP) .LT. 1.0d0/IMFP) then  ! inelastic
+        collision_type = 'inelastic'
+
         ! Find which shell of which atom is being ionized:
         call Which_shell(Total_el_MFPs, El_IMFP, Eel, Nat_cur, Nshl_cur)   ! => Nat_cur, Nshl_cur
         
@@ -1884,9 +2309,10 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
         ! 222222222222222222222222222222222
         ! New ionized electrons parameters:
         ! How much energy an electron recieves (! => dE_cur [eV] kinetic energy of the electron):
-        call Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message)
+        call Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message, MPI_param)
         
         ! Its parameters:
+        if (isnan(dE_cur)) print*, dE_cur, 'in Electron_Monte_Carlo #0'
         call Next_free_path(dE_cur, El_IMFP, IMFP) ! => IMFP of electron [A]
         call Next_free_path(dE_cur, El_EMFP, EMFP) ! => EMFP of electron [A]
         call random_number(RN)
@@ -1904,11 +2330,11 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
             ! description of an error:
             write(Error_descript, '(a,i,a,e)') 'Impact electron #', Tot_Nel, ' got negative energy ', All_electrons(Tot_Nel)%E
             print*, 'Incident electron parameters: ', NOP, All_electrons(NOP)%E
-            print*, kind_of_particle
+            print*, kind_of_particle, dE, dE_cur
             print*, All_electrons(NOP)%L, All_electrons(NOP)%tn, All_electrons(NOP)%t0
             print*, All_electrons(NOP)%theta, All_electrons(NOP)%phi 
             
-            call Save_error_details(Error_message, 21, Error_descript) ! write it into the error-log file
+            call Save_error_details(Error_message, 21, Error_descript, MPI_param) ! write it into the error-log file
             print*, trim(adjustl(Error_descript)) ! print it also on the sreen
         endif
         ! hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
@@ -1925,11 +2351,20 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
         if ((All_holes(Tot_Nel)%Ehkin .LT. -1.0d-9) .OR. isnan(All_holes(Tot_Nel)%Ehkin)) then  ! Error, electron got negative energy!
             ! description of an error:
             write(Error_descript, '(a,i,a,e)') 'El-el impact hole #', Tot_Nel, ' got negative energy ', All_holes(Tot_Nel)%Ehkin
-            call Save_error_details(Error_message, 20, Error_descript) ! write it into the error-log file
+            call Save_error_details(Error_message, 20, Error_descript, MPI_param) ! write it into the error-log file
             print*, trim(adjustl(Error_descript)) ! print it also on the sreen
+        endif
+
+
+        if ( isnan(All_holes(Tot_Nel)%L) ) then
+            print*, 'ERROR #2 in Electron_Monte_Carlo:', Tot_Nel
+            print*, 'Hole', All_holes(Tot_Nel)%L, All_holes(Tot_Nel)%X, All_holes(Tot_Nel)%Y, All_holes(Tot_Nel)%Z
+            !print*, 'MPI process#', MPI_param%process_rank
+            pause
         endif
         
     else el_vs_inel ! elastic
+        collision_type = 'elastic'
 
         ! => find EMFP of electron [A] needed for calculation of transferred energy:
         call Next_free_path(Eel, Elastic_MFP%Total%E, Elastic_MFP%Total%L, EMFP)
@@ -1940,7 +2375,7 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
             !dE = 0.0d0  ! Testing
         else if (NumPar%kind_of_EMFP .EQ. 1) then      ! CDF phonon peaks
             ! => dE [eV] transferred energy:
-            call Electron_energy_transfer(Eel, EMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, aidCS, kind_of_particle)
+            call Electron_energy_transfer(Eel, EMFP, Target_atoms, CDF_Phonon, Matter, dE, NumPar, Mat_DOS, aidCS, kind_of_particle) ! module "Cross_sections"
         else   ! Atomic cross-sections of Mott
             dE = 0.0d0                          ! [eV] transferred energy
             do ii = 1, size(Target_atoms)        ! for all atomic spicies:
@@ -1969,19 +2404,33 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
 !             print*, 'LAttice cooling by electron:', dE, Eel
 !         endif
         
-        if (isnan(theta) .OR. isnan(phi)) then
+        ! save this energy in the array of radial distributions of atomic energies:
+        R = SQRT(X*X + Y*Y) ! [A] radius of this electron at the moment of scattering
+
+        if (isnan(R) .or. isnan(theta) .OR. isnan(phi)) then
             print*, 'ERROR in Electron_Monte_Carlo:'
-            print*, 'Elastic', Eel, dE, theta, phi
+            print*, 'Elastic', L, Eel, dE, theta, phi
+            print*, 'R:', X, Y, Z, R
+            print*, 'kind_of_EMFP:', NumPar%kind_of_EMFP
+            print*, 'Pers:', dble(SUM(target_atoms(:)%Pers))
+            print*, '[MPI process#', MPI_param%process_rank, ']'
             pause
         endif
 
-        ! save this energy in the array of radial distributions of atomic energies:
-        R = SQRT(X*X + Y*Y) ! [A] radius of this electron at the moment of scattering
         call Find_in_array_monoton(Out_R, R, j) ! find where in the distribution array it is
         Out_Elat(i,j) = Out_Elat(i,j) + dE*Out_V(j)   ! [eV/A^3] here is the scattering event happend
     endif el_vs_inel ! "named if"-statement
     ! 111111111111111111111111111111111
     ! Incident electron new parameters:
+    if (isnan(Eel-dE)) then
+        print*, Eel, dE, 'in Electron_Monte_Carlo #1: ', trim(adjustl(collision_type))
+        print*, 'EMFP=', EMFP
+        print*, 'kind_of_EMFP=', NumPar%kind_of_EMFP
+        print*, 'L:', L, Eel, dE, theta, phi
+        print*, 'R:', X, Y, Z, R
+        !print*, 'E:', Elastic_MFP%Total%E(:)
+        !print*, 'L:', Elastic_MFP%Total%L
+    endif
     call Next_free_path(Eel-dE, El_IMFP, IMFP) ! => IMFP of electron [A]
     call Next_free_path(Eel-dE, El_EMFP, EMFP) ! => EMFP of electron [A]
     call random_number(RN)
@@ -2004,7 +2453,7 @@ subroutine Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole
     if ((All_electrons(NOP)%E .LT. -1.0d-9) .OR. isnan(All_electrons(NOP)%E)) then  ! Error, electron got negative energy!
         ! description of an error:
         write(Error_descript, '(a,i,a,e)') 'Incident electron #', NOP, ' got negative energy ', All_electrons(NOP)%E
-        call Save_error_details(Error_message, 22, Error_descript) ! write it into the error-log file
+        call Save_error_details(Error_message, 22, Error_descript, MPI_param) ! write it into the error-log file
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
     endif
  end subroutine Electron_Monte_Carlo
@@ -2048,7 +2497,7 @@ endsubroutine calculate_emission
 subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, &
             Hole_IMFP, Hole_EMFP, Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
             Total_Hole_MFPs, Elastic_Hole_MFP, Tot_Nel, Tot_Nphot, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
-            At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar, aidCS)
+            At_NRG, Out_R, Out_Elat, Out_V, i, t_cur, DSF_DEMFP_H, NumPar, aidCS, MPI_param)
     type(Electron), dimension(:), intent(inout), allocatable :: All_electrons   ! define array of electrons
     type(Hole), dimension(:), intent(inout), allocatable :: All_holes           ! define array of holes
     type(Photon), dimension(:), intent(inout), allocatable :: All_photons       ! define array of photons
@@ -2076,6 +2525,7 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
     real(8), dimension(:,:), intent(inout) :: Out_Elat  ! [eV/A^3] lattuce energy density vs time vs R
     type(Flag), intent(inout) :: NumPar
     type(All_diff_CS), intent(in) :: aidCS    ! all integrated differential cross sections
+    type(Used_MPI_parameters), intent(inout) :: MPI_param
     !-------------------------
     real(8) Eel, Egap, RN, dE, dE_cur, mh, R, MFP_tot, Ehole, t_Auger, t_Radiat
     real(8) theta0, phi0, theta2, phi2, theta, phi, phi1, theta1, htheta, hphi, hphi1, htheta1, hphi2, htheta2, Etest
@@ -2092,6 +2542,7 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
         Eel = All_holes(NOP)%Ehkin ! [eV] hole kinetic energy (total - Egap)
 
         ! Find is it elastic or inelastic collision:
+        if (isnan(Eel)) print*, Eel, 'in Hole_Monte_Carlo #0'
         call Next_free_path(Eel, Hole_IMFP, HIMFP) ! => IMFP of hole [A]
         call Next_free_path(Eel, Hole_EMFP, HEMFP) ! => EMFP of hole [A]
         call random_number(RN)
@@ -2101,6 +2552,16 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
         X = All_holes(NOP)%X + L*sin(theta0)*sin(phi0)    ! [A] new X coordinate
         Y = All_holes(NOP)%Y + L*sin(theta0)*cos(phi0)    ! [A] new Y coordinate
         Z = All_holes(NOP)%Z + L*cos(theta0)              ! [A] new Z coordinate
+
+        if (isnan(HIMFP)) then
+            print*, 'ERROR #2.i in Hole_Monte_Carlo', NOP
+            print*, 'OLD:', All_holes(NOP)%X, All_holes(NOP)%Y, All_holes(NOP)%Z
+            print*, 'NEW:', X, Y, Z
+            print*, 'Stuff:', L, theta0, phi0
+            print*, 'NRGs:', All_holes(NOP)%Ehkin, HIMFP, HEMFP, RN
+            !print*, 'MPI process #', MPI_param%process_rank
+        endif
+
         
         inel_vs_el:if ((RN*(1.0d0/HIMFP + 1.0d0/HEMFP) .LT. 1.0d0/HIMFP) .AND. (HIMFP .LT. 1d15)) then  ! inelastic
             ! Find which shell of which atom is being ionized:
@@ -2119,8 +2580,9 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
 
             ! New ionized electrons parameters:
             ! How much energy an electron recieves:
-            call Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message)
+            call Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message, MPI_param)
 
+            if (isnan(dE_cur)) print*, dE_cur, 'in Hole_Monte_Carlo #1'
             call Next_free_path(dE_cur, El_IMFP, IMFP) ! => IMFP of electron [A]
             call Next_free_path(dE_cur, El_EMFP, EMFP) ! => EMFP of electron [A]
             call random_number(RN)
@@ -2147,7 +2609,7 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             if ((All_electrons(Tot_Nel)%E .LT. -1.0d-9) .OR. isnan(All_electrons(Tot_Nel)%E)) then  ! Error, electron got negative energy!
                 write(Error_descript, '(a,i,a,e)') 'Hole-impact electron #', Tot_Nel, ' got negative energy ', &
                     All_electrons(Tot_Nel)%E ! description of an error
-                call Save_error_details(Error_message, 40, Error_descript) ! write it into the error-log file
+                call Save_error_details(Error_message, 40, Error_descript, MPI_param) ! write it into the error-log file
                 print*, trim(adjustl(Error_descript)) ! print it also on the sreen
             endif
             
@@ -2163,14 +2625,14 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             if ((All_holes(Tot_Nel)%Ehkin .LT. -1.0d-9) .OR. isnan(All_holes(Tot_Nel)%Ehkin)) then  ! Error, hole got negative energy!
                 ! description of an error:
                 write(Error_descript, '(a,i,a,e)') 'Hole-impact hole #', Tot_Nel, ' got negative energy ', All_holes(Tot_Nel)%Ehkin
-                call Save_error_details(Error_message, 41, Error_descript) ! write it into the error-log file
+                call Save_error_details(Error_message, 41, Error_descript, MPI_param) ! write it into the error-log file
                 print*, trim(adjustl(Error_descript)) ! print it also on the sreen
             endif
             
             if (((All_holes(Tot_Nel)%E + All_holes(Tot_Nel)%Ehkin) .LT. Egap-1.0d-12)) then  ! Error, hole in band gap!
                 write(Error_descript, '(a,i,a,e,e,e)') 'Hole-impact hole #', Tot_Nel, ' is in the band gap ', &
                     All_holes(Tot_Nel)%Ehkin, All_holes(Tot_Nel)%E, Egap ! description of an error
-                call Save_error_details(Error_message, 41, Error_descript) ! write it into the error-log file
+                call Save_error_details(Error_message, 41, Error_descript, MPI_param) ! write it into the error-log file
                 print*, trim(adjustl(Error_descript)) ! print it also on the sreen
             endif
             
@@ -2250,7 +2712,7 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
         if ((All_holes(NOP)%Ehkin .LT. -1.0d-9) .OR. isnan(All_holes(NOP)%Ehkin)) then  ! Error, electron got negative energy!
             write(Error_descript, '(a,i,a,e)') 'Hole-el incident hole #', NOP, ' got negative energy ', &
                 All_holes(NOP)%Ehkin ! description of an error
-            call Save_error_details(Error_message, 20, Error_descript) ! write it into the error-log file
+            call Save_error_details(Error_message, 20, Error_descript, MPI_param) ! write it into the error-log file
             print*, trim(adjustl(Error_descript)) ! print it also on the sreen
         endif
             
@@ -2268,7 +2730,7 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
         ! Auger vs Radiative decay:
         auger_vs_rad:if (RN*(1.0d0/t_Auger + 1.0d0/t_Radiat) .LT. 1.0d0/t_Auger) then ! it's Auger decay:
             call Auger_decay(All_holes(NOP)%KOA, All_holes(NOP)%Shl, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, &
-                             Sh1, KOA1, Sh2, KOA2, dE, E_new1, E_new2, Error_message)   ! => Sh1, KOA1, Sh2, KOA2, dE, E_new1, E_new2
+                             Sh1, KOA1, Sh2, KOA2, dE, E_new1, E_new2, Error_message, MPI_param)   ! => Sh1, KOA1, Sh2, KOA2, dE, E_new1, E_new2
             
             if (abs(All_holes(NOP)%E - (dE+E_new1+E_new2)) .GT. 1d-10) then
                print*, 'ERROR #3 in Hole_Monte_Carlo'
@@ -2314,6 +2776,7 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
 !                endif     
                                    
                 ! The new ionized electorns:
+                if (isnan(dE)) print*, dE, 'in Hole_Monte_Carlo #2'
                 call Next_free_path(dE, El_IMFP, IMFP) ! => IMFP of electron [A]
                 call Next_free_path(dE, El_EMFP, EMFP) ! => EMFP of electron [A]
                 call random_number(RN)
@@ -2334,7 +2797,7 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
                     ! description of an error:
                     print*, 'ERROR #4 in Hole_Monte_Carlo'
                     write(Error_descript, '(a,i6,a,f9.3)') 'Auger electron #', Tot_Nel, ' got negative energy ', All_electrons(Tot_Nel)%E
-                    call Save_error_details(Error_message, 23, Error_descript) ! write it into the error-log file
+                    call Save_error_details(Error_message, 23, Error_descript, MPI_param) ! write it into the error-log file
                     print*, trim(adjustl(Error_descript)) ! print it also on the sreen
                     print*, 'KOA=', All_holes(NOP)%KOA, 'Shl=', All_holes(NOP)%Shl
                     print*, 'dE=', dE, 'E_new1=', E_new1, 'E_new2=', E_new2
@@ -2360,6 +2823,7 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             ! We created a photon:
             Tot_Nphot = Tot_Nphot + 1
             call Check_size(Photons=All_photons, N=Tot_Nphot)    ! check if photons are too many and the size of arrays must be increased
+            if (isnan(dE)) print*, dE, 'in Hole_Monte_Carlo #3'
             call Next_free_path(dE, Phot_IMFP, IMFP) ! => IMFP of a photon [A]
             call random_number(RN)
             MFP_tot = -log(RN)*IMFP ! [A] sample total photon free path (inelastic only)
@@ -2374,7 +2838,7 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
                 ! description of an error:
                 print*, 'ERROR #5 in Hole_Monte_Carlo'
                 write(Error_descript, '(a,i6,a,f9.3)') 'Auger photon #', Tot_Nphot, ' got negative energy ', All_photons(Tot_Nphot)%E
-                call Save_error_details(Error_message, 30, Error_descript) ! write it into the error-log file
+                call Save_error_details(Error_message, 30, Error_descript, MPI_param) ! write it into the error-log file
                 print*, trim(adjustl(Error_descript)) ! print it also on the sreen
                 print*, 'KOA=', All_holes(NOP)%KOA, 'Shl=', All_holes(NOP)%Shl
                 print*, 'dE=', dE, 'E_new1=', E_new1
@@ -2389,7 +2853,7 @@ end subroutine Hole_Monte_Carlo
 subroutine Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, &
         Phot_IMFP, CDF_Phonon, Matter, target_atoms, &
         Total_Photon_MFPs, Tot_Nel, Tot_Nphot, NOP, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, Error_message, &
-        t_cur, NumPar)
+        t_cur, NumPar, MPI_param)
     type(Electron), dimension(:), intent(inout), allocatable :: All_electrons   ! define array of electrons
     type(Hole), dimension(:), intent(inout), allocatable :: All_holes           ! define array of holes
     type(Photon), dimension(:), intent(inout), allocatable :: All_photons       ! define array of photons
@@ -2409,6 +2873,8 @@ subroutine Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El
     real(8), dimension(:,:), intent(in) :: Phot_IMFP    ! total IMFP for photons, to use in a subroutine, we need this shape of an array
     integer, intent(inout) :: Tot_Nel, Tot_Nphot    ! Total numbers of electrons and photons
     integer, intent(in) :: NOP
+    type(Used_MPI_parameters), intent(inout) :: MPI_param
+    !--------------------
     real(8) Eel, dE_cur, mh, htheta, hphi, Egap, IMFP, EMFP, MFP_tot, RN, theta1, phi1, Z, Y, X, theta0, phi0, L
     integer Nat_cur, Nshl_cur
     character(200) :: Error_descript
@@ -2430,8 +2896,8 @@ subroutine Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El
     call Check_size(All_electrons, All_holes, N=Tot_Nel)    ! check if electrons are too many and the size of arrays must be increased
     ! New ionized electrons parameters:
     ! How much energy an electron recieves (!=> dE_cur [eV] kinetic energy of the electron):
-    call Electron_recieves_E(Eel, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message)
-
+    call Electron_recieves_E(Eel, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, dE_cur, Error_message, MPI_param)
+    if (isnan(dE_cur)) print*, dE_cur, 'in Photon_Monte_Carlo'
     call Next_free_path(dE_cur, El_IMFP, IMFP) ! => IMFP of electron [A]
     call Next_free_path(dE_cur, El_EMFP, EMFP) ! => EMFP of electron [A]
     call random_number(RN)
@@ -2447,7 +2913,7 @@ subroutine Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El
     if ((All_electrons(Tot_Nel)%E .LT. -1.0d-9) .OR. isnan(All_electrons(Tot_Nel)%E)) then  ! Error, electron got negative energy!
         ! description of an error:
         write(Error_descript, '(a,i,a,e)') 'Photo-electron #', Tot_Nel, ' got negative energy ', All_electrons(Tot_Nel)%E
-        call Save_error_details(Error_message, 50, Error_descript) ! write it into the error-log file
+        call Save_error_details(Error_message, 50, Error_descript, MPI_param) ! write it into the error-log file
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
     endif
     !hhhhhhhhhhhhhhhhhhhhhhhhhhhhh
@@ -2463,13 +2929,13 @@ subroutine Photon_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El
     if ((All_holes(Tot_Nel)%Ehkin .LT. -1.0d-9) .OR. isnan(All_holes(Tot_Nel)%Ehkin)) then  ! Error, hole got negative energy!
         ! description of an error:
         write(Error_descript, '(a,i,a,e)') 'Photo-hole #', Tot_Nel, ' got negative energy ', All_holes(Tot_Nel)%Ehkin
-        call Save_error_details(Error_message, 51, Error_descript) ! write it into the error-log file
+        call Save_error_details(Error_message, 51, Error_descript, MPI_param) ! write it into the error-log file
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
     endif
     if (((All_holes(Tot_Nel)%E + All_holes(Tot_Nel)%Ehkin) .LT. Egap)) then  ! Error, hole in band gap!
         ! description of an error:
         write(Error_descript, '(a,i,a,e)') 'Photo-hole #', Tot_Nel, ' is in the band gap ', All_holes(Tot_Nel)%Ehkin
-        call Save_error_details(Error_message, 52, Error_descript) ! write it into the error-log file
+        call Save_error_details(Error_message, 52, Error_descript, MPI_param) ! write it into the error-log file
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
     endif
     !ppppppppppppppppppppppppppppp
@@ -2648,7 +3114,7 @@ end subroutine update_fields
 
 
 subroutine update_particle_velocities(All_electrons, All_holes, Out_field, Out_R, Tot_Nel, NumPar, field_time, Matter, Tot_field, &
-                                      Error_message, Mat_DOS, t_cur)
+                                      Error_message, Mat_DOS, t_cur, MPI_param)
     real(8), dimension(:), intent(in) :: Out_R                  ! [A] radius for distributions
     type(Electron), dimension(:), intent(inout) :: All_electrons   ! define array of electrons
     type(Hole), dimension(:), intent(inout) :: All_holes           ! define array of holes
@@ -2661,7 +3127,8 @@ subroutine update_particle_velocities(All_electrons, All_holes, Out_field, Out_R
     type(Solid), intent(in) :: Matter
     type(Error_handling), intent(inout) :: Error_message	! error messages are dealed with as objects
     type(Density_of_states), intent(in) :: Mat_DOS
-    
+    type(Used_MPI_parameters), intent(inout) :: MPI_param
+    !-------------------------------------
     character(200) :: Error_descript
     real(8) Vsq, Vx, Vy, Vz, V0, Vx0, Vy0, Vz0, dt
     real(8) R, X, Y, Z, theta, phi, sintheta, sinphi, cosphi
@@ -2729,7 +3196,7 @@ subroutine update_particle_velocities(All_electrons, All_holes, Out_field, Out_R
                 if ((All_electrons(k)%E .LT. -1.0d-9) .OR. isnan(All_electrons(k)%E)) then  ! Error, electron got negative energy!
                     write(Error_descript, '(a,i,a,e, a)') 'Electron #', k, ' got negative energy ', &
                         All_electrons(k)%E, ' during interaction with electric field.' ! description of an error
-                    call Save_error_details(Error_message, 22, Error_descript) ! write it into the error-log file
+                    call Save_error_details(Error_message, 22, Error_descript, MPI_param) ! write it into the error-log file
                     print*, trim(adjustl(Error_descript)) ! print it also on the sreen
                 endif
                 

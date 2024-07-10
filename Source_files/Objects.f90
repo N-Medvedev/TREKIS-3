@@ -5,7 +5,25 @@
 ! in the framework of the object oriented programming:
 
 MODULE Objects
-  implicit none 
+  implicit none
+
+!==============================================
+! MPI parameters
+type :: Used_MPI_parameters
+    ! Processes characteristics:
+    integer :: process_rank     ! index of the process
+    integer :: size_of_cluster  ! total number of processes
+    integer :: ierror           ! error handler
+    integer :: INFO             ! info to use in subroutines calls
+    !----------------
+    character(10) :: rank_ch    ! rank process as character (for printout)
+    real(8) :: Wt0, Wt1   ! wall time defined by MPI
+    ! Some parameters used by MPI calls:
+    integer :: request
+    integer, dimension(:), allocatable :: request_1d
+    logical, dimension(:), allocatable :: flag
+end type Used_MPI_parameters
+
 
 !==============================================
 ! Particles as objects:
@@ -310,7 +328,7 @@ type Error_handling
    LOGICAL Err		! indicates that an error occured
    integer Err_Num	! assign a number to an error
    integer File_Num		! number of the file with error log
-   character(100) Err_descript	! describes more details about the error
+   character(200) Err_descript	! describes more details about the error
 end type
 !==============================================
 
@@ -319,17 +337,17 @@ end type
  contains
 
 ! How to write the log about an error:
-subroutine Save_error_details(Err_name, Err_num, Err_data)
+subroutine Save_error_details_noMPI(Err_name, Err_num, Err_data)
    class(Error_handling) :: Err_name    ! object containing all details
    integer, intent(in) :: Err_num       ! number of error asigned
-   character(100), intent(in) :: Err_data   ! description of the error
+   character(*), intent(in) :: Err_data   ! description of the error
    integer FN   ! number of file where to write error log
    FN = Err_name%File_Num   ! this number is provided in the Err_name object
    Err_name%Err = .true.    ! error occured, mark it as "true"
    Err_name%Err_Num = Err_num   ! number of error we asign to it
    Err_name%Err_descript = Err_data ! descriptino of an error
    write(FN, '(a,i2,1x,a)') 'Error #', Err_name%Err_Num, trim(adjustl(Err_name%Err_descript))   ! write it all into the file
-end subroutine Save_error_details
+end subroutine Save_error_details_noMPI
 
 
 
