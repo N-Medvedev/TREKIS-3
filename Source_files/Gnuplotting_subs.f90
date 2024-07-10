@@ -764,7 +764,7 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
 
             if ((i == 1) .and. (j == shl)) then    ! VB
                !VB_count = col_count ! save column number for VB to plot before last line
-            elseif ((i == Nat) .and. (j == shl)) then    ! last one
+            elseif ( ((i == Nat) .and. (j == shl)) .or. ((Nat == 1) .and. (j == shl-1)) ) then    ! last one
                write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" '
 
@@ -804,7 +804,8 @@ subroutine gnuplot_total_NRG(FN, Tim, Target_atoms, Filename, file_NRG, file_Num
 
             if ((i == 1) .and. (j == shl)) then    ! VB
                !VB_count = col_count ! save column number for VB to plot before last line
-            elseif ((i == Nat) .and. (j == shl)) then    ! last one
+            !elseif ((i == Nat) .and. (j == shl)) then    ! last one
+            elseif ( ((i == Nat) .and. (j == shl)) .or. ((Nat == 1) .and. (j == shl-1)) ) then    ! last one
                write(FN, '(a)') '\"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" '
 
