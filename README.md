@@ -59,7 +59,9 @@ b)	Description of the damage along entire SHI track, no fitting parameters [9]
 c)	A brief review of the TREKIS+MD results [10]
 
 
-### 4) Current state of the project, TREKIS-4:
+### 4) [TREKIS-4](https://github.com/N-Medvedev/TREKIS-4):
+
+_Note that TREKIS-4 is a separate project, developed independently and in parallel with TREKIS-3_
 
 a)	Demonstration of the importance of the nonthermal effects in SHI tracks [11]
 
