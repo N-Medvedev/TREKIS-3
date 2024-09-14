@@ -581,6 +581,9 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
         tttt = 1.0d0
         ! Propagate particles until next time-grid point:
         grid_do:do while (t_cur .LT. min(tim_glob,Tim))         ! propagate particles until the time grid point
+
+            write(text_ch2,'(i0)') NOP  ! save the particle index as text
+
             select case (KOP)
             case (1)    ! SHI
                 if (NumPar%very_verbose) then
@@ -594,7 +597,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
                 if (SHI_loc%Z .GE. Matter%Layer) call Particle_event(SHI_loc, tn=1d16) ! SHI is out of the analyzed layer
             case (2)    ! electron
                 if (NumPar%very_verbose) then
-                    text_line = 'Electron time in thread #'//trim(adjustl(text_ch))//' in MC:'
+                    text_line = 'Electron time in thread #'//trim(adjustl(text_ch))//' in MC:' ! ('//trim(adjustl(text_ch2))//')'
                     call print_time_step(trim(adjustl(text_line)), MPI_param, t_cur, msec=.true.)
                 endif
                 call Electron_Monte_Carlo(All_electrons, All_holes, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, &
@@ -604,7 +607,7 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
                     Em_Nel, Em_gamma, Em_E1, At_NRG, Out_R, Out_Elat, Out_V, i, DSF_DEMFP, NumPar, aidCS, MPI_param)    ! below
             case (3)    ! hole
                 if (NumPar%very_verbose) then
-                    text_line = 'Hole     time in thread #'//trim(adjustl(text_ch))//' in MC:'
+                    text_line = 'Hole     time in thread #'//trim(adjustl(text_ch))//' in MC:' ! ('//trim(adjustl(text_ch2))//')'
                     call print_time_step(trim(adjustl(text_line)), MPI_param, t_cur, msec=.true.)
                 endif
                 call Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_EMFP, Hole_IMFP, Hole_EMFP, &
@@ -629,6 +632,12 @@ subroutine Monte_Carlo_modelling(my_id, SHI, SHI_MFP, diff_SHI_MFP, Target_atoms
                 print*, 'Time-propagation problem in MC: '
                 print*, t_cur_save, t_cur
                 print*, KOP, NOP
+                select case (KOP)
+                case (2)    ! electron
+                    print*, All_electrons(NOP)%E
+                case (3)    ! hole
+                    print*, All_holes(NOP)%Ehkin, All_holes(NOP)%E
+                endselect
             endif
             t_cur_save = t_cur  ! save for the next step
         enddo grid_do ! propagate particles until the time grid point     
@@ -1840,6 +1849,9 @@ subroutine Next_free_path_1d(E, MFP_E_array, MFP_L_array, MFP) ! temp = MFP [A] 
         N_temmp = N_temmp + 1
         !print*, 'BEFORE Next_free_path_1d', E
         call Interpolate(1, MFP_E_array(N_last), MFP_E_array(N_temmp), MFP_L_array(N_last), MFP_L_array(N_temmp), E, MFP)
+
+        ! Make sure decreasing path doesn't occur:
+        if (MFP < MFP_E_array(N_last)) MFP = MFP_E_array(N_last)
         !print*, 'Next_free_path_1d', E, MFP
     else
         N_last = N_temmp-1  ! the last point
@@ -1871,6 +1883,9 @@ subroutine Next_free_path_2d(E, MFP_array, MFP) ! temp = MFP [A] for this array,
         N_temmp = N_temmp + 1
         !print*, 'BEFORE Next_free_path_2d', E
         call Interpolate(1, MFP_array(1,N_last), MFP_array(1,N_temmp), MFP_array(2,N_last), MFP_array(2,N_temmp), E, MFP)
+
+        ! Make sure decreasing path doesn't occur:
+        if (MFP < MFP_array(2,N_last)) MFP = MFP_array(2,N_last)
         !print*, 'Next_free_path_2d', E, MFP
     else
         N_last = N_temmp-1  ! the last point
