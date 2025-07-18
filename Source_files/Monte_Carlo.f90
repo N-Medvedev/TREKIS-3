@@ -1414,7 +1414,7 @@ subroutine Auger_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_
   !print*, 'b:', coun, Target_atoms(KOA1)%Ip(Sh1), Energy_diff, dE_cur
 
 
-  if (coun .GT. 0) then
+  if (coun .GT. 0.0d0) then
      call random_number(RN)
      !Shel = 1 + nint(RN*(coun-1)) ! this shell is where the hole jumps up
      Shel = RN*coun    ! this shell is where the hole jumps up
@@ -1429,7 +1429,7 @@ subroutine Auger_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_
      E_new2 = dE_cur + Target_atoms(KOA2)%Ip(Sh2)  ! energy of the new hole [eV]
      Ee = Energy_diff - E_new2  ! [eV] energy of the emmited electron
   else
-     print*, 'Now, second shell of Auger is not defined...'
+     print*, 'Now, second shell of Auger is not defined...', coun
   endif ! (coun .GT. 0)
 
   if ((Ee .LT. 0.0d0) .OR. (E_new1 .LT. 0.0d0) .OR. (E_new2 .LT. 0.0d0)) then
@@ -2481,8 +2481,8 @@ subroutine calculate_emission (All_electrons, Em_electrons, NOP, Matter, Em_Nel,
     integer, intent(in) :: NOP
     real(8), intent(in) :: Em_gamma, Em_E1
     type(Solid), intent(in) :: Matter   ! all material parameters
-    
-    real(8) Em_Penetr, RN
+    !--------------------
+    real(8) Em_Penetr, RN, Ekin
     
     out_z:if (All_electrons(NOP)%Z .LT. 0.0d0) then
         high_E:if (All_electrons(NOP)%E .GE. 1.5d0*Matter%bar_height) then        !Energy of an electron is greater than the barrier
@@ -2490,15 +2490,20 @@ subroutine calculate_emission (All_electrons, Em_electrons, NOP, Matter, Em_Nel,
             All_electrons(NOP)%tn = 1d30         ! to exclude further interaction of emitted electrons
             All_electrons(NOP)%L = 1d30
             Em_electrons(Em_Nel) = All_electrons(NOP)%E - Matter%work_function
-        else high_E                                                       !Energy of an electron is less than the barrier
+        else high_E ! Energy of an electron is less than the barrier
             call random_number(RN)                            
             Em_Penetr = 1.0d0/(1.0d0+exp(Em_gamma*(Em_E1 - All_electrons(NOP)%E)))      ! Calculation of penetrability
-            if (RN .LT. Em_Penetr) then
+
+            Ekin = All_electrons(NOP)%E - Matter%work_function  ! kinetic energy of emitted electron [eV]
+
+            !if (RN .LT. Em_Penetr) then ! emission
+            if ( (Ekin > 0.0d0) .and. (RN .LT. Em_Penetr) ) then ! emission only for [Ekin > work function]
                 Em_Nel = Em_Nel + 1
                 All_electrons(NOP)%tn = 1.0d30         ! to exclude further interaction of emitted electrons
                 All_electrons(NOP)%L = 1.0d30
-                Em_electrons(Em_Nel) = All_electrons(NOP)%E - Matter%work_function
-            else
+                !Em_electrons(Em_Nel) = All_electrons(NOP)%E - Matter%work_function
+                Em_electrons(Em_Nel) = Ekin
+            else ! reflection
                 if (cos(All_electrons(NOP)%theta) .LT. 0) then
                     All_electrons(NOP)%theta = g_pi - All_electrons(NOP)%theta      !Electron is reflected
                 endif  
