@@ -15,7 +15,7 @@ private  ! hides items not listed on public statement
 public :: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, Deallocate_out_arrays, parse_time, print_parameters
 
 character(10), parameter :: m_Version = '3.3.0'
-character(12), parameter :: m_Update = '14.09.2024'
+character(12), parameter :: m_Update = '18.07.2025'
 
 contains
 

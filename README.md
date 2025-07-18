@@ -4,7 +4,7 @@
  [![DOI](https://zenodo.org/badge/490195185.svg)](https://zenodo.org/badge/latestdoi/490195185)
  
  ### Monte-Carlo code modelling electronic kinetics after swift-heavy ion impact on matter
- ### Current version: 3.3.0 (update 10.07.2024)
+ ### Current version: 3.3.0 (update 18.07.2025)
  
  For all details and instruction, address the files
  !READ_ME_TREKIS_3.doc  or  !READ_ME_TREKIS_3.pdf
