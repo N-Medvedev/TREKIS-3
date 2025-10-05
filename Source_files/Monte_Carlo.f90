@@ -1662,7 +1662,9 @@ subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At
     !-------------------------------------
     real(8) RN, Tot_N, Sum_DOS, E, E_DOS
     integer N, N_temmp, M_temp
-    character(100) Error_descript
+    character(1000) Error_descript
+    character(100) :: text_var(10)
+    !----------------------------
     
     E = dE - Target_atoms(Nat_cur)%Ip(Nshl_cur)    ! [eV] energy that electron might recieve
 
@@ -1701,17 +1703,30 @@ subroutine Electron_recieves_E(dE, Nat_cur, Nshl_cur, Target_atoms, Lowest_Ip_At
         dE_cur = E  ! [eV] energy that electron recieves
     endif
     if (dE_cur .LT. 0.0d0) then
+        text_var = ''   ! to start with
         Error_descript = 'Transferred energy to electron is negative!'    ! description of an error
+        !write(*,'(a,e)') 'Ionization potential ', Target_atoms(Nat_cur)%Ip(Nshl_cur)
+        !write(*,'(a,i5,e)') 'Band:', N_temmp, Mat_DOS%E(N_temmp)
+        !write(*,'(a,e,e,i3,i3)') 'dE, dE_cur:', dE, dE_cur, Nat_cur, Nshl_cur
+        !if (N_temmp .GT. 1) then
+        !    print*, Mat_DOS%E(N_temmp), Mat_DOS%E(N_temmp-1)
+        !endif
+        write(text_var(1),'(f20.6)') dE
+        write(text_var(2),'(f20.6)') dE_cur
+        write(text_var(3),'(i0)') Nat_cur
+        write(text_var(4),'(i0)') Nshl_cur
+        write(text_var(5),'(f20.6)') Target_atoms(Nat_cur)%Ip(Nshl_cur)
+        write(text_var(6),'(i0,a,i0)') N_temmp, ',', size(Mat_DOS%int_DOS)
+        write(text_var(7),'(f20.6)') Mat_DOS%E(N_temmp)
+        if (N_temmp >1) write(text_var(8),'(f20.6)') Mat_DOS%E(N_temmp-1)
+        Error_descript = trim(adjustl(Error_descript))//' dE:'//trim(adjustl(text_var(1)))// &
+        ' : '//trim(adjustl(text_var(2)))//', Nat:'//trim(adjustl(text_var(3)))// &
+        ', Nsh:'//trim(adjustl(text_var(4)))//', Ip:'//trim(adjustl(text_var(5)))// &
+        ', N:'//trim(adjustl(text_var(6)))//', DOS:'//trim(adjustl(text_var(7)))// &
+        ' : '//trim(adjustl(text_var(8)))
+
         call Save_error_details(Error_message, 10, Error_descript, MPI_param) ! write it into the error-log file
         print*, trim(adjustl(Error_descript)) ! print it also on the sreen
-        write(*,'(a,e,e,i3,i3)') 'dE, dE_cur:', dE, dE_cur, Nat_cur, Nshl_cur
-        write(*,'(a,e)') 'Ionization potential ', Target_atoms(Nat_cur)%Ip(Nshl_cur)
-        write(*,'(a,i5,e)') 'Band:', N_temmp, Mat_DOS%E(N_temmp)
-        !write(*, '(a,e,e)') 'SumDOS: ', Sum_DOS, Tot_N
-        !pause 'STOPPED WORKING...'
-        if (N_temmp .GT. 1) then
-            print*, Mat_DOS%E(N_temmp), Mat_DOS%E(N_temmp-1)
-        endif
     endif
 end subroutine Electron_recieves_E
 
@@ -2552,7 +2567,8 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
     real(8) IMFP, EMFP, HEMFP, HIMFP, L, X, Y, Z
     real(8) E_new1, E_new2, dE_loc
     integer Nat_cur, Nshl_cur, j, Sh1, KOA1, Sh2, KOA2, ii
-    character(200) :: Error_descript
+    character(1200) :: Error_descript
+    character(100) :: text_var(10)
     character(8) kind_of_particle
     
     kind_of_particle = 'Hole'
@@ -2627,10 +2643,19 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             endif    
             
             if ((All_electrons(Tot_Nel)%E .LT. -1.0d-9) .OR. isnan(All_electrons(Tot_Nel)%E)) then  ! Error, electron got negative energy!
-                write(Error_descript, '(a,i,a,e)') 'Hole-impact electron #', Tot_Nel, ' got negative energy ', &
-                    All_electrons(Tot_Nel)%E ! description of an error
+                write(text_var(1), '(i0)') Tot_Nel  ! electron number
+                write(text_var(2), '(es20.6)') All_electrons(Tot_Nel)%E  ! electron energy
+                write(text_var(3), '(es20.6)') dE_cur  ! received energy
+                write(text_var(4), '(es20.6)') dE  ! transferred energy
+                write(text_var(5), '(i0)') Nat_cur
+                write(text_var(6), '(i0)') Nshl_cur
+                ! description of an error:
+                write(Error_descript, '(a)') 'Hole-impact electron #'//trim(adjustl(text_var(1)))// &
+                    ' got negative energy '//trim(adjustl(text_var(2)))//', param:'//trim(adjustl(text_var(3)))//';'//&
+                    trim(adjustl(text_var(4)))//'Nat:'//trim(adjustl(text_var(5)))//'Nsh:'//trim(adjustl(text_var(6)))
                 call Save_error_details(Error_message, 40, Error_descript, MPI_param) ! write it into the error-log file
                 print*, trim(adjustl(Error_descript)) ! print it also on the sreen
+                !pause 'NEGATIVE ENERGY IN Hole_Monte_Carlo'
             endif
             
             ! Get parameters of the created holes:
