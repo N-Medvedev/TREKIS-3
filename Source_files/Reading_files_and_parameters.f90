@@ -2327,7 +2327,7 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar,
     real(8), dimension(:,:), allocatable :: Temp_DOS
     real(8) Sum_DOS, loc_DOS, E, dE, Sum_DOS_inv
     integer FN2, i, N, Reason, M
-    character(100) :: Error_descript, Free_DOS
+    character(100) :: Error_descript, Free_DOS, text_var
     logical file_opened, file_exist, file_exist2
 
 
@@ -2377,6 +2377,27 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar,
         read(FN2, *, IOSTAT=Reason) Temp_DOS(1,i), Temp_DOS(2,i)
         call read_file_here(Reason, i, read_well)
         if (.not. read_well) goto 2016
+        ! Check for consistency:
+        if (Temp_DOS(2,i) < 0.0d0) then ! Negative DOS is not allowed
+           write(text_var,'(i0)') i
+           Error_descript = 'ERROR: DOS in file '//trim(adjustl(NumPar%DOS_file))//' has negative value in line #'//trim(adjustl(text_var))
+           call Save_error_details(Error_message, 16, Error_descript, MPI_param) ! write it into the error-log file
+           read_well = .false.  ! no file found
+           print*, trim(adjustl(starline))
+           print*, trim(adjustl(Error_descript))
+           goto 2016
+        endif
+        if (i > 1) then
+           if ( Temp_DOS(1,i) < Temp_DOS(1,i-1) ) then ! Energy grid in DOS must be stricktly ascending
+              write(text_var,'(i0)') i
+              Error_descript = 'ERROR: Energy grid in DOS file '//trim(adjustl(NumPar%DOS_file))//' is not strictly ascending, line #'//trim(adjustl(text_var))
+              call Save_error_details(Error_message, 17, Error_descript, MPI_param) ! write it into the error-log file
+              read_well = .false.  ! no file found
+              print*, trim(adjustl(starline))
+              print*, trim(adjustl(Error_descript))
+              goto 2016
+           endif
+        endif ! (i>1)
     enddo
     Temp_DOS(1,:) = Temp_DOS(1,:) - Temp_DOS(1,N)    ! shift the topmost level of the VB to 'zero'
     dE = 0.1d0   ! [eV] energy grid
