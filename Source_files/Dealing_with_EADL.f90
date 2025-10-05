@@ -17,8 +17,8 @@ public :: Decompose_compound, check_atomic_parameters, get_photon_cross_section_
 
 
 character(25), parameter :: m_atomic_folder = 'INPUT_EADL'
-character(25), parameter :: m_EADL_file = 'EADL2023.ALL'  ! EADL database
-character(25), parameter :: m_EPDL_file = 'EPDL2023.ALL'  ! EPDL database
+character(25), parameter :: m_EADL_file = 'EADL2025.ALL'  ! EADL database
+character(25), parameter :: m_EPDL_file = 'EPDL2025.ALL'  ! EPDL database
 character(25), parameter :: m_atomic_data_file = 'INPUT_atomic_data.dat'
 
 
