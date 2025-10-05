@@ -1405,7 +1405,11 @@ end subroutine define_integration_limits
    end select
 
     if (dE < 0.0e0) then
-       print*, 'define_dE<0:', n, E, E0_min, E0_max
+       if ( (present(E0_min)) .and. (present(E0_max)) ) then
+          print*, 'Error in define_dE (dE<0):', n, E, E0_min, E0_max
+       else
+          print*, 'Error in define_dE (dE<0):', n, E
+       endif
     endif
 
    dE = max(dE, dE_min_use)  ! step not smaller than this

@@ -999,7 +999,7 @@ subroutine Calculated_statistics(Mat_DOS, Lowest_Ip_At, Lowest_Ip_Shl, i, tim, T
         if (All_electrons(k)%E .GT. max(0.0d0, Matter%cut_off)) then
             call Get_velosity(All_electrons(k), V)
             L0 = V*(tim - All_electrons(k)%t0)*1.0d-5 ! [A] mean free path travelled until this time instance
-            if (L0 .LT. 0.0d0) L0 = 0.0d0  ! just fofr case...
+            if (L0 .LT. 0.0d0) L0 = 0.0d0  ! just in case...
             theta0 = All_electrons(k)%theta   ! old angle
             phi0 = All_electrons(k)%phi       ! old angle
         else
