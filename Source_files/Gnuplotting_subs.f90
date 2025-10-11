@@ -1080,15 +1080,15 @@ subroutine gnuplot_electron_MFP(FN, Target_atoms, Filename, file_IMFP, file_EMFP
                write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
             endif
-            ! Add valcence and total:
-            if ((i == Nat) .and. (j == shl)) then    ! last one
-               write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence" ,\'
-
-               write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Total IMFP" ,\'
-            endif
          enddo ! j
+         ! Add valcence and total:
+         if (i == Nat) then    ! only at last, add VB
+            write(col,'(i3)') VB_count ! add valence band
+            write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence" ,\'
+
+            write(col,'(i3)') col_count+1 ! last column is the total MFP
+            write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Total IMFP" ,\'
+         endif
       enddo ! i
 
       ! EMFPs:
@@ -1112,15 +1112,15 @@ subroutine gnuplot_electron_MFP(FN, Target_atoms, Filename, file_IMFP, file_EMFP
                write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
             endif
-            ! Add valence and total:
-            if ((i == Nat) .and. (j == shl)) then    ! last one
-               write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
-
-               write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total IMFP\" ,\'
-            endif
          enddo ! j
+         ! Add valence and total:
+         if (i == Nat) then    ! only at last, add VB
+            write(col,'(i3)') VB_count ! add valence band
+            write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
+
+            write(col,'(i3)') col_count+1 ! last column is the total MFP
+            write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total IMFP\" ,\'
+         endif
       enddo ! i
 
       ! EMFPs:
@@ -1187,15 +1187,15 @@ subroutine gnuplot_hole_MFP(FN, Target_atoms, Filename, file_IMFP, file_EMFP, pl
                write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
             endif
-            ! Add valence and total:
-            if ((i == Nat) .and. (j == shl)) then    ! last one
-               write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence" ,\'
-
-               write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Total IMFP" ,\'
-            endif
          enddo ! j
+         ! Add valence and total:
+         if (i == Nat) then    ! last one
+            write(col,'(i3)') VB_count ! add valence band
+            write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence" ,\'
+
+            write(col,'(i3)') col_count+1 ! last column is the total MFP
+            write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Total IMFP" ,\'
+         endif
       enddo ! i
 
       ! EMFPs:
@@ -1219,15 +1219,15 @@ subroutine gnuplot_hole_MFP(FN, Target_atoms, Filename, file_IMFP, file_EMFP, pl
                write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
             endif
-            ! Add valcence and total:
-            if ((i == Nat) .and. (j == shl)) then    ! last one
-               write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
-
-               write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total IMFP\" ,\'
-            endif
          enddo ! j
+         ! Add valcence and total:
+         if (i == Nat) then    ! last one
+            write(col,'(i3)') VB_count ! add valence band
+            write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
+
+            write(col,'(i3)') col_count+1 ! last column is the total MFP
+            write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total IMFP\" ,\'
+         endif
       enddo ! i
 
       ! EMFPs:
@@ -1294,15 +1294,15 @@ subroutine gnuplot_photon_MFP(FN, Target_atoms, Filename, file_IMFP, plot_extens
                write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
             endif
-            ! Add valence and total:
-            if ((i == Nat) .and. (j == shl)) then    ! last one
-               write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence" ,\'
-
-               write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Total" '
-            endif
          enddo ! j
+         ! Add valence and total:
+         if (i == Nat) then    ! last one
+            write(col,'(i3)') VB_count ! add valence band
+            write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence" ,\'
+
+            write(col,'(i3)') col_count+1 ! last column is the total MFP
+            write(FN, '(a)') ' "'//trim(adjustl(datafile_IMFP))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Total" '
+         endif
       enddo ! i
 
    else ! It is linux
@@ -1323,15 +1323,15 @@ subroutine gnuplot_photon_MFP(FN, Target_atoms, Filename, file_IMFP, plot_extens
                write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
             endif
-            ! Add valence band and total:
-            if ((i == Nat) .and. (j == shl)) then    ! last one
-               write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
-
-               write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total\"'
-            endif
          enddo ! j
+         ! Add valence band and total:
+         if (i == Nat) then    ! last one
+            write(col,'(i3)') VB_count ! add valence band
+            write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
+
+            write(col,'(i3)') col_count+1 ! last column is the total MFP
+            write(FN, '(a)') '\"'//trim(adjustl(datafile_IMFP))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total\"'
+         endif
       enddo ! i
 
    endif
@@ -1562,15 +1562,15 @@ subroutine gnuplot_SHI_dEdx(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_
                write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
             endif
-            ! Add valence and total:
-            if ((i == Nat) .and. (j == shl)) then    ! last one
-               write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence" ,\'
-
-               write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Total"'
-            endif
          enddo ! j
+         ! Add valence and total:
+         if (i == Nat) then    ! last one
+            write(col,'(i3)') VB_count ! add valence band
+            write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence" ,\'
+
+            write(col,'(i3)') col_count+1 ! last column is the total MFP
+            write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Total"'
+         endif
       enddo ! i
    else ! It is linux
       do i = 1, Nat   ! all atoms
@@ -1589,15 +1589,15 @@ subroutine gnuplot_SHI_dEdx(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_
                write(FN, '(a)') '\"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
             endif
-            ! Add valence and total:
-            if ((i == Nat) .and. (j == shl)) then    ! last one
-               write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
-
-               write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total\"'
-            endif
          enddo ! j
+         ! Add valence and total:
+         if (i == Nat) then    ! last one
+            write(col,'(i3)') VB_count ! add valence band
+            write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
+
+            write(col,'(i3)') col_count+1 ! last column is the total MFP
+            write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total\"'
+         endif
       enddo ! i
    endif
 
@@ -1662,15 +1662,15 @@ subroutine gnuplot_SHI_MFP(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_e
                write(FN, '(a)') ' "'//trim(adjustl(datafile)) // '"u 1:'//trim(adjustl(col))//' w l lw LW title "' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '" ,\'
             endif
-            ! Add valence and total:
-            if ((i == Nat) .and. (j == shl)) then    ! last one
-               write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence" ,\'
-
-               write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Total"'
-            endif
          enddo ! j
+         ! Add valence and total:
+         if (i == Nat) then    ! last one
+            write(col,'(i3)') VB_count ! add valence band
+            write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Valence" ,\'
+
+            write(col,'(i3)') col_count+1 ! last column is the total MFP
+            write(FN, '(a)') ' "'//trim(adjustl(datafile))//'"u 1:'//trim(adjustl(col))//' w l lw LW title "Total"'
+         endif
       enddo ! i
    else ! It is linux
       do i = 1, Nat   ! all atoms
@@ -1690,15 +1690,15 @@ subroutine gnuplot_SHI_MFP(FN, SHI, Target_atoms, Filename, file_ion_MFP, plot_e
                write(FN, '(a)') '\"'//trim(adjustl(datafile)) // '\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"' // &
                      trim(adjustl(Target_atoms(i)%Name))//' '//trim(adjustl(Target_atoms(i)%Shell_name(j))) // '\" ,\'
             endif
-            ! Add valence and total:
-            if ((i == Nat) .and. (j == shl)) then    ! last one
-               write(col,'(i3)') VB_count ! add valence band
-               write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
-
-               write(col,'(i3)') col_count+1 ! last column is the total MFP
-               write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total\"'
-            endif
          enddo ! j
+         ! Add valence and total:
+         if (i == Nat) then    ! last one
+            write(col,'(i3)') VB_count ! add valence band
+            write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Valence\" ,\'
+
+            write(col,'(i3)') col_count+1 ! last column is the total MFP
+            write(FN, '(a)') '\"'//trim(adjustl(datafile))//'\"u 1:'//trim(adjustl(col))//' w l lw \"$LW\" title \"Total\"'
+         endif
       enddo ! i
    endif
 
