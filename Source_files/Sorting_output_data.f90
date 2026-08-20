@@ -9,6 +9,8 @@ MODULE Sorting_output_data
   use Reading_files_and_parameters, only : Find_VB_numbers, print_time_step, m_INPUT_file
   use Variables, only: dashline, starline
   use Cross_sections, only :  w_plasma, sumrules
+  use omp_lib, only : omp_get_max_threads
+
 implicit none
 private  ! hides items not listed on public statement
 
@@ -55,7 +57,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
     logical, intent(in) :: print_title, print_atomic  ! yes or no
     type(Used_MPI_parameters), intent(in) :: MPI_param ! MPI parameters
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    integer :: j, k
+    integer :: j, k, n_th
     character(100) :: ch_temp, ch_temp2
     real(8) :: ksum, fsum, Omega, Mean_Mass, N_at_mol, NVB, contrib
 
@@ -174,7 +176,7 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
 
         select case (NumPar%kind_of_CDF)
         case (1)  ! single-pole CDF
-            ch_temp2 = '(aumotamic single-pole)'
+            ch_temp2 = '(automatic single-pole)'
         case default    ! Ritchie-Howie
             ch_temp2 = ''
         endselect
@@ -265,7 +267,10 @@ subroutine print_parameters(print_to, SHI, Material_name, Target_atoms, Matter, 
 #else ! in MPI is unused
 #ifdef _OPENMP
     write(ch_temp, '(i5)') Num_th
-    write(print_to, '(a)') ' Number of threads used in OpenMP '//trim(adjustl(ch_temp))
+    n_th = omp_get_max_threads()
+    write(ch_temp2,'(i0)') n_th
+    write(print_to,'(a,a)') ' Number of threads for OPENMP, requested: ', trim(adjustl(ch_temp))//' used: '//trim(adjustl(ch_temp2))
+    !write(print_to, '(a)') ' Number of threads used in OpenMP '//trim(adjustl(ch_temp))
 #else ! if you set to use OpenMP in compiling: 'make OMP=no'
     write(print_to, '(a)') ' Compiled without OpenMP'
 #endif
