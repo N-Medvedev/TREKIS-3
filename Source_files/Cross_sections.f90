@@ -60,7 +60,7 @@ contains
 
 pure function form_factor(q, a, Z) result(FF)
    ! [1]  F. Salvat, J. M. Fernandez-Varea, E. Acosta, J. Sempau
-   ! "PENELOPE  A Code System for Monte Carlo Simulation of Electron and Photon Transport", OECD (2001)
+   ! "PENELOPE : A Code System for Monte Carlo Simulation of Electron and Photon Transport", OECD (2001)
    real(8) FF
    real(8), intent(in) :: q, Z, a(5)   ! q in [kg*m/s]; Z=atomic number; a=fitted coeefs
    real(8) :: fxz, Fk, x, x2, x4, demf, b, CapQ, al, mc
@@ -2337,7 +2337,8 @@ subroutine Electron_energy_transfer_elastic(Ele, L_tot, Target_atoms, CDF_Phonon
     ! Target mean atomic charge:
     if (NumPar%CDF_elast_Zeff == 0) then   ! Barkas-like charge
         Zt = SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
-        Zeff = 1.0d0 + Equilibrium_charge_Target(Ee, g_me, Zt, (Zt-1.0e0), 0, 1.0e0) ! Equilibrium charge, see below
+        !Zeff = 1.0d0 + Equilibrium_charge_Target(Ee, g_me, Zt, (Zt-1.0e0), 0, 1.0e0) ! Equilibrium charge, see below
+        Zeff = 1.0d0 + Equilibrium_charge_Target(Ee, g_me, (Zt-1.0d0), (Zt-1.0e0), 0, 1.0e0) ! Equilibrium charge, see below
     else  ! one, as used in old CDF expression, and in case CDF screening is used - no need for effective charge
         Zeff = 1.0d0    ! electron charge
     endif
@@ -2923,7 +2924,8 @@ subroutine Elastic_cross_section(Ee, i_E, CDF_Phonon, Target_atoms, Matter, EMFP
       Zt = SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
       select case(numpar%CDF_elast_Zeff)
       case (0) ! Barkas-like charge
-         Zeff = 1.0d0 + Equilibrium_charge_Target(Ee, g_me, Zt, (Zt-1.0e0), 0, 1.0d0) ! Equilibrium charge, see below
+         !Zeff = 1.0d0 + Equilibrium_charge_Target(Ee, g_me, Zt, (Zt-1.0e0), 0, 1.0d0) ! Equilibrium charge, see below
+         Zeff = 1.0d0 + Equilibrium_charge_Target(Ee, g_me, (Zt-1.0d0), (Zt-1.0e0), 0, 1.0d0) ! Equilibrium charge, see below
       case (1) ! one, as used in old CDF expression : Fourier of the unscreened Coulomb with charge Z=1
          Zeff = 1.0d0    ! electron charge
       case default ! full charge will be screened with the electronic CDF(q,w) inside the cross section

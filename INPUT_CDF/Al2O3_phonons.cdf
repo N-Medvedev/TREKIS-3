@@ -2,7 +2,7 @@ Aluminium oxide
 2		! how many elements are in this molecule of solid
 13	2	! atomic number, contribution of 1st element into compount 
 8	3	! atomic number, contribution of 2d element into compount 
-3.99	6510.0	! density [g/cm^3], speed of sound [m/s]
+3.99	6510.0	0.0d0	! density [g/cm^3], speed of sound [m/s]
 3		! number of shells of the first element 
 1	1	1559.1e0	2	1.8e0	! number of CDF functions, shell-designator, ionization potential, number of electrons, Auger-time
 1565	178	1200	! E0, A, Gamma coefficients
@@ -14,10 +14,7 @@ Aluminium oxide
 36	84	6
 1		! number of shells of the second element
 1	1	538.0e0	2	3.98e0	! number of CDF functions, shell-designator, ionization potential, number of electrons, Auger-time
-
 545.0	270.0	380.0	! E0, A, Gamma coefficients
-
 2		! phonon peaks:
 0.1125	0.003	0.005	! E0, A, Gamma coefficients
-
 0.061	0.000045	0.002

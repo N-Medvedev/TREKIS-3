@@ -2,7 +2,7 @@ Silicon dioxide
 2	! number of elements in this compound
 14	1	! atomic number, contribution of 1st element into compount
 8	2	! atomic number, contribution of 2d element into compount
-2.32	5170.0e0	0.0d0	! density of the material in [g/cm^3]
+2.65	5170.0e0	0.0d0	! density of the material in [g/cm^3]
 4	! number of shells of the first element: Si
 1	1	1844.1e0	2	1.6e0	! number of CDF functions, shell-designator, ionization potential, number of electrons, Auger-time
 0.206E+04	0.1591E+03	0.9465E+03	! E0, A, Gamma coefficients

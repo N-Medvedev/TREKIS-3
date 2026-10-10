@@ -1,7 +1,7 @@
 Aluminium
 1		! how many elements are in this molecule of solid
 13	1	! atomic number, contribution of 1st element into compount 
-2.7	5000.0	11.17	! density [g/cm^3], speed of sound [m/s], fermi_energy [eV]
+2.7	5000.0	11.17	0.0d0	! density [g/cm^3], speed of sound [m/s], fermi_energy [eV], bandgap [eV]
 5		! number of shells of the first element: Al
 1	1	1549.9d0	2	1.8d0	! number of CDF functions, shell-designator, ionization potential, number of electrons, Auger-time
 1119.3	319.19	969.77	! E0, A, Gamma coefficients
