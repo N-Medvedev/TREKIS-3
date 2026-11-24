@@ -1,6 +1,28 @@
 """
 ! This file is part of TREKIS-3
-Command line: python -m TREKIS3_python_plots <file(s) or run folder(s)> [options]
+Command line of TREKIS3_python_plots:
+
+    python -m TREKIS3_python_plots <file(s) or folder(s)> [options]
+
+(run from the folder that contains the TREKIS3_python_plots folder; run.py does the same from
+any directory). The kind of plot is detected from the file name. Folders are searched
+recursively unless --no-recursive is given; 'diff_CS' and 'figures' folders are skipped, and
+files without non-zero data are skipped with a warning.
+
+Options:
+    -o, --out DIR          output directory (default: next to the data / in a 'figures' folder)
+    -f, --formats ...      output formats, e.g. png pdf svg (default: png pdf)
+    --dpi N                resolution of raster formats (default 300)
+    -r, --no-recursive     for folders: do not descend into sub-folders
+    --only WORD ...        for folders: only files whose name contains one of these words
+    -t, --times T ...      only the time steps closest to these times [fs]
+    --width single|double  figure size: one column (3.4 in) or full page width (7 in)
+    --xlin, --ylin, --ylog linear x axis / linear y axis / logarithmic y axis
+    --ydecades N           dynamic range of a logarithmic y axis
+    --show-empty           time series: also draw columns that are zero everywhere
+    --no-title             no title above the figures
+    --title TEXT           use this title instead of the automatic one
+    --show                 open the figures in a window
 """
 import argparse
 from pathlib import Path
@@ -13,6 +35,7 @@ from .style import DOUBLE, SINGLE
 
 
 def main():
+    """Parse the command line and make the plots."""
     ap = argparse.ArgumentParser(
         prog="python -m TREKIS3_python_plots",
         description="Plot TREKIS-3 output files. The plot type is detected from the file name.")
@@ -35,11 +58,13 @@ def main():
                     help="figure size: single (3.4 in) or double (7 in) column width")
     ap.add_argument("--xlin", action="store_true", help="linear x axis (default: log where sensible)")
     ap.add_argument("--ylin", action="store_true", help="linear y axis")
-    ap.add_argument("--ylog", action="store_true", help="logarithmic y axis (angular distributions)")
+    ap.add_argument("--ylog", action="store_true", help="logarithmic y axis")
     ap.add_argument("--ydecades", type=float, default=None,
                     help="decades of dynamic range shown on a log y axis (default 8)")
     ap.add_argument("--show-empty", action="store_true",
                     help="time series: also plot columns that are zero everywhere")
+    ap.add_argument("--no-title", action="store_true", help="no title above the figures")
+    ap.add_argument("--title", default=None, help="title text instead of the automatic one")
     ap.add_argument("--show", action="store_true", help="open the figures in a window")
     args = ap.parse_args()
 
@@ -60,6 +85,10 @@ def main():
         kw["ydecades"] = args.ydecades
     if args.show_empty:
         kw["hide_empty"] = False
+    if args.no_title:
+        kw["title"] = False
+    elif args.title:
+        kw["title"] = args.title
     kw["figsize"] = DOUBLE if args.width == "double" else SINGLE
 
     saved = []
