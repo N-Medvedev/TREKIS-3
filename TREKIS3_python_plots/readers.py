@@ -1,4 +1,6 @@
 """
+! This file is part of TREKIS-3
+
 Readers for TREKIS-3 output files.
 
 All files are self-describing through their '#' header lines, so columns are

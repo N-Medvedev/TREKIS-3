@@ -1,4 +1,5 @@
 """
+! This file is part of TREKIS-3
 Plots of material and ion data: electron / hole / photon mean free paths, elastic MFPs,
 DOS, and ion MFP, energy loss, range and effective charge.
 

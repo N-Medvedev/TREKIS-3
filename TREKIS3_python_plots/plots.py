@@ -1,4 +1,7 @@
-"""Plot functions for TREKIS-3 output files (publication-quality matplotlib figures)."""
+"""
+! This file is part of TREKIS-3
+Plot functions for TREKIS-3 output files (publication-quality matplotlib figures).
+"""
 import os
 import re
 from pathlib import Path

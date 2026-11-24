@@ -1,4 +1,7 @@
-"""Publication-quality matplotlib style and colour handling for TREKIS-3 plots."""
+"""
+! This file is part of TREKIS-3
+Publication-quality matplotlib style and colour handling for TREKIS-3 plots.
+"""
 import matplotlib as mpl
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap, LogNorm, Normalize

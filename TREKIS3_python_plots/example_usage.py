@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+! This file is part of TREKIS-3
 Example: plot a TREKIS-3 run folder, or single files, with custom settings.
 Edit the CONFIG block and run:  python example_usage.py
 """

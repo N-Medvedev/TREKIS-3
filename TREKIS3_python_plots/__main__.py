@@ -1,4 +1,7 @@
-"""Command line: python -m TREKIS3_python_plots <file(s) or run folder(s)> [options]"""
+"""
+! This file is part of TREKIS-3
+Command line: python -m TREKIS3_python_plots <file(s) or run folder(s)> [options]
+"""
 import argparse
 from pathlib import Path
 

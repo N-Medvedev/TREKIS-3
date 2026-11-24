@@ -1,4 +1,7 @@
-"""Axis labels and legend texts derived from TREKIS-3 file names and headers."""
+"""
+! This file is part of TREKIS-3
+Axis labels and legend texts derived from TREKIS-3 file names and headers.
+"""
 import re
 from pathlib import Path
 

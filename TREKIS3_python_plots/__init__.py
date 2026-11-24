@@ -1,4 +1,5 @@
 """
+! This file is part of TREKIS-3
 TREKIS3_python_plots
 ====================
 Publication-quality plots of TREKIS-3 output files.
