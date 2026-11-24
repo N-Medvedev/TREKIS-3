@@ -103,7 +103,29 @@ character(100), parameter :: starline = '***************************************
 
 contains
 
+
 subroutine get_path_separator(path_sep, Error_message, read_well, MPI_param)
+    type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
+    CHARACTER(len=1), intent(out) :: path_sep   ! path separator
+    logical, intent(inout) :: read_well ! did the data read well?
+    type(Used_MPI_parameters), intent(inout) :: MPI_param
+    !-------------------------
+    character(len=1024) :: windir
+    integer :: stat
+
+    call get_environment_variable("WINDIR", windir, status=stat)
+
+    if (stat == 0) then ! Windows
+        path_sep = '\'
+    else                ! Not Windows
+        path_sep = '/'
+    endif
+end subroutine get_path_separator
+
+
+
+
+subroutine get_path_separator_OLD(path_sep, Error_message, read_well, MPI_param)
     type(Error_handling), intent(inout) :: Error_message  ! save data about error if any
     CHARACTER(len=1), intent(out) :: path_sep   ! path separator
     logical, intent(inout) :: read_well ! did the data read well?

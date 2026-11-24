@@ -510,9 +510,11 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     write(ch_temp2, '(f9.2)' ) Out_tot_E(N)/Matter%Layer
     write(FN1, '(a)') 'MC calculated energy loss (Se): '//trim(adjustl(ch_temp2))//' [eV/A]'
 
-    call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
-    as1=dble(24*60*60*(c1(3)-ctim(3))+3600*(c1(5)-ctim(5))+60*(c1(6)-ctim(6))+(c1(7)-ctim(7))+(c1(8)-ctim(8))*0.001)	! sec
-    call parse_time(as1,C_time) ! module "Sorting_output_data.f90"
+    !call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
+    !as1=dble(24*60*60*(c1(3)-ctim(3))+3600*(c1(5)-ctim(5))+60*(c1(6)-ctim(6))+(c1(7)-ctim(7))+(c1(8)-ctim(8))*0.001)	! sec
+    !call parse_time(as1,C_time) ! module "Sorting_output_data.f90"
+    call parse_time(C_time, c0_in=ctim)     ! module "Sorting_output_data"
+
     write(FN1, '(a)')      'Duration of calculation:        '//trim(adjustl(C_time))
     write(FN1,'(a)') trim(adjustl(dashline))
 
@@ -522,7 +524,11 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
     ! Electron field vs radius:
     if (NumPar%field_include .GT. 0.9) then
         FN3 = 312
-        File_name = trim(adjustl(File_name2))//'/Electric_fields_produced[V_m-1].txt'
+        !File_name = trim(adjustl(File_name2))//'/Electric_fields_produced[V_m-1].txt'
+
+        File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))// &
+                    'Electric_fields_produced[V_m-1].txt'
+
         open(unit = FN3, FILE = trim(adjustl(File_name)))
         write(FN3, '(a)', advance='no') '#Radius[A] '
         t = 0.0d0
@@ -1044,7 +1050,11 @@ subroutine Save_output(Output_path, File_names, ctim, NMC, Num_th, Tim, dt, Mate
             if (Target_atoms(j)%Shl_num(l) .LT. 63) then    ! shell of an atom:
                 FN3 = 305
                 write(File_name4, '(a,a,a)') trim(adjustl(Target_atoms(j)%Name)),'_',trim(adjustl(Target_atoms(j)%Shell_name(l)))
-                File_name = trim(adjustl(File_name2))//'/Radial_'//trim(adjustl(File_name4))//'_holes_energy[eV_A^-3].txt'
+                !File_name = trim(adjustl(File_name2))//'/Radial_'//trim(adjustl(File_name4))//'_holes_energy[eV_A^-3].txt'
+
+                File_name = trim(adjustl(File_name2))//trim(adjustl(NumPar%path_sep))// &
+                            'Radial_'//trim(adjustl(File_name4))//'_holes_energy[eV_A^-3].txt'
+
                 open(unit = FN3, FILE = trim(adjustl(File_name)))
                 write(FN3, '(a)', advance='no') '#Radius[A] '
                 t = 0.0d0
@@ -1448,16 +1458,20 @@ end subroutine Radius_for_distributions
 
 
 subroutine parse_time_old(sec, chtest)
-   real(8), intent(inout) :: sec ! time interval in [sec]
+   real(8), intent(in) :: sec ! time interval in [sec]
    character(*), intent(out) :: chtest ! split it into mins, hours, days...
+   !------------------
    character(100) temp
    real(8) days, hours, mins
+   real(8) :: sec_loc ! time interval in [sec]
+
    days = 0.0d0
    hours = 0.0d0
    mins = 0.0d0
+   sec_loc = sec
    if (sec .GE. 60.0d0) then
       mins = FLOOR(sec/60.0d0)
-      sec = sec - mins*60.0d0
+      sec_loc = sec - mins*60.0d0
       if (mins .GT. 60.0d0) then
          hours = FLOOR(mins/60.0d0)
          mins = mins - hours*60.0d0
@@ -1490,7 +1504,7 @@ subroutine parse_time_old(sec, chtest)
       write(temp, '(i9)') int(mins)
       write(chtest, '(a,a,a)') trim(adjustl(chtest)), ' '//trim(adjustl(temp)), ' min'
    endif
-   write(temp, '(f7.3)') sec
+   write(temp, '(f7.3)') sec_loc
    write(chtest, '(a,a,a)') trim(adjustl(chtest)), ' '//trim(adjustl(temp)), ' sec'
 end subroutine parse_time_old
 
@@ -1498,8 +1512,8 @@ end subroutine parse_time_old
 
 subroutine parse_time_new(chtest, sec_in, c0_in, c1_in)
    character(*), intent(out) :: chtest ! split it into miuns, hours, days...
-   real(8), intent(inout), optional :: sec_in   ! time interval in [sec]
-   integer, dimension(8), intent(inout), optional :: c1_in, c0_in ! time stamp
+   real(8), intent(in), optional :: sec_in   ! time interval in [sec]
+   integer, dimension(8), intent(in), optional :: c1_in, c0_in ! time stamp
    !-------------------------
    character(100) temp
    integer, dimension(8) :: c0, c1 ! time stamps
@@ -1551,12 +1565,12 @@ subroutine parse_time_new(chtest, sec_in, c0_in, c1_in)
          case (4,6,9,11) ! 30-day month
             days = (c1(3)-0) + (30-c0(3))
          case (2) ! February
-            ! Check if it is a leap year:
-            if ( MOD(c1(1), 4) == 0) then ! it is => 29 days
-               days = (c1(3)-0) + (29-c0(3))
-            else ! it is not => 28 days
-               days = (c1(3)-0) + (28-c0(3))
+            if (is_leap_year(c1(1))) then   ! it is => 29 days
+               days = c1(3) + (29 - c0(3))
+            else    ! it is not => 28 days
+               days = c1(3) + (28 - c0(3))
             endif
+
          endselect
       endif
 
@@ -1628,6 +1642,14 @@ subroutine parse_time_new(chtest, sec_in, c0_in, c1_in)
       write(chtest, '(a)') '[Time-format inconsistent]'
    endif
 end subroutine parse_time_new
+
+
+pure logical function is_leap_year(year)
+    integer, intent(in) :: year
+
+    is_leap_year = (mod(year,400) == 0) .or. &
+                   ((mod(year,4) == 0) .and. (mod(year,100) /= 0))
+end function is_leap_year
 
 
 
