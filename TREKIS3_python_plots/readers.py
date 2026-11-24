@@ -14,6 +14,22 @@ looked up by name and never by position:
         #Energy[eV]  Spectrum[arb.units]
         #time[fs]:  0.01  0.10 ...                          (spectra: 2 header lines)
 
+  * headerless tables (OUTPUT_*_IMFPs*.dat, ion *_IMFP / _dEdx / _effective_charges /
+    _Range files): plain numeric columns (energy | shells | total); the Range file has two
+    header lines '# Energy dEdx Range' / '# [eV] [eV/A] [A]'
+  * density of states (OUTPUT_<material>_DOS_analysis.dat): one header line
+        #E[eV]  k[1/m]  DOS[a.u.]  Int_DOS[a.u.]  Eff_mass[me]
+
+Main functions and classes:
+    read_time_series(path) -> TimeSeries     columns by name (Total_numbers, Total_energies)
+    read_multi_time(path)  -> MultiTime      x and y(x) at several times (radial, spectra, angles)
+    read_table(path)       -> (data, header) plain numeric table
+    read_dos(path)         -> (columns, units) dictionaries
+    find_shell_names(path)                   shell names from a nearby Total_energies.txt
+    detect_kind(path)                        kind of a file from its name (None if unknown)
+
+Numbers written by Fortran without the exponent letter (1.0-100) are understood.
+
 File names may contain either brackets (as written by TREKIS-3) or underscores
 (as produced when files are copied or downloaded), both are handled.
 """

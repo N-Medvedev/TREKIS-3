@@ -1,13 +1,28 @@
 """
 ! This file is part of TREKIS-3
-Plots of material and ion data: electron / hole / photon mean free paths, elastic MFPs,
-DOS, and ion MFP, energy loss, range and effective charge.
+Plots of material and ion data: electron / hole / photon mean free paths, elastic mean
+free paths, density of states, and ion mean free path, energy loss, range and charge.
 
-The MFP-type files have no header, so the columns are
+Plot functions (each takes the path of a data file and returns a matplotlib Figure):
+
+    plot_mfp        OUTPUT_Electron_IMFPs*, OUTPUT_Hole_IMFPs*, OUTPUT_Photon_IMFPs*
+                    inelastic MFP (photons: attenuation length) vs. energy, per shell + total
+    plot_emfp       OUTPUT_Electron*EMFPs*, OUTPUT_Hole*EMFPs*      elastic MFP vs. energy
+    plot_dos        OUTPUT_<material>_DOS_analysis.dat              DOS and effective mass
+    plot_ion_imfp   OUTPUT_<ion>*_IMFP.dat                          ion inelastic MFP vs. ion energy
+    plot_ion_dedx   OUTPUT_<ion>*_dEdx.dat                          electronic energy loss
+    plot_ion_zeff   OUTPUT_<ion>*_effective_charges.dat             effective ion charge
+    plot_ion_range  OUTPUT_<ion>*_Range.dat                         ion range (micrometres)
+
+The MFP-type files have no header, their columns are
     energy | one column per shell (atom by atom) | total
-Shell names are taken from the header of a Total_energies.txt found near the file
-(run folders contain it) or passed as `shell_names`; if neither matches the number of
-columns, generic names are used.
+Shell names for the legends are taken from the header of a Total_energies.txt found near
+the file (run folders contain it) or passed as `shell_names=[...]`; if neither matches
+the number of columns, generic names ('Shell 1', ...) are used. Values of 1e30 (TREKIS-3's
+"infinite") and non-positive values are not drawn.
+
+Common keyword arguments: xlog, ylog, xlim, ylim, ydecades (dynamic range of a log y axis,
+counted from the smallest total MFP), figsize and title (True, False or a string).
 """
 import re
 from pathlib import Path
@@ -16,25 +31,27 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from . import labels
-from .readers import find_shell_names, read_dos, read_table
-from .style import LINESTYLES, PALETTE, SINGLE, apply_style
+from .common import add_title, require_data, set_ylabel_fit
+from .readers import detect_kind, find_shell_names, read_dos, read_table
+from .style import LINESTYLES, PALETTE, SINGLE, TOTAL_COLOUR, apply_style
 
 ANG = labels.ANGSTROM
 HUGE = 1e29            # TREKIS-3 writes 1e30 for "infinite" mean free paths
 
 
 def _clean(y):
+    """Copy of y with infinite (>= 1e29), non-positive and non-finite values set to NaN."""
     y = np.array(y, float)
     y[~np.isfinite(y) | (y >= HUGE) | (y <= 0)] = np.nan
     return y
 
 
 def _require(Y):
-    from .plots import require_data
     require_data(_clean(Y), "mean free path / energy-loss data")
 
 
 def _shell_labels(path, n_shells, shell_names):
+    """Legend names of the shell columns (see the module docstring)."""
     names = shell_names if shell_names is not None else find_shell_names(path)
     if names is not None and len(names) == n_shells:
         return [labels.series_label(n) for n in names]
@@ -44,9 +61,14 @@ def _shell_labels(path, n_shells, shell_names):
     return [f"Shell {i + 1}" for i in range(n_shells)]
 
 
-def _finish(ax, xlabel, ylabel, xlog, ylog, xlim=None, ylim=None, nlines=0):
+def _new_figure(figsize):
+    return plt.subplots(figsize=figsize or SINGLE, layout="constrained")
+
+
+def _finish(fig, ax, xlabel, ylabel, xlog, ylog, xlim=None, ylim=None, nlines=0):
+    """Axis labels, scales, limits and legend (if there is more than one curve)."""
     ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
+    set_ylabel_fit(ax, ylabel, fig=fig)
     if xlog:
         ax.set_xscale("log")
     if ylog:
@@ -62,37 +84,36 @@ def _finish(ax, xlabel, ylabel, xlog, ylog, xlim=None, ylim=None, nlines=0):
 
 
 def _shells_and_total(ax, x, Y, names, total_label="Total"):
-    """Shell curves (coloured, thin) and the total (black, thick, last column of Y)."""
+    """Shell curves (coloured, thin) and the total (dark, thick, last column of Y)."""
     n = Y.shape[1] - 1
     for i in range(n):
         ax.plot(x, _clean(Y[:, i]), color=PALETTE[i % len(PALETTE)],
-                ls=LINESTYLES[(i // len(PALETTE)) % len(LINESTYLES)], lw=1.1, label=names[i])
-    ax.plot(x, _clean(Y[:, -1]), color="black", lw=1.8, label=total_label)
+                ls=LINESTYLES[(i // len(PALETTE)) % len(LINESTYLES)], lw=1.0, label=names[i])
+    ax.plot(x, _clean(Y[:, -1]), color=TOTAL_COLOUR, lw=1.5, label=total_label)
 
 
 # --------------------------------------------------------------------------- #
 #  Electron / hole / photon inelastic mean free paths
 # --------------------------------------------------------------------------- #
-_MFP = {
-    "mfp_electron": ("Electron energy (eV)", "Electron inelastic MFP"),
-    "mfp_hole": ("Hole energy (eV)", "Hole inelastic MFP"),
-    "mfp_photon": ("Photon energy (eV)", "Photon attenuation length"),
+_MFP = {      # kind: (x label, title, y label)
+    "mfp_electron": ("Electron energy (eV)", "Electron inelastic mean free path", "Mean free path"),
+    "mfp_hole": ("Hole energy (eV)", "Hole inelastic mean free path", "Mean free path"),
+    "mfp_photon": ("Photon energy (eV)", "Photon attenuation length", "Attenuation length"),
 }
 
 
 def plot_mfp(path, kind=None, shell_names=None, xlog=True, ylog=True, xlim=None, ylim=None,
-             ydecades=None, figsize=None):
+             ydecades=None, figsize=None, title=True):
     """Inelastic mean free path versus energy, for each shell and in total.
     Default y range: from just below the smallest total MFP up to `ydecades`
     decades above it (5 for electrons/holes, 8 for photons)."""
-    from .readers import detect_kind
     apply_style()
     kind = kind or detect_kind(path)
-    xlabel, what = _MFP[kind]
+    xlabel, main, ylabel = _MFP[kind]
     data, _ = read_table(path)
     x, Y = data[:, 0], data[:, 1:]
     _require(Y)
-    fig, ax = plt.subplots(figsize=figsize or SINGLE)
+    fig, ax = _new_figure(figsize)
     names = _shell_labels(path, Y.shape[1] - 1, shell_names)
     _shells_and_total(ax, x, Y, names)
     if ylim is None and ylog:
@@ -100,112 +121,124 @@ def plot_mfp(path, kind=None, shell_names=None, xlog=True, ylog=True, xlim=None,
         if np.isfinite(tot).any():
             lo = np.nanmin(tot)
             ylim = (lo / 2, lo * 10 ** (ydecades or (8 if kind == "mfp_photon" else 5)))
-    _finish(ax, xlabel, f"{what} ({ANG})", xlog, ylog, xlim, ylim, Y.shape[1])
+    _finish(fig, ax, xlabel, f"{ylabel} ({ANG})", xlog, ylog, xlim, ylim, Y.shape[1])
+    add_title(ax, path, main, title)
     return fig
 
 
-def plot_emfp(path, xlog=True, ylog=True, xlim=None, ylim=None, ydecades=5, figsize=None):
-    """Elastic mean free path versus energy (total, and emitted / absorbed if present)."""
+def plot_emfp(path, xlog=True, ylog=True, xlim=None, ylim=None, ydecades=5, figsize=None,
+              title=True):
+    """Elastic mean free path versus energy (total, and emission / absorption if present)."""
     apply_style()
     data, _ = read_table(path)
     x, Y = data[:, 0], data[:, 1:]
     _require(Y)
     who = "Hole" if Path(path).name.startswith("OUTPUT_Hole") else "Electron"
-    fig, ax = plt.subplots(figsize=figsize or SINGLE)
+    fig, ax = _new_figure(figsize)
     for i, nm in enumerate(["Total", "Emission", "Absorption"][:Y.shape[1]]):
-        ax.plot(x, _clean(Y[:, i]), color="black" if i == 0 else PALETTE[i - 1],
-                lw=1.8 if i == 0 else 1.1, label=nm)
+        ax.plot(x, _clean(Y[:, i]), color=TOTAL_COLOUR if i == 0 else PALETTE[i - 1],
+                lw=1.5 if i == 0 else 1.0, label=nm)
     if ylim is None and ylog and np.isfinite(_clean(Y[:, 0])).any():
         lo = np.nanmin(_clean(Y[:, 0]))
         ylim = (lo / 2, lo * 10 ** ydecades)
-    _finish(ax, f"{who} energy (eV)", f"{who} elastic MFP ({ANG})", xlog, ylog, xlim, ylim, 3)
+    _finish(fig, ax, f"{who} energy (eV)", f"Mean free path ({ANG})", xlog, ylog, xlim, ylim,
+            Y.shape[1])
+    add_title(ax, path, f"{who} elastic mean free path", title)
     return fig
 
 
 # --------------------------------------------------------------------------- #
 #  Density of states
 # --------------------------------------------------------------------------- #
-def plot_dos(path, xlim=None, figsize=None):
-    """DOS (left axis) and its integral (right axis) versus energy."""
+def plot_dos(path, xlim=None, figsize=None, title=True):
+    """DOS (left axis) and, if present in the file, the effective mass (right axis,
+    dashed) versus energy."""
     apply_style()
     cols, units = read_dos(path)
     E = cols[next(k for k in cols if k.lower().startswith("e"))]
     dos = next(k for k in cols if k.upper().startswith("DOS"))
-    #integ = next((k for k in cols if "int" in k.lower()), None)
-    integ = next((k for k in cols if "eff" in k.lower()), None)
-    fig, ax = plt.subplots(figsize=figsize or SINGLE)
+    mass = next((k for k in cols if "eff" in k.lower()), None)
+    fig, ax = _new_figure(figsize)
     ax.plot(E, cols[dos], color=PALETTE[0], label="DOS")
     ax.set_xlabel("Energy (eV)")
-    ax.set_ylabel(f"Density of states ({units.get(dos, 'arb. units')})")
+    set_ylabel_fit(ax, f"Density of states ({units.get(dos) or 'arb. units'})", fig=fig)
     ax.set_ylim(bottom=0)
-    if xlim:
-        ax.set_xlim(*xlim)
-    if integ:
+    ax.set_xlim(*(xlim or (E.min(), E.max())))
+    if mass:
         ax2 = ax.twinx()
-        ax2.plot(E, cols[integ], color=PALETTE[1], ls="--", label="Effective mass")
-        ax2.set_ylabel(f"Effective mass ({units.get(integ, '$m_e$')})")
-        ax2.minorticks_on()
+        ax2.spines["right"].set_visible(True)
+        ax2.grid(False)
+        ax2.plot(E, cols[mass], color=PALETTE[1], ls="--", label="Effective mass")
+        unit = units.get(mass, "")
+        unit = "$m_e$" if unit.lower() in ("", "me", "m_e") else unit
+        ax2.set_ylabel(f"Effective mass ({unit})")
         h1, l1 = ax.get_legend_handles_labels()
         h2, l2 = ax2.get_legend_handles_labels()
-        ax.legend(h1 + h2, l1 + l2, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2)
+        ax2.legend(h1 + h2, l1 + l2, loc="best")
+    add_title(ax, path, "Density of states", title)
     return fig
 
 
 # --------------------------------------------------------------------------- #
 #  Ion data: IMFP, dE/dx, effective charge, range (energies in MeV)
 # --------------------------------------------------------------------------- #
-def _ion_shell_plot(path, ylabel, ylog, ydecades, shell_names, xlog, xlim, ylim, figsize):
+def _ion_shell_plot(path, shell_names, figsize):
+    """Figure with the per-shell curves and the total of an ion file (energy in MeV)."""
     apply_style()
     data, _ = read_table(path)
-    x, Y = data[:, 0], data[:, 1:]                 # energy in MeV
+    x, Y = data[:, 0], data[:, 1:]
     _require(Y)
-    fig, ax = plt.subplots(figsize=figsize or SINGLE)
+    fig, ax = _new_figure(figsize)
     names = _shell_labels(path, Y.shape[1] - 1, shell_names)
     _shells_and_total(ax, x, Y, names)
     return fig, ax, Y
 
 
 def plot_ion_imfp(path, shell_names=None, xlog=True, ylog=True, xlim=None, ylim=None,
-                  ydecades=5, figsize=None):
+                  ydecades=5, figsize=None, title=True):
     """Ion inelastic mean free path versus ion energy, per shell and in total."""
-    fig, ax, Y = _ion_shell_plot(path, "", ylog, ydecades, shell_names, xlog, xlim, ylim, figsize)
+    fig, ax, Y = _ion_shell_plot(path, shell_names, figsize)
     if ylim is None and ylog and np.isfinite(_clean(Y[:, -1])).any():
         lo = np.nanmin(_clean(Y[:, -1]))
         ylim = (lo / 2, lo * 10 ** ydecades)
-    _finish(ax, "Ion energy (MeV)", f"Ion inelastic MFP ({ANG})", xlog, ylog, xlim, ylim, Y.shape[1])
+    _finish(fig, ax, "Ion energy (MeV)", f"Mean free path ({ANG})", xlog, ylog, xlim, ylim,
+            Y.shape[1])
+    add_title(ax, path, "Ion inelastic mean free path", title)
     return fig
 
 
 def plot_ion_dedx(path, shell_names=None, xlog=True, ylog=False, xlim=None, ylim=None,
-                  ydecades=5, figsize=None):
+                  ydecades=5, figsize=None, title=True):
     """Ion electronic energy loss dE/dx versus ion energy, per shell and in total."""
-    fig, ax, Y = _ion_shell_plot(path, "", ylog, ydecades, shell_names, xlog, xlim, ylim, figsize)
+    fig, ax, Y = _ion_shell_plot(path, shell_names, figsize)
     if not ylog:
         ax.set_ylim(bottom=0)
     elif ylim is None and np.isfinite(_clean(Y[:, -1])).any():
         hi = np.nanmax(_clean(Y[:, -1]))
         ylim = (hi / 10 ** ydecades, hi * 2)
-    _finish(ax, "Ion energy (MeV)", f"Energy loss $\\mathit{{dE/dx}}$ (eV {ANG}$^{{-1}}$)",
+    _finish(fig, ax, "Ion energy (MeV)", f"Energy loss $\\mathit{{dE/dx}}$ (eV {ANG}$^{{-1}}$)",
             xlog, ylog, xlim, ylim, Y.shape[1])
+    add_title(ax, path, "Electronic energy loss", title)
     return fig
 
 
-def plot_ion_zeff(path, xlog=True, xlim=None, ylim=None, figsize=None):
+def plot_ion_zeff(path, xlog=True, xlim=None, ylim=None, figsize=None, title=True):
     """Ion effective charge versus ion energy."""
     apply_style()
     data, _ = read_table(path)
-    fig, ax = plt.subplots(figsize=figsize or SINGLE)
+    fig, ax = _new_figure(figsize)
     ax.plot(data[:, 0], data[:, 1], color=PALETTE[0])
     ax.set_xlabel("Ion energy (MeV)")
-    ax.set_ylabel("Effective charge $\\mathit{Z}_{\\mathrm{eff}}$")
+    set_ylabel_fit(ax, "Effective charge $\\mathit{Z}_{\\mathrm{eff}}$", fig=fig)
     if xlog:
         ax.set_xscale("log")
     ax.set_xlim(*(xlim or (data[:, 0].min(), data[:, 0].max())))
     ax.set_ylim(*(ylim or (0, data[:, 1].max() * 1.05)))
+    add_title(ax, path, "Ion effective charge", title)
     return fig
 
 
-def plot_ion_range(path, xlog=True, ylog=True, xlim=None, ylim=None, figsize=None):
+def plot_ion_range(path, xlog=True, ylog=True, xlim=None, ylim=None, figsize=None, title=True):
     """Ion range (micrometres) versus ion energy. Input energies are read as eV
     and the range as Angstrom (units are taken from the file header when given)."""
     apply_style()
@@ -215,15 +248,10 @@ def plot_ion_range(path, xlog=True, ylog=True, xlim=None, ylim=None, figsize=Non
     x = data[:, 0] * e_scale                       # MeV
     rng = data[:, 2] * 1e-4                        # Angstrom -> micrometre
     _require(rng)
-    fig, ax = plt.subplots(figsize=figsize or SINGLE)
+    fig, ax = _new_figure(figsize)
     ax.plot(x, np.where(rng > 0, rng, np.nan), color=PALETTE[0])
-    _finish_simple(ax, "Ion energy (MeV)", "Range ($\\mu$m)", xlog, ylog, xlim, ylim)
-    return fig
-
-
-def _finish_simple(ax, xlabel, ylabel, xlog, ylog, xlim, ylim):
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
+    ax.set_xlabel("Ion energy (MeV)")
+    set_ylabel_fit(ax, "Range ($\\mu$m)", fig=fig)
     if xlog:
         ax.set_xscale("log")
     if ylog:
@@ -231,3 +259,5 @@ def _finish_simple(ax, xlabel, ylabel, xlog, ylog, xlim, ylim):
     ax.set_xlim(*(xlim or (ax.dataLim.x0, ax.dataLim.x1)))
     if ylim:
         ax.set_ylim(*ylim)
+    add_title(ax, path, "Ion range", title)
+    return fig

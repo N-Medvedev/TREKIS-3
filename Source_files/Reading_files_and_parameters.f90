@@ -457,6 +457,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       else
          write(*,'(a,a,a)') ' Folder ', trim(adjustl(Output_path)), ' was created, save output files into it'
          command='mkdir '//trim(adjustl(Output_path)) ! to create a folder use this command
+         !command='mkdir -p "'//trim(adjustl(Output_path))//'"'
          CALL system(command)  ! create the folder
       endif
    endif
@@ -2129,18 +2130,17 @@ subroutine copy_atomic_data_back(Target_atoms, Atoms_temp, Egap, N_e_VB, i, Nsiz
    endif
 
    Target_atoms(i)%N_shl = Shl
-
-   deallocate(Target_atoms(i)%Shell_name)
-   deallocate(Target_atoms(i)%Shl_num)
-   deallocate(Target_atoms(i)%Nel)
-   deallocate(Target_atoms(i)%Ip)
-   deallocate(Target_atoms(i)%Ek)
-   deallocate(Target_atoms(i)%Auger)
-   deallocate(Target_atoms(i)%Radiat)
-   deallocate(Target_atoms(i)%PQN)
-   deallocate(Target_atoms(i)%KOCS)
-   deallocate(Target_atoms(i)%KOCS_SHI)
-   if (allocated(Target_atoms(i)%Ritchi)) deallocate(Target_atoms(i)%Ritchi)
+   if (allocated(Target_atoms(i)%Shell_name))   deallocate(Target_atoms(i)%Shell_name)
+   if (allocated(Target_atoms(i)%Shl_num))      deallocate(Target_atoms(i)%Shl_num)
+   if (allocated(Target_atoms(i)%Nel))          deallocate(Target_atoms(i)%Nel)
+   if (allocated(Target_atoms(i)%Ip))           deallocate(Target_atoms(i)%Ip)
+   if (allocated(Target_atoms(i)%Ek))           deallocate(Target_atoms(i)%Ek)
+   if (allocated(Target_atoms(i)%Auger))        deallocate(Target_atoms(i)%Auger)
+   if (allocated(Target_atoms(i)%Radiat))       deallocate(Target_atoms(i)%Radiat)
+   if (allocated(Target_atoms(i)%PQN))          deallocate(Target_atoms(i)%PQN)
+   if (allocated(Target_atoms(i)%KOCS))         deallocate(Target_atoms(i)%KOCS)
+   if (allocated(Target_atoms(i)%KOCS_SHI))     deallocate(Target_atoms(i)%KOCS_SHI)
+   if (allocated(Target_atoms(i)%Ritchi))       deallocate(Target_atoms(i)%Ritchi)
 
    allocate(Target_atoms(i)%Shell_name(Shl)) ! allocate shell-names for each shell
    allocate(Target_atoms(i)%Shl_num(Shl)) ! allocate shell disignator for each shell
@@ -2154,17 +2154,17 @@ subroutine copy_atomic_data_back(Target_atoms, Atoms_temp, Egap, N_e_VB, i, Nsiz
    allocate(Target_atoms(i)%KOCS_SHI(Shl)) ! allocate kind of inelastic cross sections
    allocate(Target_atoms(i)%Ritchi(Shl)) ! allocate Ritchi-functions' coefficiants for each shell
 
-   Target_atoms(i)%Shell_name(1:Shl) = Atoms_temp(i)%Shell_name(1:Shl)
-   Target_atoms(i)%Shl_num(1:Shl) = Atoms_temp(i)%Shl_num(1:Shl)
-   Target_atoms(i)%Nel(1:Shl) = Atoms_temp(i)%Nel(1:Shl)
-   Target_atoms(i)%Ip(1:Shl) = Atoms_temp(i)%Ip(1:Shl)
-   Target_atoms(i)%Ek(1:Shl) = Atoms_temp(i)%Ek(1:Shl)
-   Target_atoms(i)%Auger(1:Shl) = Atoms_temp(i)%Auger(1:Shl)
-   Target_atoms(i)%Radiat(1:Shl) = Atoms_temp(i)%Radiat(1:Shl)
-   Target_atoms(i)%PQN(1:Shl) = Atoms_temp(i)%PQN(1:Shl)
-   Target_atoms(i)%KOCS(1:Shl) = Atoms_temp(i)%KOCS(1:Shl)
-   Target_atoms(i)%KOCS_SHI(1:Shl) = Atoms_temp(i)%KOCS_SHI(1:Shl)
-   !Target_atoms(i)%Ritchi(1:Shl) = Atoms_temp(i)%Ritchi(1:Shl)   ! undefined yet
+   Target_atoms(i)%Shell_name(1:Shl)    = Atoms_temp(i)%Shell_name(1:Shl)
+   Target_atoms(i)%Shl_num(1:Shl)       = Atoms_temp(i)%Shl_num(1:Shl)
+   Target_atoms(i)%Nel(1:Shl)           = Atoms_temp(i)%Nel(1:Shl)
+   Target_atoms(i)%Ip(1:Shl)            = Atoms_temp(i)%Ip(1:Shl)
+   Target_atoms(i)%Ek(1:Shl)            = Atoms_temp(i)%Ek(1:Shl)
+   Target_atoms(i)%Auger(1:Shl)         = Atoms_temp(i)%Auger(1:Shl)
+   Target_atoms(i)%Radiat(1:Shl)        = Atoms_temp(i)%Radiat(1:Shl)
+   Target_atoms(i)%PQN(1:Shl)           = Atoms_temp(i)%PQN(1:Shl)
+   Target_atoms(i)%KOCS(1:Shl)          = Atoms_temp(i)%KOCS(1:Shl)
+   Target_atoms(i)%KOCS_SHI(1:Shl)      = Atoms_temp(i)%KOCS_SHI(1:Shl)
+   !Target_atoms(i)%Ritchi(1:Shl)       = Atoms_temp(i)%Ritchi(1:Shl)   ! undefined yet
 
    if (i == 1) then  ! there is valence band, define it:
       Target_atoms(i)%Shell_name(Shl) = 'Valence'
@@ -2225,15 +2225,16 @@ subroutine copy_atomic_data(Target_atoms, Atoms_temp) ! below
       Atoms_temp(i)%KOCS_SHI = Target_atoms(i)%KOCS_SHI
       if (allocated(Target_atoms(i)%Ritchi)) then
          do j = 1, size(Atoms_temp(i)%Ritchi)
-            Nj = size(Target_atoms(i)%Ritchi(j)%A)
-            allocate(Atoms_temp(i)%Ritchi(j)%A(Nj))
-            allocate(Atoms_temp(i)%Ritchi(j)%E0(Nj))
-            allocate(Atoms_temp(i)%Ritchi(j)%Gamma(Nj))
-            allocate(Atoms_temp(i)%Ritchi(j)%alpha(Nj))
-            Atoms_temp(i)%Ritchi(j)%A = Target_atoms(i)%Ritchi(j)%A
-            Atoms_temp(i)%Ritchi(j)%E0 = Target_atoms(i)%Ritchi(j)%E0
-            Atoms_temp(i)%Ritchi(j)%Gamma = Target_atoms(i)%Ritchi(j)%Gamma
-            Atoms_temp(i)%Ritchi(j)%alpha = Target_atoms(i)%Ritchi(j)%alpha
+            if (allocated(Target_atoms(i)%Ritchi(j)%A)) then
+               allocate(Atoms_temp(i)%Ritchi(j)%A(Nj))
+               allocate(Atoms_temp(i)%Ritchi(j)%E0(Nj))
+               allocate(Atoms_temp(i)%Ritchi(j)%Gamma(Nj))
+               allocate(Atoms_temp(i)%Ritchi(j)%alpha(Nj))
+               Atoms_temp(i)%Ritchi(j)%A = Target_atoms(i)%Ritchi(j)%A
+               Atoms_temp(i)%Ritchi(j)%E0 = Target_atoms(i)%Ritchi(j)%E0
+               Atoms_temp(i)%Ritchi(j)%Gamma = Target_atoms(i)%Ritchi(j)%Gamma
+               Atoms_temp(i)%Ritchi(j)%alpha = Target_atoms(i)%Ritchi(j)%alpha
+            endif
          enddo
       endif
    enddo ! i
@@ -2483,6 +2484,17 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar,
     enddo
     
     SUM_DOS = Mat_DOS%int_DOS(size(Mat_DOS%E))   ! sum of all electrons in the DOS, to normalize it
+    if (SUM_DOS <= tiny(1.0d0)) then    ! DOS is made of zeros, no way to proceed
+       read_well = .false.
+       Error_descript = 'DOS normalization failed: total DOS is zero'
+       call Save_error_details(Error_message, 18, Error_descript, MPI_param) ! write it into the error-log file
+       read_well = .false.  ! incorrect DOS
+       print*, trim(adjustl(starline))
+       print*, trim(adjustl(Error_descript))
+       goto 2016
+       !return
+    endif
+
     Mat_DOS%DOS = Mat_DOS%DOS/SUM_DOS*Matter%N_VB_el    ! normalize it to the number of VB electron per molecule
     Mat_DOS%int_DOS = Mat_DOS%int_DOS/SUM_DOS*Matter%N_VB_el    ! normalize it to the number of VB electron per molecule
        
@@ -2772,11 +2784,15 @@ subroutine broadcast_DSF_cross_sections(DSF_DEMFP, read_well, NumPar, MPI_param,
    call mpi_bcast(Nsiz, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {DSF_DEMFP:Nsiz}') ! module "MPI_subroutines"
 
+   N1 = 0   ! to start with
    if (MPI_param%process_rank == 0) then
-      N1 = size(DSF_DEMFP(1)%dE)
-   else
-      N1 = 0
+      if (size(DSF_DEMFP) > 0) then
+         N1 = size(DSF_DEMFP(1)%dE)
+      else
+         N1 = 0
+      endif
    endif
+
    call mpi_bcast(N1, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, MPI_param%ierror)  ! module "mpi"
    call MPI_error_wrapper(MPI_param%process_rank, MPI_param%ierror, trim(adjustl(error_part))//' {DSF_DEMFP:N1}') ! module "MPI_subroutines"
 
@@ -3351,7 +3367,7 @@ subroutine Linear_approx_2d(Array, In_val, Value1, El1, El2)
              Value1 = El2+(Array(2,Number)-El2)/(Array(1,Number)-El1)*(In_val - El1)
           else ! only the X-starting point is known, Y is not, use some assumptions:
              if (size(Array,2) .GE. 2) then ! array is long enough to assume something:
-                if (Array(2,1) .GT. Array(2,1)) then ! it is locally decreasing array, assume starting point "infinity"
+                if (Array(2,1) .GT. Array(2,2)) then ! it is locally decreasing array, assume starting point "infinity"
                     Value1 = 1d21
                 else    ! it is locally increasing, assume starting point 'zero'
                     Value1 = Array(2,Number)/(Array(1,Number)-El1)*(In_val - El1)
@@ -3417,7 +3433,8 @@ subroutine Find_in_1D_array(Array, Value, Number)
    integer, INTENT(out) :: Number ! number of the element which we are looking for 
    integer i
    i = 1
-   do while (Array(i) .LT. Value)
+   !do while (Array(i) .LT. Value)
+   do while ((i < size(Array)) .and. (Array(i) < Value))
       i = i + 1
    enddo
    Number = i
@@ -3430,7 +3447,8 @@ subroutine Find_in_2D_array(Array, Value, Indx, Number)
    integer, INTENT(out) :: Number ! number of the element which we are looking for 
    integer i
    i = 1
-   do while (Array(Indx,i) .LT. Value)
+   !do while (Array(Indx,i) .LT. Value)
+   do while ((i < size(Array,2)) .and. (Array(Indx,i) < Value))
       i = i + 1
    enddo
    Number = i
