@@ -38,11 +38,12 @@ def _select_times(mt, times):
     return mt.times[idx], mt.y[:, idx]
 
 
-def require_data(y, what="data"):
-    """Raise ValueError if there is nothing to draw (all values zero, negative or missing)."""
+def require_data(y, what="data", allow_negative=False):
+    """Raise ValueError if there is nothing finite and plottable to draw."""
     y = np.asarray(y, float)
-    if not np.any(np.isfinite(y) & (y > 0)):
-        raise ValueError(f"no non-zero {what} (all values are zero or missing), nothing to plot")
+    mask = np.isfinite(y) & (y != 0 if allow_negative else y > 0)
+    if not np.any(mask):
+        raise ValueError(f"no non-zero {what} (all values are zero, negative or missing), nothing to plot")
 
 
 def _positive(y):
@@ -93,54 +94,133 @@ def _xlim_nonzero(x, y, pad=1.25):
     return lo, hi
 
 
+def _measure_top_margin_px(fig, ax):
+    """Return how many pixels `ax.yaxis.label`'s top edge is inside (`> 0`)
+    or above (`< 0`) the top edge of the figure canvas."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    fig_bbox = fig.get_window_extent(renderer=renderer)
+    ylabel_bbox = ax.yaxis.label.get_window_extent(renderer=renderer)
+    return float(fig_bbox.y1 - ylabel_bbox.y1)
+
+
+def _set_ylabel_fit(ax, text, fig=None, min_pad_px=2.0, min_scale=0.6, step=0.05):
+    """Keep the y-axis label on a single line at full font size unless its top
+    edge actually goes past the upper side of the figure."""
+    if fig is None:
+        fig = ax.figure
+    base_fs = float(plt.rcParams.get("axes.labelsize", 9))
+
+    ax.set_ylabel(text, fontsize=base_fs)
+    margin_px = _measure_top_margin_px(fig, ax)
+    if margin_px >= min_pad_px:
+        return
+
+    best_fs = base_fs
+    best_margin = margin_px
+    scales = np.arange(1.0 - step, min_scale - 1e-9, -step)
+
+    for scale in scales:
+        fs = base_fs * float(scale)
+        ax.set_ylabel(text, fontsize=fs)
+        cur_margin = _measure_top_margin_px(fig, ax)
+        if cur_margin > best_margin:
+            best_fs, best_margin = fs, cur_margin
+        if cur_margin >= min_pad_px:
+            return
+
+    ax.set_ylabel(text, fontsize=best_fs)
+
+
 # --------------------------------------------------------------------------- #
 #  Time series: Total_numbers.txt, Total_energies.txt
 # --------------------------------------------------------------------------- #
+def _load_extra_column(base_ts, companion_path, col_name="Energy[eV]"):
+    """Load `col_name` from `companion_path` aligned to `base_ts.time`.
+    Returns (name, unit, values) or None if unavailable.
+    """
+    companion_path = Path(companion_path)
+    if not companion_path.is_file():
+        return None
+    extra_ts = read_time_series(companion_path)
+
+    target_base = col_name.split("[", 1)[0].strip()
+    idx = None
+    for i, name in enumerate(extra_ts.names):
+        if name == col_name or name.strip() == target_base:
+            idx = i
+            break
+    if idx is None:
+        return None
+
+    values = np.asarray(extra_ts.data[:, idx], float)
+    if not np.array_equal(extra_ts.time, base_ts.time):
+        values = np.interp(base_ts.time, extra_ts.time, values)
+
+    unit = extra_ts.units[idx] if idx < len(extra_ts.units) and extra_ts.units[idx] else ""
+    if not unit and "[" in col_name and "]" in col_name:
+        unit = col_name.split("[", 1)[1].split("]", 1)[0].strip()
+
+    return extra_ts.names[idx], unit, values
+
+
 def plot_time_series(path, hide_empty=True, xlog=True, columns=None, figsize=None):
     """Quantities versus time. Energy columns (unit eV) and particle numbers are
     put in separate panels. All-zero columns are hidden unless hide_empty=False;
     `columns` restricts the plot to the given column names."""
     apply_style()
+    path = Path(path)
     ts = read_time_series(path)
+
+    series_list = [
+        (ts.names[i], ts.units[i], ts.data[:, i])
+        for i in range(1, len(ts.names))
+    ]
+
+    if path.name.lower() == "total_energies.txt":
+        extra = _load_extra_column(ts, path.with_name("Total_numbers.txt"), "Energy[eV]")
+        if extra is not None and all(s[0] != extra[0] for s in series_list):
+            series_list.append(extra)
+
     energy, number = [], []
-    for i in range(1, len(ts.names)):
-        name = ts.names[i]
+    for name, unit, data in series_list:
         if columns is not None and name not in columns:
             continue
-        if hide_empty and not np.any(ts.data[:, i] != 0):
+        if hide_empty and not np.any(data != 0):
             continue
-        (energy if ts.units[i].lower() == "ev" else number).append(i)
+        (energy if unit.lower() == "ev" else number).append((name, data))
+
     groups = [(g, lab) for g, lab in ((number, "Number of particles"),
                                       (energy, "Energy (eV)")) if g]
     if not groups:
         raise ValueError(f"Nothing to plot in {path}")
 
-    fs = figsize or (SINGLE if len(groups) == 1 else (SINGLE[0], SINGLE[1] * 1.55))
-    fig, axes = plt.subplots(len(groups), 1, sharex=True, figsize=fs, squeeze=False)
+    fs = figsize or SINGLE
+    fig, axes = plt.subplots(
+        len(groups), 1, sharex=True, figsize=fs, squeeze=False, layout="constrained"
+    )
     t = ts.time
     pos = t > 0 if xlog else np.ones_like(t, bool)
 
-    k = 0
-    for ax, (idx, ylabel) in zip(axes[:, 0], groups):
-        for n, i in enumerate(idx):
-            ax.plot(t[pos], ts.data[pos, i], color=PALETTE[n % len(PALETTE)],
+    for ax, (items, ylabel) in zip(axes[:, 0], groups):
+        for n, (name, data) in enumerate(items):
+            ax.plot(t[pos], data[pos], color=PALETTE[n % len(PALETTE)],
                     ls=LINESTYLES[(n // len(PALETTE)) % len(LINESTYLES)],
-                    label=labels.series_label(ts.names[i]))
-        ax.set_ylabel(ylabel)
-        if all(ts.data[pos, i].min() >= 0 for i in idx):
+                    label=labels.series_label(name))
+        _set_ylabel_fit(ax, ylabel, fig=fig)
+        if all(data[pos].min() >= 0 for _, data in items):
             ax.set_ylim(bottom=0)
-        top = max(ts.data[pos, i].max() for i in idx)
+        top = max(data[pos].max() for _, data in items)
         if top > 0:
-            ax.set_ylim(top=top * (1.12 + 0.12 * ((len(idx) + 2) // 3)))
-        ax.legend(loc="upper center", ncol=min(3, len(idx)), columnspacing=1.0,
+            ax.set_ylim(top=top * (1.12 + 0.12 * ((len(items) + 2) // 3)))
+        ax.legend(loc="upper center", ncol=min(3, len(items)), columnspacing=1.0,
                   handletextpad=0.5)
-        k += 1
+
     ax = axes[-1, 0]
     if xlog:
         ax.set_xscale("log")
     ax.set_xlim(t[pos].min(), t.max())
     ax.set_xlabel("Time (fs)")
-    fig.align_ylabels(axes[:, 0])
     return fig
 
 
@@ -153,11 +233,11 @@ def plot_radial(path, times=None, xlog=True, ylog=True, ydecades=8, xlim=None, y
     apply_style()
     mt = read_multi_time(path)
     tt, y = _select_times(mt, times)
-    require_data(y)
-    fig, ax = plt.subplots(figsize=figsize or SINGLE)
+    require_data(y, allow_negative=not ylog)
+    fig, ax = plt.subplots(figsize=figsize or SINGLE, layout="constrained")
     colours, norm = _plot_curves(ax, mt.x, y, tt, ylog)
     ax.set_xlabel(f"Radius $\\mathit{{r}}$ ({labels.ANGSTROM})")
-    ax.set_ylabel(labels.radial_ylabel(path))
+    _set_ylabel_fit(ax, labels.radial_ylabel(path), fig=fig)
     if xlog:
         ax.set_xscale("log")
     if ylog:
@@ -179,11 +259,11 @@ def plot_spectrum(path, times=None, xlog=True, ylog=True, ydecades=8, xlim=None,
     apply_style()
     mt = read_multi_time(path)
     tt, y = _select_times(mt, times)
-    require_data(y)
-    fig, ax = plt.subplots(figsize=figsize or SINGLE)
+    require_data(y, allow_negative=not ylog)
+    fig, ax = plt.subplots(figsize=figsize or SINGLE, layout="constrained")
     colours, norm = _plot_curves(ax, mt.x, y, tt, ylog)
     ax.set_xlabel("Energy $\\mathit{E}$ (eV)")
-    ax.set_ylabel(f"{labels.multi_body(path)} spectrum (arb. units)")
+    _set_ylabel_fit(ax, f"{labels.multi_body(path)} spectrum (arb. units)", fig=fig)
     if xlog:
         ax.set_xscale("log")
     if ylog:
@@ -199,16 +279,16 @@ def plot_spectrum(path, times=None, xlog=True, ylog=True, ydecades=8, xlim=None,
 # --------------------------------------------------------------------------- #
 #  Angular distributions: *_theta_distribution.txt
 # --------------------------------------------------------------------------- #
-def plot_theta(path, times=None, ylog=False, xlim=(0, 180), ylim=None, figsize=None, ydecades=6):
+def plot_theta(path, times=None, ylog=True, xlim=(0, 180), ylim=None, figsize=None, ydecades=6):
     """Angular distribution of particles, one curve per time."""
     apply_style()
     mt = read_multi_time(path)
     tt, y = _select_times(mt, times)
-    require_data(y)
-    fig, ax = plt.subplots(figsize=figsize or SINGLE)
+    require_data(y, allow_negative=not ylog)
+    fig, ax = plt.subplots(figsize=figsize or SINGLE, layout="constrained")
     colours, norm = _plot_curves(ax, mt.x, y, tt, ylog)
     ax.set_xlabel(r"Polar angle $\theta$ (deg)")
-    ax.set_ylabel(f"{labels.multi_body(path)} angular distribution (arb. units)")
+    _set_ylabel_fit(ax, f"{labels.multi_body(path)} angular distribution (arb. units)", fig=fig)
     ax.set_xlim(*xlim)
     ax.set_xticks(np.arange(0, 181, 30))
     if ylog:
@@ -273,7 +353,7 @@ def save_figure(fig, path, out_dir=None, formats=("png", "pdf"), dpi=300):
     saved = []
     for fmt in formats:
         target = out_dir / f"{base}.{fmt}"
-        fig.savefig(target, dpi=dpi)
+        fig.savefig(target, dpi=dpi, bbox_inches="tight", pad_inches=0.03)
         saved.append(target)
     return saved
 
