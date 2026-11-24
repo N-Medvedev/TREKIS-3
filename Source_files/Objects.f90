@@ -140,9 +140,16 @@ type :: Flag
     integer :: CDF_elast_Zeff ! kind of effective charge of target atoms (1=1, 0=Barkas-like Zeff)
     logical :: print_CDF    ! printout CDF coefficients file or not
     logical :: print_CDF_optical    ! printout optical limit of the CDF function file or not
-    logical :: do_gnuplot   ! make gnuplot scripts or not
     logical :: get_thermal  ! calculate thermal parameters
+
+    ! Plotting options:
     character(15) :: plot_extension ! file extension for plots (made with gnuplot)
+    logical :: do_gnuplot   ! make gnuplot scripts or not
+    logical :: do_python               ! make plots with the python package TREKIS3_python_plots
+    character(30)  :: python_formats   ! image formats, e.g. 'png pdf'
+    character(100) :: python_cmd       ! command that starts python
+    character(300) :: python_script    ! launcher of the package ('' = TREKIS3_python_plots/run.py)
+
     ! Flags for automatic recalcultion of MFPs:
     logical :: redo_IMFP, redo_EMFP, redo_IMFP_SHI ! do we have to?
     integer :: Last_mod_time_CDF, Last_mod_time_DSF ! Time when the CDF- and DSF-files were last modified
