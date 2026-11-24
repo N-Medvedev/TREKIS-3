@@ -64,6 +64,9 @@ character(25), parameter :: m_INPUT_file = 'INPUT_PARAMETERS.txt'
 character(10), parameter :: m_INPUT_CDF = 'INPUT_CDF'
 character(10), parameter :: m_INPUT_DOS = 'INPUT_DOS'
 character(10), parameter :: m_INPUT_DSF = 'INPUT_DSF'
+character(25), parameter :: m_PYTHON_folder = 'TREKIS3_python_plots'
+character(10), parameter :: m_PYTHON_script = 'run.py'
+
 !character(10), parameter :: m_INPUT_EADL = 'INPUT_EADL'
 
 contains
@@ -128,8 +131,6 @@ subroutine set_default_numpar(Numpar)
    NumPar%field_include = .false.   ! no fields (bc NOT READY!)
    NumPar%print_CDF = .false. ! don't print CDF file out
    NumPar%print_CDF_optical = .false.  ! don't print optical CDF
-   NumPar%do_gnuplot = .true. ! gnuplot by default
-   NumPar%plot_extension = 'jpeg' ! default jpeg-files
    NumPar%get_thermal = .false.   ! default: no thermal parameters
    NumPar%CS_method = 1    ! choice of the method of CS integration (integration grid): default - tabulated files
    NumPar%DOS_file = ''    ! no optional name, to use default
@@ -141,6 +142,16 @@ subroutine set_default_numpar(Numpar)
    NumPar%dt_flag = 1      ! kind of time-grid (0=linear;1=log)
    NumPar%CDF_elast_Zeff = 0 ! kind of effective charge of target atoms (1=1, 0=Barkas-like Zeff)
    NumPar%out_dim = 1         ! dimensionality of the output plots: 0 = eV/A^3 (old); 1=eV/atom
+
+   ! Plotting:
+   NumPar%do_gnuplot = .true.           ! gnuplot by default
+   NumPar%plot_extension = 'jpeg'       ! default jpeg-files
+   NumPar%do_python = .false.           ! no python plots unless requested
+   NumPar%python_formats = 'png'        ! can do multiple e.g. "png pdf jpeg"
+   NumPar%python_cmd = 'python'         ! default command line call of python
+   ! default path to the main python script:
+   NumPar%python_script = trim(adjustl(m_PYTHON_folder))//trim(adjustl(NumPar%path_sep))//trim(adjustl(m_PYTHON_script))
+
    ! Printout for testing:
    NumPar%verbose = .false.
    NumPar%very_verbose = .false.
@@ -409,7 +420,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       call interpret_additional_data_INPUT(text, NumPar, MPI_param) ! below
    enddo RDID
    ! If gnuplotting is required:
-   if (NumPar%do_gnuplot) then
+   if (NumPar%do_gnuplot .or. NumPar%do_python) then
       allocate(File_names%F(100))
    endif
 
@@ -1033,6 +1044,40 @@ subroutine interpret_additional_data_INPUT(text_in, NumPar, MPI_param)
             print*, "Gnuplot scripts will be created with extension '."//trim(adjustl(NumPar%plot_extension))//"'"
          endif
       end select
+
+
+   ! Python plotting:
+   case ('python', 'PYTHON', 'Python', "py", 'Py', "PY")
+      NumPar%do_python = .true.   ! use the python package to create plots
+      ! Optional: image format ('png', 'pdf', ...) or 'no' to switch it off:
+      read(text_in, *, IOSTAT=Reason) text, text2
+      call read_file(Reason, i, read_well, do_silent=.true.) ! reports if everything read well
+      if (read_well) then
+         select case (trim(adjustl(text2)))
+         case ('NO', 'No', 'no')
+            NumPar%do_python = .false.
+         case default
+            NumPar%python_formats = trim(adjustl(text2))
+         end select
+      endif
+      if (MPI_param%process_rank == 0) then   ! only MPI master process does it
+         if (NumPar%do_python) then
+            print*, "Python plots will be created, formats: ", trim(adjustl(NumPar%python_formats))
+         else
+            print*, 'No python plots will be created'
+         endif
+      endif
+
+   case ('python_cmd', 'PYTHON_CMD', 'Python_cmd', "python_call", "Python_call", "PYTHON_CALL")   ! command starting python (python3, py, ...)
+      read(text_in, *, IOSTAT=Reason) text, text2
+      call read_file(Reason, i, read_well, do_silent=.true.)
+      if (read_well) NumPar%python_cmd = trim(adjustl(text2))
+
+   case ('python_script', 'PYTHON_SCRIPT', 'Python_script')     ! location of TREKIS3_python_plots/run.py
+      read(text_in, *, IOSTAT=Reason) text, text2               ! put the path in quotes if it contains spaces
+      call read_file(Reason, i, read_well, do_silent=.true.)
+      if (read_well) NumPar%python_script = trim(adjustl(text2))
+
 
    case ('redo_MFP', 'REDO_MFP', 'Redo_MFP', 'redo_mfp')
       NumPar%redo_IMFP = .true. ! recalculate inelastic MFPs, if possible

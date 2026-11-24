@@ -51,6 +51,7 @@
 #include 'Variables.f90'
 #include 'Dealing_with_EADL.f90'
 #include 'Gnuplotting_subs.f90'
+#include 'Python_plotting_subs.f90'
 #include 'Reading_files_and_parameters.f90'
 #include 'Cross_sections.f90'
 #include 'Analytical_IMFPs.f90'
@@ -66,6 +67,8 @@ use Universal_Constants
 use Objects
 use Variables
 use Gnuplotting_subs, only: Gnuplot_ion, Gnuplot_electron_hole, Gnuplot_transients
+use Python_plotting_subs, only: Python_plots
+
 use Reading_files_and_parameters, only: Read_input_file, get_num_shells, Find_VB_numbers, print_time_step, &
                                     get_add_data, set_default_numpar
 use Sorting_output_data, only: TREKIS_title, Radius_for_distributions, Allocate_out_arrays, Save_output, &
@@ -170,13 +173,22 @@ if (.not. read_well) goto 2012  ! if we couldn't read the input files, there is 
 
 call Equilibrium_charge_SHI(SHI, Target_atoms)  ! get Barcas' equilibrium charge from module Cross_sections
 
+
 ! Plot SHI's parameters if requisted:
+! a) gnuplot option:
 if (NumPar%do_gnuplot) then
     if (MPI_param%process_rank == 0) then   ! only MPI master process does it
         call Gnuplot_ion(NumPar, SHI, Target_atoms, File_names, Output_path_SHI)   ! module "Gnuplotting_subs"
     endif
 endif
+! b) python option:
+if (NumPar%do_python) then
+    if (MPI_param%process_rank == 0) then
+        call Python_plots(NumPar, Output_path_SHI, .false.) ! module "Python_plotting_subs"
+    endif
+endif
 3012 continue ! if the ion skipped, go on from here:
+
 
 ! 1) Electron MFPs:
 if (NumPar%verbose) call print_time_step('Starting electron mean-free-paths calculations:', MPI_param, msec=.true.)
@@ -200,12 +212,21 @@ else
    allocate(Total_Photon_MFPs(0))
 endif
 
+
 ! Plot electron, hole, and photon MFPs, as well as DOS, if requisted:
+! a) gnuplot option:
 if (NumPar%do_gnuplot) then
     if (MPI_param%process_rank == 0) then   ! only MPI master process does it
         call Gnuplot_electron_hole(NumPar, Target_atoms, File_names, Output_path)   ! module "Gnuplotting_subs"
     endif
 endif
+! b) python option:
+if (NumPar%do_python) then
+    if (MPI_param%process_rank == 0) then
+        call Python_plots(NumPar, Output_path, .false.) ! module "Python_plotting_subs"
+    endif
+endif
+
 
 
 !TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
@@ -325,10 +346,23 @@ call Deallocate_out_arrays(Out_tot_Ne, Out_tot_Nphot, Out_tot_E, Out_E_e, Out_E_
     Out_Elat, Out_nh, Out_Eh, Out_Ehkin, Out_Eat_dens, Out_theta, Out_theta_h, Out_field_all, Out_Ne_Em, Out_E_Em, &
     Out_Ee_vs_E_Em, Out_E_field)       ! module 'Sorting_output_data.f90'
 
-! Gnuplot the data, if requested:
+
+! Plot the MC data, if requested:
+! a) gnuplot option:
 if (MPI_param%process_rank == 0) then   ! only MPI master process does it
-    call Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)   ! module "Gnuplotting_subs"
+    if (NumPar%do_gnuplot) then
+       call Gnuplot_transients(Tim, NumPar, Matter, Target_atoms, File_names)   ! module "Gnuplotting_subs"
+    endif
 endif
+! b) python option:
+if (MPI_param%process_rank == 0) then
+    if (NumPar%do_python) then
+       call Python_plots(NumPar, File_names%F(10), .false.)  ! module "Python_plotting_subs"
+    endif
+endif
+
+
+
 !MCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMCMC
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

@@ -48,7 +48,7 @@ cd Source_files
 
 :: List of all program files to be compiled
    SET "List_of_files=Universal_MC_for_SHI_MAIN.f90"
-   SET "List_of_modules=Universal_Constants.f90 Objects.f90 MPI_subroutines.f90 Variables.f90 Dealing_with_EADL.f90 Gnuplotting_subs.f90 Reading_files_and_parameters.f90 Cross_sections.f90 Analytical_IMFPs.f90 Monte_Carlo.f90 Thermal_parameters.f90 Sorting_output_data.f90 Universal_MC_for_SHI_MAIN.f90"
+   SET "List_of_modules=Universal_Constants.f90 Objects.f90 MPI_subroutines.f90 Variables.f90 Dealing_with_EADL.f90 Gnuplotting_subs.f90 Python_plotting_subs.f90 Reading_files_and_parameters.f90 Cross_sections.f90 Analytical_IMFPs.f90 Monte_Carlo.f90 Thermal_parameters.f90 Sorting_output_data.f90 Universal_MC_for_SHI_MAIN.f90"
 
 :: Compile with MPI or not:
    IF /I %arg1%==MPI (

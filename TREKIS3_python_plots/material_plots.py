@@ -131,7 +131,8 @@ def plot_dos(path, xlim=None, figsize=None):
     cols, units = read_dos(path)
     E = cols[next(k for k in cols if k.lower().startswith("e"))]
     dos = next(k for k in cols if k.upper().startswith("DOS"))
-    integ = next((k for k in cols if "int" in k.lower()), None)
+    #integ = next((k for k in cols if "int" in k.lower()), None)
+    integ = next((k for k in cols if "eff" in k.lower()), None)
     fig, ax = plt.subplots(figsize=figsize or SINGLE)
     ax.plot(E, cols[dos], color=PALETTE[0], label="DOS")
     ax.set_xlabel("Energy (eV)")
@@ -141,8 +142,8 @@ def plot_dos(path, xlim=None, figsize=None):
         ax.set_xlim(*xlim)
     if integ:
         ax2 = ax.twinx()
-        ax2.plot(E, cols[integ], color=PALETTE[1], ls="--", label="Integrated DOS")
-        ax2.set_ylabel(f"Integrated DOS ({units.get(integ, 'arb. units')})")
+        ax2.plot(E, cols[integ], color=PALETTE[1], ls="--", label="Effective mass")
+        ax2.set_ylabel(f"Effective mass ({units.get(integ, '$m_e$')})")
         ax2.minorticks_on()
         h1, l1 = ax.get_legend_handles_labels()
         h2, l2 = ax2.get_legend_handles_labels()
