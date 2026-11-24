@@ -88,7 +88,7 @@ implicit none
 
 !VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
 #ifdef _OPENMP
-integer OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS ! OMP-related variables must be declared here
+integer :: OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS ! OMP-related variables must be declared here
 #endif
 !VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
 Error_message%Err = .false. ! no errors at the beginning, turn it into 'true' if any occurs
@@ -213,7 +213,7 @@ else
 endif
 
 
-! Plot electron, hole, and photon MFPs, as well as DOS, if requisted:
+! Plot electron, hole, and photon MFPs, as well as DOS, if requested:
 ! a) gnuplot option:
 if (NumPar%do_gnuplot) then
     if (MPI_param%process_rank == 0) then   ! only MPI master process does it
@@ -323,15 +323,17 @@ if (MPI_param%process_rank == 0) then   ! only MPI master process does it
     Out_E_Em = Out_E_Em/dble(NMC)
     Out_Ee_vs_E_Em = Out_Ee_vs_E_Em/dble(NMC)
     Out_diff_coeff = Out_diff_coeff/dble(NMC)
-    do k = 1, size(Out_Distr%Atom(1)%Shl(1)%nh,1) ! for all the timesteps:
-        do i = 1, size(Out_Distr%Atom)    ! for all atoms
+    if (size(Out_Distr%Atom) > 0) then  ! make sure there is at least one atom
+       do k = 1, size(Out_Distr%Atom(1)%Shl(1)%nh,1) ! for all the timesteps:
+          do i = 1, size(Out_Distr%Atom)    ! for all atoms
             do j = 1, size(Out_Distr%Atom(i)%Shl)    ! for all shells of atom
                 Out_Distr%Atom(i)%Shl(j)%nh(k,:) = Out_nh(k,:,i,j)/dble(NMC)
                 Out_Distr%Atom(i)%Shl(j)%Eh(k,:) = Out_Eh(k,:,i,j)/dble(NMC)
                 Out_Distr%Atom(i)%Shl(j)%Ehkin(k,:) = Out_Ehkin(k,:,i,j)/dble(NMC)
             enddo ! j
-        enddo   ! i
-    enddo   ! k
+          enddo   ! i
+      enddo   ! k
+    endif ! (size(Out_Distr%Atom) > 0)
 endif ! (MPI_param%process_rank == 0)
 !OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
 call Save_output(Output_path_SHI, File_names, ctim, NMC, Num_th, Tim, dt, Material_name, Matter, Target_atoms, Mat_DOS, CDF_Phonon, &
@@ -371,10 +373,11 @@ endif
 2012 continue
 
 if (MPI_param%process_rank == 0) then   ! only MPI master process does it
-    call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
-    as1=dble(24*60*60*(c1(3)-ctim(3))+3600*(c1(5)-ctim(5))+60*(c1(6)-ctim(6))+(c1(7)-ctim(7))+(c1(8)-ctim(8))*0.001) ! sec
+    !call date_and_time(values=c1)	    ! For calculation of the time of execution of the program
+    !as1=dble(24*60*60*(c1(3)-ctim(3))+3600*(c1(5)-ctim(5))+60*(c1(6)-ctim(6))+(c1(7)-ctim(7))+(c1(8)-ctim(8))*0.001) ! sec
+    !call parse_time(as1, Text_var) ! module "Sorting_output_data.f90"
+    call parse_time(Text_var, c0_in=ctim)     ! module "Sorting_output_data"
 
-    call parse_time(as1, Text_var) ! module "Sorting_output_data.f90"
     print*, '   '
     write(*,'(a, a)') 'Duration of execution of the program: ', trim(adjustl(Text_var))
     print*, '   '
@@ -416,7 +419,7 @@ endif
 #ifdef MPI_USED
 	!write(*,'(a,i0,a)') '[MPI process #', MPI_param%process_rank, '] test 3'
 	if (MPI_param%process_rank == 0) then   ! only MPI master process does it
-        print*, 'Finilizing MPI'
+        print*, 'Finalizing MPI'
 	endif
 	call MPI_FINALIZE(MPI_param%ierror)
 	if (MPI_param%ierror /= 0) then
