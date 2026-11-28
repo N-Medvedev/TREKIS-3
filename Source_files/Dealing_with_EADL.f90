@@ -71,6 +71,7 @@ subroutine Decompose_compound(Name, path_sep, Target_atoms, read_well)
       leng = LEN(trim(adjustl(Name))) ! how many characters are in the name
       
       num = 0 ! how many different elements are in this compound
+      C = 0   ! to start with
       El = '   ' ! start a new name
       do i = 1,leng ! compare all name character by character
          if (verify(trim(adjustl(Name(i:i))),trim(adjustl(numbers))) == 0) then ! it's an integer number
@@ -217,6 +218,9 @@ subroutine find_atomic_number(Name, Z, Full_name, M, Periodic_table, read_well)
       if (i == N) then
          print*, trim(adjustl(Name)), ' - such an element was not found in our database...'
          read_well = .false.
+         Z = -1 ! info that nothing was found
+         if (present(M)) M = 0.0d0
+         if (present(Full_name)) Full_name = ''
       endif
    enddo
 end subroutine find_atomic_number
@@ -338,7 +342,14 @@ subroutine check_atomic_parameters(NumPar, Target_atoms, N_at, cur_shl, shl, Err
          
          if (Target_atoms(N_at)%Ek(cur_shl) .LE. 0.0d0) then ! nondefined in the input file, find the default value from EADL:
             if (Target_atoms(N_at)%Shl_num(cur_shl) .GE. 62) then ! find approximate Ekin for the VB:
-               call next_designator(Shl_dsgtr, Target_atoms(N_at)%Shl_num(cur_shl-1)) ! find the designator for the VB (next shell after last one)
+               ! find the designator for the VB (next shell after last one)
+               !call next_designator(Shl_dsgtr, Target_atoms(N_at)%Shl_num(cur_shl-1)) ! find the designator for the VB (next shell after last one)
+               if (cur_shl > 1) then  ! if there is more then one shell:
+                  call next_designator(Shl_dsgtr, Target_atoms(N_at)%Shl_num(cur_shl-1))
+               else ! one shell, nothing to find:
+                  Shl_dsgtr = Target_atoms(N_at)%Shl_num(cur_shl)
+               endif
+
             else
                Shl_dsgtr = Target_atoms(N_at)%Shl_num(cur_shl)
             endif
@@ -366,7 +377,13 @@ subroutine check_atomic_parameters(NumPar, Target_atoms, N_at, cur_shl, shl, Err
             Target_atoms(N_at)%Auger(cur_shl)=1.0d23 ! [fs] not possible process => infinite time
          else if ((Target_atoms(N_at)%Auger(cur_shl) .LE. 0.0d0) .OR. (Target_atoms(N_at)%Auger(cur_shl) .GT. 1.0d30)) then
             call READ_EADL_TYPE_FILE_real(FN1, File_name_EADL, Z, 922, Target_atoms(N_at)%Auger, cur_shl, shl, Target_atoms(N_at)%Shl_num(cur_shl)) ! read auger-times
-            Target_atoms(N_at)%Auger(cur_shl)=1d15*g_h/(g_e*Target_atoms(N_at)%Auger(cur_shl)) ! [fs]
+            !Target_atoms(N_at)%Auger(cur_shl)=1d15*g_h/(g_e*Target_atoms(N_at)%Auger(cur_shl)) ! [fs]
+            if (Target_atoms(N_at)%Auger(cur_shl) <= 1.0d-20) then  ! zero line width, no decay
+               Target_atoms(N_at)%Auger(cur_shl) = 1.0d35
+            else
+               Target_atoms(N_at)%Auger(cur_shl) = 1d15*g_h/(g_e*Target_atoms(N_at)%Auger(cur_shl)) ! [fs]
+            endif
+
          endif
       else ! for all shells of this atom:
          Nat = size(Target_atoms)
@@ -380,7 +397,13 @@ subroutine check_atomic_parameters(NumPar, Target_atoms, N_at, cur_shl, shl, Err
             !print*, 'Atom:',i, Nat, size(Target_atoms(i)%Ip), size(Target_atoms(i)%Ek), size(Target_atoms(i)%Radiat), size(Target_atoms(i)%Auger)
             do j = 1,size(Target_atoms(i)%Ip)
                !print*, 'Shell',j, size(Target_atoms(i)%Ip)
-               Target_atoms(i)%Auger(j)=1d15*g_h/(g_e*Target_atoms(i)%Auger(j)) ! [fs]
+               !Target_atoms(i)%Auger(j)=1d15*g_h/(g_e*Target_atoms(i)%Auger(j)) ! [fs]
+               if (Target_atoms(i)%Auger(j) <= 1.0d-30) then ! zero line width, no decay
+                  Target_atoms(i)%Auger(j) = 1.0d35
+               else
+                  Target_atoms(i)%Auger(j) = 1d15*g_h/(g_e*Target_atoms(i)%Auger(j))  ! [fs]
+               endif
+
                if ((Target_atoms(i)%Shl_num(j) .GE. 63) .OR. (.not.NumPar%include_photons)) then
                   Target_atoms(i)%Radiat(j)=1d23 ! [fs] not possible process (or not included) => infinite time
                else
@@ -946,8 +969,13 @@ subroutine Find_value_while_reading(FN, Iflag, counter, EndCheck, E_photon, OUT_
    real(8), intent(out) :: OUT_value
    real(8) READ1, READ2, E1, E2, Sigma1, Sigma2
    LOGICAL :: Firsttime
-   Firsttime = .true.
-   counter = 0
+
+   Firsttime = .true. ! to start with
+   counter = 0        ! to start with
+   OUT_value = 0.0d0  ! to start with
+   READ1 = 0.0d0      ! to start with
+   READ2 = 0.0d0      ! to start with
+
    do while (EndCheck .NE. 1) ! until end of data for this sub-shell/input
       counter = counter + 1 ! how many lines are there
       read(FN,9997) EndCheck  			! 3st line, cheking...

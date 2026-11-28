@@ -353,7 +353,8 @@ subroutine Save_error_details_noMPI(Err_name, Err_num, Err_data)
    Err_name%Err = .true.    ! error occured, mark it as "true"
    Err_name%Err_Num = Err_num   ! number of error we asign to it
    Err_name%Err_descript = Err_data ! descriptino of an error
-   write(FN, '(a,i2,1x,a)') 'Error #', Err_name%Err_Num, trim(adjustl(Err_name%Err_descript))   ! write it all into the file
+   !write(FN, '(a,i2,1x,a)') 'Error #', Err_name%Err_Num, trim(adjustl(Err_name%Err_descript))   ! write it all into the file
+   write(FN,'(a,i0,1x,a)')  'Error #', Err_name%Err_Num, trim(adjustl(Err_name%Err_descript))   ! write it all into the file
 end subroutine Save_error_details_noMPI
 
 
@@ -431,21 +432,35 @@ subroutine Check_size(Electrons, Holes, Photons, N)
     integer, intent(in) :: N    ! the number of particle from the array
     integer i, j, M
     if (present(Electrons) .AND. present(Holes)) then
+        if (.not.allocated(Electrons)) then
+           allocate(Electrons(N))
+        endif
+        if (.not.allocated(Holes)) then
+           allocate(Holes(N))
+        endif
+
         i = size(Electrons)
         j = size(Holes)
         if (N .GT. i) then    ! increase the array size
-            print*, 'Size of arrays All_electrons and All_holes was increased by 1000'
-            M = i + 1000
-            !M = N
+            print*, 'Size of arrays All_electrons and All_holes was increased '
+            !M = i + 1000
+            !M = max(1000, int(1.5d0*i))
+            M = max(N, 1000, int(1.5d0*i))   ! at least N (needed), at least 1000, otherwise grow by 50%
+
             call resize_array(Electrons, Holes, i=i, M=M)
             Print*, 'and equals to ', M
         endif
     endif
     if (present(Photons)) then
+        if (.not.allocated(Photons)) then
+           allocate(Photons(N))
+        endif
         i = size(Photons)
         if (N .GT. i) then    ! increase the array size
             print*, 'Size of arrays All_photons was increased by 1000'
-            M = i + 1000
+            !M = i + 1000
+            M = max(1000, int(1.5d0*i))
+
             call resize_array(Photons=Photons, i=i, M=M)
             Print*, 'and equals to ', M
         endif
