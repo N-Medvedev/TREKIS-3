@@ -2400,9 +2400,11 @@ subroutine Analytical_ion_dEdx(Output_path_SHI, Material_name, Target_atoms, SHI
             write(*, '(a)') ' '
 
             FN = 200
-            open(FN, file=trim(adjustl(Input_files)), status='old', readonly)
+            !open(FN, file=trim(adjustl(Input_files)), status='old', readonly)
+            open(FN, file=trim(adjustl(Input_files)), status='old', action='read')
             FN2 = 201
-            open(FN2, file=trim(adjustl(Input_files2)), status='old', readonly)
+            !open(FN2, file=trim(adjustl(Input_files2)), status='old', readonly)
+            open(FN2, file=trim(adjustl(Input_files2)), status='old', action='read')
             call read_SHI_MFP(FN, FN2, Nat, Target_atoms, SHI_MFP, read_well)   ! module "Reading_files_and_parameters"
             close(FN)
             close(FN2)

@@ -1461,7 +1461,7 @@ function Integral_CDF_delta_CS(M, mt, E, CDF_coefs, Ip, nat, identical, hw_phono
    real(8), intent(in), optional :: hw_phonon   ! maximal phonon frequency [eV]
    real(8), intent(in), optional :: Emax_in ! [eV] integration limit, used for defining transfered energy
    !---------------------------------------
-   real(8) :: Mc2, mtc2, CS, P, Mc22, Emin, Emax, Eeq, dEed, Estart
+   real(8) :: Mc2, mtc2, CS, P, Mc22, Emin, Emax, Eeq, dEed, Estart, Sig_acc
    real(8) :: a, b  ! coefficients of the linear extrapolation function
    real(8), dimension(:), pointer :: alpha, E0
    integer :: i, Nosc
@@ -1475,8 +1475,11 @@ function Integral_CDF_delta_CS(M, mt, E, CDF_coefs, Ip, nat, identical, hw_phono
    E0 => CDF_coefs%E0
    alpha => CDF_coefs%alpha
    
-   CS = 0.0d0   ! to start with
+   CS = 0.0d0       ! to start with
+   Sig_acc = 0.0d0  ! sum over all oscillators, to start with
    do i = 1, Nosc
+      CS = 0.0d0   ! contribution of this oscillator (each one has its own prefactor P)
+      P = 0.0d0
       Emin = W_min(Ip, Mc2, mtc2, E, E0(i)) ! module "CS_integration_limits"
 
       if (abs(M - mt)/M < 1.0d-6) then  ! identical particles:
@@ -1512,15 +1515,19 @@ function Integral_CDF_delta_CS(M, mt, E, CDF_coefs, Ip, nat, identical, hw_phono
                   Emax = Emax_in
                endif
             endif
-            CS = CS - (integrated_delta_CDF_CS(alpha(i), Mc2, E0(i), mtc2, Emax, Ip, E) - integrated_delta_CDF_CS(alpha(i), Mc2, E0(i), mtc2, Emin, Ip, E))   ! below
+            !CS = CS - (integrated_delta_CDF_CS(alpha(i), Mc2, E0(i), mtc2, Emax, Ip, E) - integrated_delta_CDF_CS(alpha(i), Mc2, E0(i), mtc2, Emin, Ip, E))   ! below
+            CS = -(integrated_delta_CDF_CS(alpha(i), Mc2, E0(i), mtc2, Emax, Ip, E) - integrated_delta_CDF_CS(alpha(i), Mc2, E0(i), mtc2, Emin, Ip, E))   ! below
             ! Prefactor:
             P = P_prefactor(M, E, nat)   ! module "CDF_delta"
          endif ! (E <= Eeq) 
       endif ! (E <= Ip)
+      ! Add the contribution of this oscillator (with its own prefactor):
+      Sig_acc = Sig_acc + abs(CS)*P     ! [A^2]
    enddo ! i = 1, Nosc
    
    ! Total cross section:
-   Sigma = abs(CS)*P   ! [A^2]
+   !Sigma = abs(CS)*P   ! [A^2]
+   Sigma = Sig_acc   ! [A^2]
 
    nullify(alpha, E0)
 end function Integral_CDF_delta_CS
@@ -1730,7 +1737,7 @@ function energy_loss_delta(E, M, Zeff, Ip, nat, Mt, CDF_coefs, identical, hw_pho
    logical, intent(in) :: identical   ! identical particles, true or not
    real(8), intent(in), optional :: hw_phonon   ! [eV]
    !---------------------------------------
-   real(8) :: Mc2, mtc2, S_cur, P, Mc22, Emin, Emax, Eeq, dEed, Estart
+   real(8) :: Mc2, mtc2, S_cur, P, Mc22, Emin, Emax, Eeq, dEed, Estart, S_acc
    real(8) :: a, b  ! coefficients of the linear extrapolation function
    real(8), dimension(:), pointer :: alpha, E0
    integer :: i, Nosc
@@ -1744,8 +1751,10 @@ function energy_loss_delta(E, M, Zeff, Ip, nat, Mt, CDF_coefs, identical, hw_pho
    E0 => CDF_coefs%E0
    alpha => CDF_coefs%alpha
 
-   S_cur = 0.0d0   ! to start with
+   S_acc = 0.0d0   ! sum over all oscillators, to start with
    do i = 1, Nosc
+      S_cur = 0.0d0   ! contribution of this oscillator (each one has its own prefactor P)
+      P = 0.0d0
       Emin = W_min(Ip, Mc2, mtc2, E, E0(i)) ! module "CS_integration_limits"
 
       if (abs(M - mt)/M < 1.0d-6) then  ! identical particles:
@@ -1776,15 +1785,19 @@ function energy_loss_delta(E, M, Zeff, Ip, nat, Mt, CDF_coefs, identical, hw_pho
             P = 1.0d0   ! no prefactor needed in this case, it alreaxy was included into the linear extrapolation
          else   ! delta-model works
             !S_cur = S_cur - (integral_CS_x_W(alpha(i), Mc2, E0(i), Estart, mtc2, Emax) - integral_CS_x_W(alpha(i), Mc2, E0(i), Estart, mtc2, Emin)) ! below
-            S_cur = S_cur -  int_energy_loss(alpha(i), Mc2, mtc2, E0(i), Emax, Emin)  ! below
+            !S_cur = S_cur -  int_energy_loss(alpha(i), Mc2, mtc2, E0(i), Emax, Emin)  ! below
+            S_cur = -int_energy_loss(alpha(i), Mc2, mtc2, E0(i), Emax, Emin)  ! below
             ! Prefactor:
             P = P_prefactor(M, E, nat)   ! below
          endif ! (E <= Eeq) 
       endif ! (E <= Ip)
+      ! Add the contribution of this oscillator (with its own prefactor):
+      S_acc = S_acc + abs(S_cur)*P
    enddo ! i = 1, Nosc
    
    ! Energy loss including effective charge:
-   Se = abs(S_cur)*(Zeff*Zeff)*P*nat*1.0d-24   ! [eV/A]
+   !Se = abs(S_cur)*(Zeff*Zeff)*P*nat*1.0d-24   ! [eV/A]
+   Se = S_acc*(Zeff*Zeff)*P*nat*1.0d-24   ! [eV/A]
    
    nullify(alpha, E0)   
 end function energy_loss_delta
@@ -2655,10 +2668,10 @@ subroutine Equilibrium_charge_SHI(SHI, Target_atoms)  ! Equilibrium charge
       vp = 0.0d0
    endif
 
+   Zp = dble(SHI%Zat) ! SHI atomic number (needed in all cases, also without Target_atoms)
    if (present(Target_atoms)) then
       !Zt = SUM(Target_atoms(:)%Zat)/size(Target_atoms)  ! mean atomic number of target atoms
       Zt = SUM(target_atoms(:)%Zat*dble(target_atoms(:)%Pers))/dble(SUM(target_atoms(:)%Pers)) ! mean atomic number of target atoms
-      Zp = dble(SHI%Zat) ! SHI atomic number
       select case (SHI%Kind_Zeff)   ! 0=Barkas; 1=Bohr; 2=Nikolaev-Dmitriev; 3=Schiwietz-Grande;
          case (1)   ! Original Bohr:
             SHI%Zeff = Zp*(1.0d0-dexp(-(vp/g_v0/(Zp**(0.66666666d0)))))

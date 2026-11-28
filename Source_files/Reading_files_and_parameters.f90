@@ -238,7 +238,8 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
    endif
 
    if (file_exist) then
-      open(unit = FN, FILE = trim(adjustl(File_name_INPUT)), status = 'old', IOSTAT=err_ind, readonly)   ! if yes, open it and read
+      !open(unit = FN, FILE = trim(adjustl(File_name_INPUT)), status = 'old', IOSTAT=err_ind, readonly)   ! if yes, open it and read
+      open(unit = FN, FILE = trim(adjustl(File_name_INPUT)), status = 'old', IOSTAT=err_ind, action='read')   ! if yes, open it and read
       !call MPI_fileopen_wrapper(MPI_param, trim(adjustl(File_name_INPUT)), FN, Error_message, readonly=.true.)  ! WRONG
 
       if (err_ind /= 0) then ! some error while opening file
@@ -449,7 +450,7 @@ subroutine Read_input_file(Target_atoms, CDF_Phonon, Matter, Mat_DOS, SHI, Tim, 
       inquire(DIRECTORY=trim(adjustl(Output_path)),exist=file_exist)    ! check if input file excists
 #else
       ! for gfortran compiler:
-      inquire(FILE==trim(adjustl(Output_path)),exist=file_exist)    ! check if input file excists
+      inquire(FILE=trim(adjustl(Output_path)),exist=file_exist)    ! check if input file excists
 #endif
 
       if (file_exist) then
@@ -1262,7 +1263,8 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
    inquire(file=trim(adjustl(Short_material_file)),exist=file_exist2)    ! check if the short input file exists
    if (file_exist) then
       ! Independent read-only, no need for MPI-specific fileopen:
-      open(unit = FN2, FILE = trim(adjustl(Material_file)), status = 'old', readonly)   ! yes, open full file and read
+      !open(unit = FN2, FILE = trim(adjustl(Material_file)), status = 'old', readonly)   ! yes, open full file and read
+      open(unit = FN2, FILE = trim(adjustl(Material_file)), status = 'old', action='read')   ! yes, open full file and read
       !call MPI_fileopen_wrapper(MPI_param, trim(adjustl(Material_file)), FN2, Error_message, readonly=.true.)  ! module "MPI_subroutines"
 
       ! Save CDF-file name for output:
@@ -1272,7 +1274,8 @@ subroutine reading_material_parameters(Material_file, Short_material_file, Targe
       !print*, 'CDF file last modified on:', NumPar%Last_mod_time_CDF
    else if (file_exist2) then ! if at least short version exists, the rest can be used within atomic approximation
       ! Independent read-only, no need for MPI-specific fileopen:
-      open(unit=FN2, FILE = trim(adjustl(Short_material_file)), status = 'old', readonly)   ! yes, open full file and read
+      !open(unit=FN2, FILE = trim(adjustl(Short_material_file)), status = 'old', readonly)   ! yes, open full file and read
+      open(unit=FN2, FILE = trim(adjustl(Short_material_file)), status = 'old', action='read')   ! yes, open full file and read
       !call MPI_fileopen_wrapper(MPI_param, trim(adjustl(Short_material_file)), FN2, Error_message, readonly=.true.)  ! module "MPI_subroutines"
 
       ! Save CDF-file name for output:
@@ -2392,7 +2395,8 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar,
        if (MPI_param%process_rank == 0) then   ! only MPI master process does it
          print*, 'DOS file is there: ', trim(adjustl(DOS_file))
        endif
-       open(unit = FN2, FILE = trim(adjustl(DOS_file)), status = 'old', readonly)   ! if yes, open it and read
+       !open(unit = FN2, FILE = trim(adjustl(DOS_file)), status = 'old', readonly)   ! if yes, open it and read
+       open(unit = FN2, FILE = trim(adjustl(DOS_file)), status = 'old', action='read')   ! if yes, open it and read
        ! Save DOS file name for output:
        NumPar%DOS_file = trim(adjustl(DOS_file))
     elseif (file_exist2) then   ! Free-electron DOS approximation
@@ -2400,7 +2404,8 @@ subroutine reading_material_DOS(DOS_file, Mat_DOS, Matter, Target_atoms, NumPar,
          print*, 'DOS file ', trim(adjustl(DOS_file)), ' is not found, '
          print*, 'free-electron DOS approximation is used for valence band holes'
        endif
-       open(unit = FN2, FILE = trim(adjustl(Free_DOS)), status = 'old', readonly)   ! if yes, open it and read
+       !open(unit = FN2, FILE = trim(adjustl(Free_DOS)), status = 'old', readonly)   ! if yes, open it and read
+       open(unit = FN2, FILE = trim(adjustl(Free_DOS)), status = 'old', action='read')   ! if yes, open it and read
        ! Save DOS file name for output:
        NumPar%DOS_file = trim(adjustl(Free_DOS))
     else ! no DOS, try atomic approxiamtion instead...
@@ -2617,7 +2622,8 @@ subroutine reading_DSF_cross_sections(DSF_file, DSF_DEMFP, NumPar, Error_message
        if (MPI_param%process_rank == 0) then   ! only MPI master process does it
          print*, 'File with DSF elastic cross-sections is there: ', trim(adjustl(DSF_file))
        endif
-       open(unit = FN2, FILE = trim(adjustl(DSF_file)), status = 'old', readonly)   ! if yes, open it and read
+       !open(unit = FN2, FILE = trim(adjustl(DSF_file)), status = 'old', readonly)   ! if yes, open it and read
+       open(unit = FN2, FILE = trim(adjustl(DSF_file)), status = 'old', action='read')   ! if yes, open it and read
     else ! no DSF file, try CDF phonon peaks or atomic approxiamtion instead...
        if (MPI_param%process_rank == 0) then   ! only MPI master process does it
          print*, 'File ', trim(adjustl(DSF_file)), ' is not found.'
@@ -2848,7 +2854,8 @@ subroutine reading_DSF_cross_sections_OLD(DSF_file, DSF_DEMFP, NumPar, Error_mes
     inquire(file=trim(adjustl(DSF_file)),exist=file_exist)    ! check if input file excists
     if (file_exist) then
        print*, 'File with DSF elastic cross-sections is there: ', trim(adjustl(DSF_file))
-       open(unit = FN2, FILE = trim(adjustl(DSF_file)), status = 'old', readonly)   ! if yes, open it and read
+       !open(unit = FN2, FILE = trim(adjustl(DSF_file)), status = 'old', readonly)   ! if yes, open it and read
+       open(unit = FN2, FILE = trim(adjustl(DSF_file)), status = 'old', action='read')   ! if yes, open it and read
     else ! no DSF file, try CDF phonon peaks or atomic approxiamtion instead...
        print*, 'File ', trim(adjustl(DSF_file)), ' is not found.'
        print*, 'The calculations proceed with Mott atomic cross-sections.'

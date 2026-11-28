@@ -34,7 +34,7 @@ subroutine Save_error_details(Err_name, Err_num, Err_data, MPI_param)
 
    if (MPI_param%process_Rank == 0) then ! it is a master thread, it has access to the file
       call Save_error_details_noMPI(Err_name, Err_num, Err_data)  ! module "Objects"
-      return   ! that is it, wrote into the file, nothing else to do
+      !return   ! that is it, wrote into the file, nothing else to do
    else  ! it is not a master thread, send info to the master to write into a file
 #ifdef MPI_USED
       FN = Err_name%File_Num   ! this number is provided in the Err_name object
@@ -58,7 +58,8 @@ subroutine Save_error_details(Err_name, Err_num, Err_data, MPI_param)
             write(*, *) 'Error issuing send request {Save_error_details:Err_Num}  from process: ', MPI_param%process_Rank, MPI_param%ierror
             call MPI_Abort(MPI_COMM_WORLD, -1, MPI_param%ierror)   ! module "MPI"
          endif
-         Nsiz = LEN(Err_name%Err_descript)
+         !Nsiz = LEN(Err_name%Err_descript)
+         Nsiz = len_trim(Err_name%Err_descript)
          call MPI_SEND(Nsiz, 1, MPI_INTEGER, 0, MPI_param%process_Rank, MPI_COMM_WORLD, MPI_param%ierror)
          if (MPI_param%ierror /= 0) then
             write(*, *) 'Error issuing send request {Save_error_details:Nsiz}  from process: ', MPI_param%process_Rank, MPI_param%ierror
@@ -106,7 +107,7 @@ subroutine Save_error_details(Err_name, Err_num, Err_data, MPI_param)
          endif
       endif
 
-      write(FN, '(a,i2,1x,a)') 'Error #', Err_name%Err_Num, trim(adjustl(Err_name%Err_descript))   ! write it all into the file
+      write(FN, '(a,i0,1x,a)') 'Error #', Err_name%Err_Num, trim(adjustl(Err_name%Err_descript))   ! write it all into the file
 #else ! use the nonMPI version of the error saving
       call Save_error_details_noMPI(Err_name, Err_num, Err_data)  ! module "Objects"
 #endif
@@ -277,7 +278,8 @@ subroutine non_MPI_fileopen(File_name, FN, Error_message, err_msg, read_only, MP
    endif
 
    if (read_only) then  ! readonly option for existing file
-      open(newunit=FN, FILE = trim(adjustl(File_name)), status = 'old', readonly, IOSTAT = ierr)
+      !open(newunit=FN, FILE = trim(adjustl(File_name)), status = 'old', readonly, IOSTAT = ierr)
+      open(newunit=FN, FILE = trim(adjustl(File_name)), status = 'old', action='read', IOSTAT = ierr)
    else
       open(newunit=FN, FILE = trim(adjustl(File_name)), IOSTAT = ierr)
    endif
@@ -382,9 +384,40 @@ end subroutine non_MPI_fileclose
 
 
 
-
-
 subroutine initialize_random_seed(MPI_param)
+    type(Used_MPI_parameters), intent(in) :: MPI_param
+
+    integer :: clock_value
+    integer :: n, i
+    integer, allocatable :: seed(:)
+
+#ifdef MPI_USED
+    ! Initialize different random seed for each process:
+
+    call system_clock(count=clock_value)
+
+    call random_seed(size=n)        ! for compilers that require an array, not single number
+    allocate(seed(n))
+
+    do i = 1, n
+        seed(i) = abs(clock_value + 104729*i + 1000003*MPI_param%process_rank)
+    enddo
+
+    call random_seed(put=seed)
+
+    deallocate(seed)
+
+#else
+    ! Without MPI, use the default random seed:
+    call random_seed()
+
+#endif
+
+end subroutine initialize_random_seed
+
+
+
+subroutine initialize_random_seed_OLD(MPI_param)
    type(Used_MPI_parameters), intent(in) :: MPI_param
    !-----------------
    integer :: RN_seed
@@ -397,7 +430,7 @@ subroutine initialize_random_seed(MPI_param)
    ! Without MPI, use the default random seed:
    call random_seed() ! standard FORTRAN seeding of random numbers
 #endif
-end subroutine initialize_random_seed
+end subroutine initialize_random_seed_OLD
 
 
 
@@ -436,25 +469,26 @@ end subroutine get_MPI_lapsed_time
 
 
 subroutine pars_MPI_lasped_time(sec, time_string)
-   real(8), intent(inout) :: sec ! time interval in [sec]
+   real(8), intent(in) :: sec ! time interval in [sec]
    character(*), intent(out) :: time_string ! split it into mins, hours, days...
    !-----------------------
    character(100) :: temp
-   real(8) :: days, hours, mins, msec
+   real(8) :: days, hours, mins, msec, sec_loc
    days = 0.0d0     ! to start with
    hours = 0.0d0    ! to start with
    mins = 0.0d0     ! to start with
    msec = 0.0d0     ! to start with
+   sec_loc = sec    ! to start with
 
    if (sec < 1.0d0) then    ! msec
       msec = sec * 1.0d3
    else if (sec .GE. 60.0d0) then   ! there are minutes
       mins = FLOOR(sec/60.0d0)  ! minutes
-      sec = sec - mins*60.0d0   ! update seconds
-      if (mins .GT. 60.0d0) then    ! there are hours
+      sec_loc = sec - mins*60.0d0   ! update seconds
+      if (mins .GE. 60.0d0) then    ! there are hours
          hours = FLOOR(mins/60.0d0) ! hours
          mins = mins - hours*60.0d0 ! update minutes
-         if (hours .GT. 24.0d0) then    ! there are days
+         if (hours .GE. 24.0d0) then    ! there are days
             days = FLOOR(hours/24.0d0)  ! days
             hours = hours - days*24.0d0 ! hourse
          endif
@@ -495,7 +529,7 @@ subroutine pars_MPI_lasped_time(sec, time_string)
       write(temp, '(f15.6)') msec
       write(time_string, '(a,a,a)') trim(adjustl(time_string)), ' '//trim(adjustl(temp)), ' msec'
    else
-      write(temp, '(f15.6)') sec
+      write(temp, '(f15.6)') sec_loc
       write(time_string, '(a,a,a)') trim(adjustl(time_string)), ' '//trim(adjustl(temp)), ' sec'
    endif
 end subroutine pars_MPI_lasped_time

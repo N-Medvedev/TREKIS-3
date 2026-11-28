@@ -10,7 +10,7 @@ module Gnuplotting_subs
 use Objects, only : Flag, All_names, Atom, Ion, Solid
 
 #ifndef __GFORTRAN__
-   USE IFLPORT, only : system, chdir   ! library, allowing to operate with directories in intel fortran
+   USE IFLPORT, only : system, chdir, getcwd   ! library, allowing to operate with directories in intel fortran
 #endif
 
 use Dealing_with_EADL, only : Count_lines_in_file, Count_columns_in_file
@@ -2043,6 +2043,7 @@ subroutine collect_gnuplots(numpar, out_path)
    character(200), dimension(:), allocatable :: All_files
    character(300) :: output_path
    character(5) ::  call_slash, sh_cmd
+   character(1000) :: cwd_saved   ! the directory we start from
 
    ! In which directory to collect all gnu scripts:
    output_path = out_path
@@ -2113,8 +2114,12 @@ subroutine collect_gnuplots(numpar, out_path)
 
    !--------------
    ! Execute all the gnuplot scripts:
-   idir = chdir(trim(adjustl(output_path))) ! go into the directory with output files
    !call chdir(trim(adjustl(output_path))) ! go into the directory with output files
+   cwd_saved = ''
+   idir = getcwd(cwd_saved)    ! remember the current directory (full path): to come back to it later
+   idir = chdir(trim(adjustl(output_path))) ! go into the directory with output files
+
+
 
    if (numpar%path_sep == '\') then	! if it is Windows
       iret = system( '@echo off' )   ! create the folder
@@ -2128,13 +2133,20 @@ subroutine collect_gnuplots(numpar, out_path)
       !call system(trim(adjustl(call_slash))//trim(adjustl(Gnuplot_all_file)))
    endif
 
-   ! Count how many times the system has to go out of the directory to get back into the original directory:
-   ! Defined by the number of slashes in the path given:
-   n_slash = count( (/ (trim(adjustl(output_path(i:i))), i=1,len_trim(output_path)) /) == trim(adjustl(numpar%path_sep)) )
-   do i = 1, n_slash+1  ! go up in the directory tree as many times as needed
-      idir = chdir("../")    ! exit the directory with output files
-      !call chdir("../")    ! exit the directory with output files
-   enddo
+!    ! Count how many times the system has to go out of the directory to get back into the original directory:
+!    ! Defined by the number of slashes in the path given:
+!    n_slash = count( (/ (trim(adjustl(output_path(i:i))), i=1,len_trim(output_path)) /) == trim(adjustl(numpar%path_sep)) )
+!    do i = 1, n_slash+1  ! go up in the directory tree as many times as needed
+!       idir = chdir("../")    ! exit the directory with output files
+!       !call chdir("../")    ! exit the directory with output files
+!    enddo
+   ! Go back to the directory we started from (more robust than going up "../" a counted number of times,
+   ! which fails e.g. if the path given ends with a path separator):
+   if (len_trim(cwd_saved) > 0) then
+      idir = chdir(trim(cwd_saved))
+   else
+      print*, 'collect_gnuplots: could not find out the current directory, stay in the output directory'
+   endif
 end subroutine collect_gnuplots
 
 

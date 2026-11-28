@@ -1385,6 +1385,8 @@ subroutine Auger_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_
    KOA1 = KOA
    KOA2 = 0
    Ee = -1.0d-10
+   E_new1 = 0.0d0   ! initialise: intent(out), stays unset if there is no Auger partner
+   E_new2 = 0.0d0
    iter = 0 ! count nmber of iterations
    coun = 0.0d0
   !1111111111111111111111111111111111111111111111111111111111111111111111111111
@@ -1432,7 +1434,9 @@ subroutine Auger_decay(KOA, SHL, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_
      print*, 'Now, second shell of Auger is not defined...', coun
   endif ! (coun .GT. 0)
 
-  if ((Ee .LT. 0.0d0) .OR. (E_new1 .LT. 0.0d0) .OR. (E_new2 .LT. 0.0d0)) then
+  !if ((Ee .LT. 0.0d0) .OR. (E_new1 .LT. 0.0d0) .OR. (E_new2 .LT. 0.0d0)) then
+  if ((Sh2 .GT. 0) .AND. ((Ee .LT. 0.0d0) .OR. (E_new1 .LT. 0.0d0) .OR. (E_new2 .LT. 0.0d0))) then   ! only if the decay took place
+
      write(*,'(a,i,i,i,i,i,i)') 'Impossible Auger-decay ', KOA, SHL, KOA1, Sh1, KOA2, Sh2
      write(*,'(i,i,f)') KOA, SHL, Target_atoms(KOA)%Ip(SHL)
      write(*,'(i,i,f)') KOA1, Sh1, Target_atoms(KOA1)%Ip(Sh1)
@@ -2777,13 +2781,13 @@ subroutine Hole_Monte_Carlo(All_electrons, All_holes, All_photons, El_IMFP, El_E
             call Auger_decay(All_holes(NOP)%KOA, All_holes(NOP)%Shl, Target_atoms, Lowest_Ip_At, Lowest_Ip_Shl, Mat_DOS, &
                              Sh1, KOA1, Sh2, KOA2, dE, E_new1, E_new2, Error_message, MPI_param)   ! => Sh1, KOA1, Sh2, KOA2, dE, E_new1, E_new2
             
-            if (abs(All_holes(NOP)%E - (dE+E_new1+E_new2)) .GT. 1d-10) then
-               print*, 'ERROR #3 in Hole_Monte_Carlo'
-               print*, 'Auger does not conserve energy!', Etest - (dE+E_new1+E_new2)
-               write(*,'(f,f,f,f)') Etest, dE,  E_new1, E_new2
-            endif
-            
             possible_dec:if (Sh2 .GT. 0) then ! decay really happened
+                if (abs(All_holes(NOP)%E - (dE+E_new1+E_new2)) .GT. 1d-10) then
+                   print*, 'ERROR #3 in Hole_Monte_Carlo'
+                   print*, 'Auger does not conserve energy!', Etest - (dE+E_new1+E_new2)
+                   write(*,'(f,f,f,f)') Etest, dE,  E_new1, E_new2
+                endif
+
                 ! hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
                 ! Change the parameters of the decayed hole:
                 call Update_holes_angles_SHI(E_new1, htheta, hphi)
@@ -3147,11 +3151,13 @@ subroutine update_fields(NumPar, Matter, target_atoms, Out_R, All_electrons, All
             endif
         enddo
         
-        open(1234, file = 'Test.txt')
-        do i = 1, size(Out_field)
-            write(1234, '(e,e,e)') Out_R(i), Out_field_loc(i), Out_field(i) 
-        enddo
-        close(1234)
+
+!       !Debug output (writes Test.txt at every update of the field):
+!         open(1234, file = 'Test.txt')
+!         do i = 1, size(Out_field)
+!             write(1234, '(e,e,e)') Out_R(i), Out_field_loc(i), Out_field(i)
+!         enddo
+!         close(1234)
         
         Out_field(:) = Out_field(:)/Out_R(:)*g_e/(2.0d0*g_Pi*g_e0*Matter%Layer)*1d20  ! [V/m]
     
